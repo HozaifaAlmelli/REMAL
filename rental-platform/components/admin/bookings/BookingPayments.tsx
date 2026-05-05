@@ -72,8 +72,9 @@ export function BookingPayments({ bookingId }: BookingPaymentsProps) {
                 </div>
                 <div className="flex items-center gap-3 text-xs text-neutral-500">
                   <span>
-                    {PAYMENT_METHOD_LABELS[payment.paymentMethod as keyof typeof PAYMENT_METHOD_LABELS] ??
-                      payment.paymentMethod}
+                    {PAYMENT_METHOD_LABELS[
+                      payment.paymentMethod as keyof typeof PAYMENT_METHOD_LABELS
+                    ] ?? payment.paymentMethod}
                   </span>
                   <span>{formatDate(payment.paidAt ?? payment.createdAt)}</span>
                   {payment.referenceNumber && (
@@ -82,38 +83,47 @@ export function BookingPayments({ bookingId }: BookingPaymentsProps) {
                 </div>
               </div>
 
-              {canRecordPayment && payment.paymentStatus === "Pending" && (
-                <div className="flex gap-1">
-                  <Button
-                    variant="success"
-                    onClick={() => markPaidMutation.mutate(payment.id)}
-                    isLoading={
-                      markPaidMutation.isPending &&
-                      markPaidMutation.variables === payment.id
-                    }
-                  >
-                    Mark Paid
-                  </Button>
-                  <Button
-                    variant="danger"
-                    onClick={() => {
-                      setFailedPaymentId(payment.id);
-                      setFailedNotes("");
-                    }}
-                  >
-                    Mark Failed
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setCancelPaymentId(payment.id);
-                      setCancelNotes("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              )}
+              {canRecordPayment &&
+                payment.paymentStatus.toLowerCase() === "pending" && (
+                  <div className="flex gap-1">
+                    <Button
+                      variant="success"
+                      size="sm"
+                      onClick={() => markPaidMutation.mutate(payment.id)}
+                      isLoading={
+                        markPaidMutation.isPending &&
+                        markPaidMutation.variables === payment.id
+                      }
+                    >
+                      Mark Paid
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => {
+                        setFailedPaymentId(payment.id);
+                        setFailedNotes("");
+                      }}
+                    >
+                      Mark Failed
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setCancelPaymentId(payment.id);
+                        setCancelNotes("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+
+              {/* Debug: Show payment status */}
+              <div className="ml-2 text-xs text-blue-600">
+                Status: &quot;{payment.paymentStatus}&quot;
+              </div>
             </div>
           ))}
         </div>

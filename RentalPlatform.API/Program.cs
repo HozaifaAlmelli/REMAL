@@ -178,7 +178,11 @@ builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins(
+                "http://localhost:3000",
+                "http://localhost:3001",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:3001")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -249,9 +253,17 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = "swagger";
 });
 
-app.UseHttpsRedirection();
-
+// CORS must come before HttpsRedirection so preflight responses include the
+// Access-Control-Allow-Origin header before any redirect occurs.
 app.UseCors();
+
+// Only redirect to HTTPS in non-Development environments.
+// In Development the Docker container exposes HTTP on port 5000 only;
+// enabling this causes the browser to follow a redirect that returns no CORS header.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseAuthentication();
 app.UseAuthorization();

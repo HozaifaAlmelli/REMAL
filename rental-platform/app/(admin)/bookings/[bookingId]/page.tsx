@@ -5,6 +5,7 @@ import {
   useBookingDetail,
   useBookingFinanceSnapshot,
 } from "@/lib/hooks/useBookings";
+import { useInternalUnitDetail } from "@/lib/hooks/useUnits";
 import { BookingHeader } from "@/components/admin/bookings/BookingHeader";
 import { BookingClientInfo } from "@/components/admin/bookings/BookingClientInfo";
 import { BookingFinancialSummary } from "@/components/admin/bookings/BookingFinancialSummary";
@@ -32,6 +33,9 @@ export default function BookingDetailPage() {
   } = useBookingDetail(bookingId as string);
   const { data: snapshot, isLoading: snapshotLoading } =
     useBookingFinanceSnapshot(bookingId as string);
+  const { data: unit, isLoading: isUnitLoading } = useInternalUnitDetail(
+    booking?.unitId || ""
+  );
 
   if (isLoading) {
     return (
@@ -84,6 +88,62 @@ export default function BookingDetailPage() {
     <div className="space-y-6">
       <BookingHeader booking={booking} />
 
+      {/* Booking Details Card - Prominent Display */}
+      <div className="rounded-lg border-2 border-primary-200 bg-gradient-to-br from-white to-primary-50 p-6 shadow-sm">
+        <h2 className="mb-4 text-lg font-bold text-neutral-800">
+          📋 Booking Details
+        </h2>
+        <div className="grid gap-3 text-sm">
+          <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
+            <span className="font-medium text-neutral-600">Status:</span>
+            <span className="rounded-full bg-primary-100 px-3 py-1 text-sm font-semibold text-primary-700">
+              {booking.bookingStatus}
+            </span>
+          </div>
+          <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
+            <span className="font-medium text-neutral-600">Unit:</span>
+            {isUnitLoading ? (
+              <Skeleton className="h-5 w-32" />
+            ) : unit ? (
+              <span className="font-semibold text-neutral-800">
+                {unit.name} ({unit.unitType})
+              </span>
+            ) : (
+              <span className="text-neutral-400">Loading...</span>
+            )}
+          </div>
+          <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
+            <span className="font-medium text-neutral-600">Check-in:</span>
+            <span className="font-semibold text-neutral-800">
+              {new Date(booking.checkInDate).toLocaleDateString()}
+            </span>
+          </div>
+          <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
+            <span className="font-medium text-neutral-600">Check-out:</span>
+            <span className="font-semibold text-neutral-800">
+              {new Date(booking.checkOutDate).toLocaleDateString()}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-neutral-600">Amount:</span>
+            <span className="text-lg font-bold text-primary-600">
+              {booking.finalAmount?.toLocaleString() || "0"} EGP
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Lifecycle Actions - Prominent Display */}
+      <div className="space-y-4 rounded-lg border-2 border-blue-200 bg-gradient-to-br from-white to-blue-50 p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-neutral-800">
+          🎯 LIFECYCLE ACTIONS
+        </h2>
+        <BookingLifecycleActions
+          bookingId={booking.id}
+          currentStatus={booking.bookingStatus}
+        />
+      </div>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <BookingClientInfo clientId={booking.clientId} />
         {snapshotLoading ? (
@@ -100,17 +160,6 @@ export default function BookingDetailPage() {
             Financial data unavailable
           </div>
         )}
-      </div>
-
-      {/* Status & Lifecycle Actions */}
-      <div className="space-y-4 rounded-lg border border-neutral-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-neutral-700">
-          Lifecycle Actions
-        </h3>
-        <BookingLifecycleActions
-          bookingId={booking.id}
-          currentStatus={booking.bookingStatus}
-        />
       </div>
 
       {/* Payments */}

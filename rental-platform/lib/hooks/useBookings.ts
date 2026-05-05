@@ -257,6 +257,36 @@ export function useInvoiceDetail(invoiceId: string | null) {
   });
 }
 
+export function useCreateInvoiceDraft(bookingId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { invoiceNumber?: string; notes?: string }) => {
+      console.log("Creating invoice draft for booking:", bookingId, data);
+      return bookingsService.createInvoiceDraft({
+        bookingId,
+        ...data,
+      });
+    },
+    onSuccess: (result) => {
+      console.log("Invoice draft created successfully:", result);
+      toastSuccess("Invoice draft created successfully");
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.bookings.financeSnapshot(bookingId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.bookings.detail(bookingId),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.invoices.all });
+    },
+    onError: (error: Error) => {
+      console.error("Failed to create invoice draft:", error);
+      console.error("Error details:", {
+        message: error.message,
+      });
+    },
+  });
+}
+
 export function useInvoiceBalance(invoiceId: string | null) {
   return useQuery({
     queryKey: queryKeys.invoices.balance(invoiceId!),

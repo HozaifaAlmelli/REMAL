@@ -25,6 +25,34 @@ import type {
 } from "@/lib/types/owner-portal.types";
 import type { OperationalAvailabilityResponse } from "@/lib/types/unit.types";
 
+// Transform params: camelCase to PascalCase for .NET API
+function transformBookingFilters(
+  f: OwnerPortalBookingListFilters
+): Record<string, unknown> {
+  if (!f) return {};
+  return {
+    ...(f.unitId && { UnitId: f.unitId }),
+    ...(f.bookingStatus && { BookingStatus: f.bookingStatus.toLowerCase() }),
+    ...(f.dateFrom && { CheckInFrom: f.dateFrom }),
+    ...(f.dateTo && { CheckInTo: f.dateTo }),
+    ...(f.page && { Page: f.page }),
+    ...(f.pageSize && { PageSize: f.pageSize }),
+  };
+}
+
+function transformFinanceFilters(
+  f: OwnerPortalFinanceListFilters
+): Record<string, unknown> {
+  if (!f) return {};
+  return {
+    ...(f.invoiceStatus && { InvoiceStatus: f.invoiceStatus }),
+    ...(f.payoutStatus && { PayoutStatus: f.payoutStatus }),
+    ...(f.page && { Page: f.page }),
+    ...(f.pageSize && { PageSize: f.pageSize }),
+  };
+}
+
+
 export const ownerPortalService = {
   // ── Dashboard ──
   getDashboardSummary: (): Promise<OwnerPortalDashboardSummaryResponse> =>
@@ -57,7 +85,9 @@ export const ownerPortalService = {
   getBookings: (
     filters?: OwnerPortalBookingListFilters
   ): Promise<PaginatedOwnerPortalBookings> =>
-    api.get(endpoints.ownerPortal.bookings.list, { params: filters }),
+    api.get(endpoints.ownerPortal.bookings.list, {
+      params: filters ? transformBookingFilters(filters) : undefined,
+    }),
 
   getBookingById: (bookingId: string): Promise<OwnerPortalBookingResponse> =>
     api.get(endpoints.ownerPortal.bookings.detail(bookingId)),
@@ -66,7 +96,9 @@ export const ownerPortalService = {
   getFinanceRows: (
     filters?: OwnerPortalFinanceListFilters
   ): Promise<PaginatedOwnerPortalFinanceRows> =>
-    api.get(endpoints.ownerPortal.finance.list, { params: filters }),
+      api.get(endpoints.ownerPortal.finance.list, {
+        params: filters ? transformFinanceFilters(filters) : undefined,
+      }),
 
   getFinanceSummary: (): Promise<OwnerPortalFinanceSummaryResponse> =>
     api.get(endpoints.ownerPortal.finance.summary),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   useOwnerFinanceSummary,
   useOwnerFinanceRows,
@@ -14,7 +14,7 @@ export default function OwnerFinancePage() {
   const pageSize = 20;
 
   const {
-    data: summary,
+    data: summaryData,
     isLoading: summaryLoading,
     error: summaryError,
     refetch: refetchSummary,
@@ -29,6 +29,49 @@ export default function OwnerFinancePage() {
     page,
     pageSize,
   });
+
+  const rows = useMemo(() => financeData?.items || [], [financeData?.items]);
+  const pagination = financeData?.pagination;
+
+  // Calculate dynamic summary directly from transactions
+  const dynamicSummary = useMemo(() => {
+    return rows.reduce(
+      (acc, transaction) => {
+        return {
+          ...acc,
+          totalInvoicedAmount:
+            acc.totalInvoicedAmount + (transaction.invoicedAmount || 0),
+          totalPaidAmount: acc.totalPaidAmount + (transaction.paidAmount || 0),
+          totalRemainingAmount:
+            acc.totalRemainingAmount + (transaction.remainingAmount || 0),
+          totalPendingPayoutAmount:
+            acc.totalPendingPayoutAmount +
+            (transaction.payoutStatus === "pending"
+              ? transaction.payoutAmount || 0
+              : 0),
+          totalScheduledPayoutAmount:
+            acc.totalScheduledPayoutAmount +
+            (transaction.payoutStatus === "scheduled"
+              ? transaction.payoutAmount || 0
+              : 0),
+          totalPaidPayoutAmount:
+            acc.totalPaidPayoutAmount +
+            (transaction.payoutStatus === "paid"
+              ? transaction.payoutAmount || 0
+              : 0),
+        };
+      },
+      {
+        ownerId: "derived",
+        totalInvoicedAmount: 0,
+        totalPaidAmount: 0,
+        totalRemainingAmount: 0,
+        totalPendingPayoutAmount: 0,
+        totalScheduledPayoutAmount: 0,
+        totalPaidPayoutAmount: 0,
+      }
+    );
+  }, [rows]);
 
   // Loading state
   if (summaryLoading || financeLoading) {
@@ -66,7 +109,7 @@ export default function OwnerFinancePage() {
   }
 
   // Error state
-  if (summaryError || !summary) {
+  if (summaryError || !summaryData) {
     return (
       <div className="space-y-6">
         <div>
@@ -110,7 +153,7 @@ export default function OwnerFinancePage() {
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">
             Financial Summary
           </h2>
-          <OwnerFinanceSummary summary={summary} />
+          <OwnerFinanceSummary summary={dynamicSummary} />
         </section>
 
         <div className="rounded-lg border border-red-200 bg-red-50 p-6">
@@ -132,9 +175,6 @@ export default function OwnerFinancePage() {
     );
   }
 
-  const rows = financeData.items;
-  const pagination = financeData.pagination;
-
   return (
     <div className="space-y-6">
       <div>
@@ -149,7 +189,7 @@ export default function OwnerFinancePage() {
         <h2 className="mb-4 text-lg font-semibold text-neutral-900">
           Financial Summary
         </h2>
-        <OwnerFinanceSummary summary={summary} />
+        <OwnerFinanceSummary summary={dynamicSummary} />
       </section>
 
       {/* Per-Booking Finance Records */}
