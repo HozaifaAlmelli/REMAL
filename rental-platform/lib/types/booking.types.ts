@@ -27,13 +27,13 @@ export interface BookingFormData {
 // Placeholder types for admin booking management
 // These will be properly defined when admin booking features are implemented
 
+// Database schema only supports these 4 statuses (lowercase in DB, capitalized in frontend)
+// See: db/migrations/0016_create_bookings.sql - ck_bookings_status constraint
 export type FormalBookingStatus =
   | "Pending"
   | "Confirmed"
-  | "CheckIn"
   | "Completed"
-  | "Cancelled"
-  | "LeftEarly";
+  | "Cancelled";
 
 export type InvoiceStatus = "Draft" | "Issued" | "Cancelled";
 

@@ -136,6 +136,13 @@ export const bookingsService = {
     api.get(endpoints.financeSummary.bookingFinanceSnapshot(bookingId)),
 
   // -- Invoices --
+  createInvoiceDraft: (data: {
+    bookingId: string;
+    invoiceNumber?: string;
+    notes?: string;
+  }): Promise<InvoiceResponse> =>
+    api.post(endpoints.invoices.createDraft, data),
+
   getInvoiceById: (id: string): Promise<InvoiceResponse> =>
     api.get(endpoints.invoices.byId(id)),
 

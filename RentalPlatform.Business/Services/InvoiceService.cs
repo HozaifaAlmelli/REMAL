@@ -182,6 +182,19 @@ public class InvoiceService : IInvoiceService
         invoice.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.Invoices.Update(invoice);
+
+        // Link any unlinked payments for this booking to this invoice
+        var unlinkedPayments = await _unitOfWork.Payments.Query()
+            .Where(p => p.BookingId == invoice.BookingId && p.InvoiceId == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var payment in unlinkedPayments)
+        {
+            payment.InvoiceId = invoice.Id;
+            payment.UpdatedAt = DateTime.UtcNow;
+            _unitOfWork.Payments.Update(payment);
+        }
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return invoice;

@@ -25,32 +25,50 @@ export function FinanceSummaryCards({
   const cards = [
     {
       title: "Total Invoiced Amount",
-      value: data ? formatCurrency(data.totalInvoicedAmount) : "—",
+      value:
+        data && data.totalInvoicedAmount
+          ? formatCurrency(data.totalInvoicedAmount)
+          : "—",
       icon: FileText,
     },
     {
       title: "Total Paid Amount",
-      value: data ? formatCurrency(data.totalPaidAmount) : "—",
+      value:
+        data && data.totalPaidAmount
+          ? formatCurrency(data.totalPaidAmount)
+          : "—",
       icon: DollarSign,
     },
     {
       title: "Total Remaining Amount",
-      value: data ? formatCurrency(data.totalRemainingAmount) : "—",
+      value:
+        data && data.totalRemainingAmount
+          ? formatCurrency(data.totalRemainingAmount)
+          : "—",
       icon: CreditCard,
     },
     {
       title: "Total Pending Payout Amount",
-      value: data ? formatCurrency(data.totalPendingPayoutAmount) : "—",
+      value:
+        data && data.totalPendingPayoutAmount
+          ? formatCurrency(data.totalPendingPayoutAmount)
+          : "—",
       icon: Hourglass,
     },
     {
       title: "Total Scheduled Payout Amount",
-      value: data ? formatCurrency(data.totalScheduledPayoutAmount) : "—",
+      value:
+        data && data.totalScheduledPayoutAmount
+          ? formatCurrency(data.totalScheduledPayoutAmount)
+          : "—",
       icon: Calendar,
     },
     {
       title: "Total Paid Payout Amount",
-      value: data ? formatCurrency(data.totalPaidPayoutAmount) : "—",
+      value:
+        data && data.totalPaidPayoutAmount
+          ? formatCurrency(data.totalPaidPayoutAmount)
+          : "—",
       icon: CheckCircle,
     },
     {

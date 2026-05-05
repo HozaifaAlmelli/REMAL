@@ -13,7 +13,10 @@ import { Textarea } from "@/components/ui/Textarea";
 import { useCreateOwner, useUpdateOwner } from "@/lib/hooks/useOwners";
 import { ROUTES } from "@/lib/constants/routes";
 import { ApiError } from "@/lib/api/api-error";
-import type { OwnerFormValues } from "@/lib/types/owner.types";
+import type {
+  OwnerFormValues,
+  CreateOwnerRequest,
+} from "@/lib/types/owner.types";
 
 const ownerFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -102,7 +105,7 @@ export function OwnerForm({
       }
 
       if (mode === "create") {
-        await createOwner(requestBody);
+        await createOwner(requestBody as CreateOwnerRequest);
         toastSuccess("Owner created successfully");
         router.push(ROUTES.admin.owners.list);
       } else {

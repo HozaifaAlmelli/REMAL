@@ -24,7 +24,12 @@ interface BookingTableProps {
   onPageChange?: (page: number) => void;
 }
 
-export function BookingTable({ bookings, isLoading, pagination, onPageChange }: BookingTableProps) {
+export function BookingTable({
+  bookings,
+  isLoading,
+  pagination,
+  onPageChange,
+}: BookingTableProps) {
   const columns: ColumnDef<BookingListItemResponse>[] = [
     {
       accessorKey: "clientId",
@@ -33,23 +38,28 @@ export function BookingTable({ bookings, isLoading, pagination, onPageChange }: 
         let isToday = false;
         if (row.original.checkInDate) {
           const today = new Date().toISOString().split("T")[0];
-          const checkIn = new Date(row.original.checkInDate).toISOString().split("T")[0];
+          const checkIn = new Date(row.original.checkInDate)
+            .toISOString()
+            .split("T")[0];
           isToday = today === checkIn;
         }
 
         return (
           <div className="relative pl-1">
             {isToday && (
-              <div 
-                className="absolute inset-y-0 -left-5 w-1 bg-amber-500 rounded-r-md" 
+              <div
+                className="absolute inset-y-0 -left-5 w-1 rounded-r-md bg-amber-500"
                 title="Checking in today"
               />
             )}
-            <div className="font-medium text-neutral-900 truncate max-w-[120px] sm:max-w-full" title={row.original.clientId}>
+            <div
+              className="max-w-[120px] truncate font-medium text-neutral-900 sm:max-w-full"
+              title={row.original.clientId}
+            >
               {row.original.clientId.split("-")[0]}...
             </div>
-            <div className="text-xs text-neutral-500 truncate mt-0.5">
-               {maskPhone(null)}
+            <div className="mt-0.5 truncate text-xs text-neutral-500">
+              {maskPhone(null)}
             </div>
           </div>
         );
@@ -59,7 +69,10 @@ export function BookingTable({ bookings, isLoading, pagination, onPageChange }: 
       accessorKey: "unitId",
       header: "Unit",
       cell: ({ row }) => (
-        <span className="font-medium text-neutral-900" title={row.original.unitId}>
+        <span
+          className="font-medium text-neutral-900"
+          title={row.original.unitId}
+        >
           {row.original.unitId.split("-")[0]}...
         </span>
       ),
@@ -69,8 +82,12 @@ export function BookingTable({ bookings, isLoading, pagination, onPageChange }: 
       header: "Dates",
       cell: ({ row }) => (
         <div className="flex flex-col">
-          <span className="text-neutral-900">{formatDate(row.original.checkInDate)}</span>
-          <span className="text-xs text-neutral-500">{formatDate(row.original.checkOutDate)}</span>
+          <span className="text-neutral-900">
+            {formatDate(row.original.checkInDate)}
+          </span>
+          <span className="text-xs text-neutral-500">
+            {formatDate(row.original.checkOutDate)}
+          </span>
         </div>
       ),
     },
@@ -78,14 +95,18 @@ export function BookingTable({ bookings, isLoading, pagination, onPageChange }: 
       id: "nights",
       header: "Nights",
       cell: ({ row }) => (
-        <span className="text-neutral-600">{getNights(row.original.checkInDate, row.original.checkOutDate)}</span>
+        <span className="text-neutral-600">
+          {getNights(row.original.checkInDate, row.original.checkOutDate)}
+        </span>
       ),
     },
     {
       accessorKey: "finalAmount",
       header: "Total",
       cell: ({ row }) => (
-        <span className="font-semibold text-neutral-900">{formatCurrency(row.original.finalAmount)}</span>
+        <span className="font-semibold text-neutral-900">
+          {formatCurrency(row.original.finalAmount)}
+        </span>
       ),
     },
     {
@@ -99,7 +120,10 @@ export function BookingTable({ bookings, isLoading, pagination, onPageChange }: 
       cell: ({ row }) => {
         const id = row.original.assignedAdminUserId;
         return (
-          <span className="text-xs font-mono text-neutral-500" title={id || "Unassigned"}>
+          <span
+            className="font-mono text-xs text-neutral-500"
+            title={id || "Unassigned"}
+          >
             {id ? `${id.split("-")[0]}...` : "Unassigned"}
           </span>
         );
@@ -111,7 +135,9 @@ export function BookingTable({ bookings, isLoading, pagination, onPageChange }: 
       cell: ({ row }) => (
         <div className="flex justify-end">
           <Link href={ROUTES.admin.bookings.detail(row.original.id)}>
-             <Button variant="secondary" size="sm">View Details</Button>
+            <Button variant="secondary" size="sm">
+              View Details
+            </Button>
           </Link>
         </div>
       ),

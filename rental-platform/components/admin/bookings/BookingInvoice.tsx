@@ -5,6 +5,7 @@ import {
   useInvoiceBalance,
   useIssueInvoice,
   useCancelInvoice,
+  useCreateInvoiceDraft,
 } from "@/lib/hooks/useBookings";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { AddAdjustmentModal } from "./AddAdjustmentModal";
@@ -14,7 +15,7 @@ import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatCurrency, formatDate } from "@/lib/utils/format";
-import { FileText } from "lucide-react";
+import { FileText, Plus } from "lucide-react";
 import { INVOICE_STATUS_LABELS } from "@/lib/constants/invoice-statuses";
 import type { InvoiceStatus } from "@/lib/types/booking.types";
 
@@ -34,15 +35,63 @@ export function BookingInvoice({ bookingId, invoiceId }: BookingInvoiceProps) {
     useInvoiceBalance(invoiceId);
   const issueMutation = useIssueInvoice(invoiceId!, bookingId);
   const cancelMutation = useCancelInvoice(invoiceId!, bookingId);
+  const createDraftMutation = useCreateInvoiceDraft(bookingId);
   const { canManageFinance } = usePermissions();
 
   if (!invoiceId) {
     return (
-      <EmptyState
-        icon={<FileText className="h-12 w-12" />}
-        title="No invoice yet"
-        description="Invoice will be generated when the booking is confirmed"
-      />
+      <div className="space-y-4">
+        <EmptyState
+          icon={<FileText className="h-12 w-12" />}
+          title="No invoice yet"
+          description="Create an invoice draft for this booking to proceed with billing"
+        />
+        {canManageFinance && (
+          <div className="space-y-2">
+            <div className="flex justify-center">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  console.log(
+                    "Create Invoice button clicked for booking:",
+                    bookingId
+                  );
+                  // Generate invoice number: INV-YYYYMMDD-XXXXX
+                  const now = new Date();
+                  const dateStr = now
+                    .toISOString()
+                    .slice(0, 10)
+                    .replace(/-/g, "");
+                  const randomStr = Math.random()
+                    .toString(36)
+                    .substring(2, 7)
+                    .toUpperCase();
+                  const invoiceNumber = `INV-${dateStr}-${randomStr}`;
+
+                  console.log("Generated invoice number:", invoiceNumber);
+                  createDraftMutation.mutate({ invoiceNumber });
+                }}
+                isLoading={createDraftMutation.isPending}
+                leftIcon={<Plus className="h-4 w-4" />}
+              >
+                Create Invoice Draft
+              </Button>
+            </div>
+            {createDraftMutation.isError && (
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+                <p className="font-semibold">Failed to create invoice</p>
+                <p className="mt-1 text-xs">
+                  {(createDraftMutation.error as Error)?.message ||
+                    "Unknown error occurred"}
+                </p>
+                <p className="mt-1 text-xs text-red-600">
+                  Check browser console for details
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -52,9 +101,13 @@ export function BookingInvoice({ bookingId, invoiceId }: BookingInvoiceProps) {
 
   if (!invoice) return null;
 
-  const isDraft = invoice.invoiceStatus === "Draft";
-  const isIssued = invoice.invoiceStatus === "Issued";
-  const isCancelled = invoice.invoiceStatus === "Cancelled";
+  // Normalize invoice status to handle case differences (DB returns lowercase, types expect capitalized)
+  const normalizedStatus =
+    invoice.invoiceStatus.charAt(0).toUpperCase() +
+    invoice.invoiceStatus.slice(1).toLowerCase();
+  const isDraft = normalizedStatus === "Draft";
+  const isIssued = normalizedStatus === "Issued";
+  const isCancelled = normalizedStatus === "Cancelled";
 
   return (
     <div className="space-y-4">
@@ -166,6 +219,37 @@ export function BookingInvoice({ bookingId, invoiceId }: BookingInvoiceProps) {
           </Button>
           <Button variant="danger" onClick={() => setShowCancelConfirm(true)}>
             Cancel Invoice
+          </Button>
+        </div>
+      )}
+
+      {/* Debug info */}
+      <div className="rounded-md bg-blue-50 p-3 text-xs text-blue-700">
+        <div className="font-semibold">Debug Info:</div>
+        <div>canManageFinance: {canManageFinance ? "✅ true" : "❌ false"}</div>
+        <div>isDraft: {isDraft ? "✅ true" : "❌ false"}</div>
+        <div>Invoice Status: {invoice.invoiceStatus}</div>
+        <div>
+          Should show buttons:{" "}
+          {canManageFinance && isDraft ? "✅ YES" : "❌ NO"}
+        </div>
+      </div>
+
+      {/* Temporary Issue Button - Always Show for Draft */}
+      {isDraft && (
+        <div className="rounded-md border-2 border-yellow-300 bg-yellow-50 p-4">
+          <p className="mb-2 text-sm font-semibold text-yellow-800">
+            ⚠️ Temporary Issue Button (for testing)
+          </p>
+          <Button
+            variant="success"
+            onClick={() => {
+              console.log("Issuing invoice:", invoice.id);
+              issueMutation.mutate();
+            }}
+            isLoading={issueMutation.isPending}
+          >
+            🚀 Issue Invoice Now
           </Button>
         </div>
       )}

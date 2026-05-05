@@ -17,10 +17,8 @@ export type CrmLeadStatus =
 export const BOOKING_STATUSES = {
   Pending: "Pending",
   Confirmed: "Confirmed",
-  CheckIn: "CheckIn",
   Completed: "Completed",
   Cancelled: "Cancelled",
-  LeftEarly: "LeftEarly",
 } as const;
 
 export type BookingStatus =
@@ -42,19 +40,15 @@ export const CRM_STATUS_LABELS: Record<CrmLeadStatus, string> = {
 export const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
   Pending: "Pending",
   Confirmed: "Confirmed",
-  CheckIn: "Check In",
   Completed: "Completed",
   Cancelled: "Cancelled",
-  LeftEarly: "Left Early",
 };
 
 export const BOOKING_STATUS_COLORS: Record<BookingStatus, string> = {
   Pending: "warning",
   Confirmed: "success",
-  CheckIn: "info",
   Completed: "success",
   Cancelled: "danger",
-  LeftEarly: "warning",
 } as const;
 
 export const CRM_PIPELINE_COLUMNS: CrmLeadStatus[] = [
@@ -89,9 +83,7 @@ export const CRM_VALID_TRANSITIONS: Record<CrmLeadStatus, CrmLeadStatus[]> = {
 export const BOOKING_VALID_TRANSITIONS: Record<BookingStatus, BookingStatus[]> =
   {
     Pending: ["Confirmed", "Cancelled"],
-    Confirmed: ["CheckIn", "Cancelled"],
-    CheckIn: ["Completed", "LeftEarly"],
+    Confirmed: ["Completed", "Cancelled"],
     Completed: [],
     Cancelled: [],
-    LeftEarly: [],
   };
