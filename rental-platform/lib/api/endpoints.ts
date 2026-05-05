@@ -158,6 +158,7 @@
     markPaid: (id: string) => `/api/internal/payments/${id}/mark-paid`,
     markFailed: (id: string) => `/api/internal/payments/${id}/mark-failed`,
     cancel: (id: string) => `/api/internal/payments/${id}/cancel`,
+    linkPaidToInvoices: "/api/internal/payments/link-paid-to-invoices",
   },
 
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ INVOICES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

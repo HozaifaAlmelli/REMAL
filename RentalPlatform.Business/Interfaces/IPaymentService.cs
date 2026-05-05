@@ -28,4 +28,5 @@ public interface IPaymentService
     Task<Payment> MarkPaidAsync(Guid id, string? referenceNumber, string? notes, CancellationToken cancellationToken = default);
     Task<Payment> MarkFailedAsync(Guid id, string? notes, CancellationToken cancellationToken = default);
     Task<Payment> CancelAsync(Guid id, string? notes, CancellationToken cancellationToken = default);
+    Task<int> LinkPaidPaymentsToInvoicesAsync(CancellationToken cancellationToken = default);
 }

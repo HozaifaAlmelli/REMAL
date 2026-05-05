@@ -249,6 +249,20 @@ export function useCancelPayment(bookingId: string) {
   });
 }
 
+export function useLinkPaidPaymentsToInvoices() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => bookingsService.linkPaidPaymentsToInvoices(),
+    onSuccess: (data) => {
+      toastSuccess(`Linked ${data.linkedPaymentsCount} payment(s) to invoices`);
+      // Invalidate all finance-related queries
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.bookings.all,
+      });
+    },
+  });
+}
+
 export function useInvoiceDetail(invoiceId: string | null) {
   return useQuery({
     queryKey: queryKeys.invoices.detail(invoiceId!),

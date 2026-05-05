@@ -235,4 +235,37 @@ public class InvoiceService : IInvoiceService
 
         return invoice;
     }
+
+    public async Task<int> LinkOrphanedPaymentsAsync(CancellationToken cancellationToken = default)
+    {
+        // Find all payments that have no invoice_id but belong to bookings with active invoices
+        var orphanedPayments = await _unitOfWork.Payments.Query()
+            .Where(p => p.InvoiceId == null)
+            .ToListAsync(cancellationToken);
+
+        int linkedCount = 0;
+
+        foreach (var payment in orphanedPayments)
+        {
+            // Find the active (non-cancelled) invoice for this booking
+            var activeInvoice = await _unitOfWork.Invoices.Query()
+                .Where(i => i.BookingId == payment.BookingId && i.InvoiceStatus != "cancelled")
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (activeInvoice != null)
+            {
+                payment.InvoiceId = activeInvoice.Id;
+                payment.UpdatedAt = DateTime.UtcNow;
+                _unitOfWork.Payments.Update(payment);
+                linkedCount++;
+            }
+        }
+
+        if (linkedCount > 0)
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        return linkedCount;
+    }
 }

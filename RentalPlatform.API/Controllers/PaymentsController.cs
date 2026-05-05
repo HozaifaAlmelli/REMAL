@@ -110,6 +110,19 @@ public class PaymentsController : ControllerBase
         return Ok(ApiResponse<PaymentResponse>.CreateSuccess(MapToResponse(payment), "Payment cancelled."));
     }
 
+    // POST /api/internal/payments/link-paid-to-invoices
+    [HttpPost("link-paid-to-invoices")]
+    [Authorize(Policy = "FinanceOrSuperAdmin")]
+    public async Task<ActionResult<ApiResponse<object>>> LinkPaidPaymentsToInvoices()
+    {
+        var linkedCount = await _paymentService.LinkPaidPaymentsToInvoicesAsync();
+
+        return Ok(ApiResponse<object>.CreateSuccess(
+            new { linkedPaymentsCount = linkedCount },
+            $"Successfully linked {linkedCount} paid payment(s) to their invoices."
+        ));
+    }
+
     private static PaymentResponse MapToResponse(Payment payment)
     {
         return new PaymentResponse

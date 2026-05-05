@@ -111,6 +111,19 @@ public class PaymentService : IPaymentService
             throw new ConflictException(
                 $"Payment {id} cannot be marked as paid: current status is '{payment.PaymentStatus}'. Only pending payments can be marked as paid.");
 
+        // Auto-link to booking's active invoice if not already linked
+        if (!payment.InvoiceId.HasValue)
+        {
+            var activeInvoice = await _unitOfWork.Invoices.Query()
+                .Where(i => i.BookingId == payment.BookingId && i.InvoiceStatus != "cancelled")
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (activeInvoice != null)
+            {
+                payment.InvoiceId = activeInvoice.Id;
+            }
+        }
+
         Invoice? linkedInvoice = null;
         if (payment.InvoiceId.HasValue)
         {
@@ -232,5 +245,38 @@ public class PaymentService : IPaymentService
         if (payment == null)
             throw new NotFoundException($"Payment with ID {id} not found");
         return payment;
+    }
+
+    public async Task<int> LinkPaidPaymentsToInvoicesAsync(CancellationToken cancellationToken = default)
+    {
+        // Find all paid payments that have no invoice_id
+        var orphanedPaidPayments = await _unitOfWork.Payments.Query()
+            .Where(p => p.PaymentStatus == "paid" && p.InvoiceId == null)
+            .ToListAsync(cancellationToken);
+
+        int linkedCount = 0;
+
+        foreach (var payment in orphanedPaidPayments)
+        {
+            // Find the active (non-cancelled) invoice for this booking
+            var activeInvoice = await _unitOfWork.Invoices.Query()
+                .Where(i => i.BookingId == payment.BookingId && i.InvoiceStatus != "cancelled")
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (activeInvoice != null)
+            {
+                payment.InvoiceId = activeInvoice.Id;
+                payment.UpdatedAt = DateTime.UtcNow;
+                _unitOfWork.Payments.Update(payment);
+                linkedCount++;
+            }
+        }
+
+        if (linkedCount > 0)
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        return linkedCount;
     }
 }

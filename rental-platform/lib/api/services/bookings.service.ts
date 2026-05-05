@@ -162,4 +162,8 @@ export const bookingsService = {
     data: AddInvoiceManualAdjustmentRequest
   ): Promise<InvoiceResponse> =>
     api.post(endpoints.invoices.addAdjustment(id), data),
+
+  // -- Fix Orphaned Payments --
+  linkPaidPaymentsToInvoices: (): Promise<{ linkedPaymentsCount: number }> =>
+    api.post(endpoints.payments.linkPaidToInvoices),
 };

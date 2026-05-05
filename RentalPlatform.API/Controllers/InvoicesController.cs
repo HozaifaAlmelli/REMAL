@@ -111,6 +111,32 @@ public class InvoicesController : ControllerBase
         return Ok(ApiResponse<InvoiceResponse>.CreateSuccess(MapToResponse(invoice), "Invoice cancelled."));
     }
 
+    // POST /api/internal/invoices/link-orphaned-payments
+    [HttpPost("link-orphaned-payments")]
+    [Authorize(Policy = "FinanceOrSuperAdmin")]
+    public async Task<ActionResult<ApiResponse<object>>> LinkOrphanedPayments()
+    {
+        var linkedCount = await _invoiceService.LinkOrphanedPaymentsAsync();
+
+        return Ok(ApiResponse<object>.CreateSuccess(
+            new { linkedPaymentsCount = linkedCount },
+            $"Successfully linked {linkedCount} orphaned payment(s) to their invoices."
+        ));
+    }
+
+    // POST /api/internal/invoices/fix-paid-payments
+    [HttpPost("fix-paid-payments")]
+    [Authorize(Policy = "FinanceOrSuperAdmin")]
+    public async Task<ActionResult<ApiResponse<object>>> FixPaidPayments()
+    {
+        var linkedCount = await _invoiceService.LinkOrphanedPaymentsAsync();
+
+        return Ok(ApiResponse<object>.CreateSuccess(
+            new { linkedPaymentsCount = linkedCount },
+            $"Fixed {linkedCount} paid payment(s) by linking them to their invoices."
+        ));
+    }
+
     private static InvoiceItemResponse MapToItemResponse(InvoiceItem item)
     {
         return new InvoiceItemResponse
