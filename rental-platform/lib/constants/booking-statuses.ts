@@ -45,10 +45,10 @@ export const CRM_PIPELINE_COLUMNS: CrmLeadStatus[] = [
   "new",
   "contacted",
   "qualified",
-  "converted",
 ];
 
 export const CRM_CLOSED_STATUSES: CrmLeadStatus[] = [
+  "converted",
   "lost",
 ];
 

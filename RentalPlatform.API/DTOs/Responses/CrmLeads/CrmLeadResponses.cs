@@ -16,6 +16,7 @@ public record CrmLeadListItemResponse
     public int? GuestCount { get; init; }
     public string LeadStatus { get; init; } = string.Empty;
     public string Source { get; init; } = string.Empty;
+    public string? TargetUnitName { get; init; }
     public DateTime CreatedAt { get; init; }
 }
 
@@ -34,6 +35,7 @@ public record CrmLeadDetailsResponse
     public string LeadStatus { get; init; } = string.Empty;
     public string Source { get; init; } = string.Empty;
     public string? Notes { get; init; }
+    public string? TargetUnitName { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 }

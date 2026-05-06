@@ -1,4 +1,4 @@
-﻿export const endpoints = {
+export const endpoints = {
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ AUTH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   auth: {
     clientRegister: "/api/auth/client/register",

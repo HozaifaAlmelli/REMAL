@@ -1,6 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { DayPicker, DateRange as RDPDateRange } from 'react-day-picker'
+import 'react-day-picker/style.css'
 import { cn } from '@/lib/utils/cn'
 
 export interface DateRange {
@@ -21,14 +23,35 @@ export interface DateRangePickerProps {
 export function DateRangePicker({
   label,
   value,
+  onChange,
   placeholder,
   error,
+  minDate,
 }: DateRangePickerProps) {
   const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    if (open) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [open])
+
+  const selected: RDPDateRange | undefined =
+    value.from ? { from: value.from, to: value.to ?? undefined } : undefined
+
+  const formatDate = (d: Date) =>
+    d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 
   return (
-    <div className="w-full">
-      {label && <label className="block text-sm mb-1.5 text-neutral-800 font-medium">{label}</label>}
+    <div className="relative w-full" ref={containerRef}>
+      {label && (
+        <label className="block text-sm mb-1.5 text-neutral-800 font-medium">{label}</label>
+      )}
 
       <button
         type="button"
@@ -42,13 +65,27 @@ export function DateRangePicker({
         )}
       >
         {value.from && value.to
-          ? `${value.from.toDateString()} → ${value.to.toDateString()}`
-          : placeholder || 'Select date range'}
+          ? `${formatDate(value.from)} → ${formatDate(value.to)}`
+          : value.from
+            ? `${formatDate(value.from)} → ...`
+            : placeholder || 'Select date range'}
       </button>
 
       {open && (
-        <div className="mt-2 border rounded-lg p-3 bg-white shadow-lg absolute z-50">
-          <p className="text-sm text-neutral-500">Range calendar UI here</p>
+        <div className="absolute left-0 z-50 mt-2 rounded-lg border border-neutral-200 bg-white p-3 shadow-lg">
+          <DayPicker
+            mode="range"
+            selected={selected}
+            onSelect={(range) => {
+              onChange({ from: range?.from ?? null, to: range?.to ?? null })
+              if (range?.from && range?.to) {
+                setOpen(false)
+              }
+            }}
+            disabled={minDate ? { before: minDate } : { before: new Date() }}
+            numberOfMonths={2}
+            showOutsideDays
+          />
         </div>
       )}
 

@@ -150,6 +150,7 @@ public class CrmLeadsController : ControllerBase
             GuestCount = lead.GuestCount,
             LeadStatus = lead.LeadStatus,
             Source = lead.Source,
+            TargetUnitName = lead.TargetUnit?.Name,
             CreatedAt = lead.CreatedAt
         };
     }
@@ -171,6 +172,7 @@ public class CrmLeadsController : ControllerBase
             LeadStatus = lead.LeadStatus,
             Source = lead.Source,
             Notes = lead.Notes,
+            TargetUnitName = lead.TargetUnit?.Name,
             CreatedAt = lead.CreatedAt,
             UpdatedAt = lead.UpdatedAt
         };

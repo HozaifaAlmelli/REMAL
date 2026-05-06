@@ -1,17 +1,17 @@
 export const BOOKING_SOURCES = {
-  Website: 'Website',
-  App: 'App',
-  WhatsApp: 'WhatsApp',
-  PhoneCall: 'PhoneCall',
-  Referral: 'Referral',
+  website: 'website',
+  direct: 'direct',
+  whatsapp: 'whatsapp',
+  phone: 'phone',
+  admin: 'admin',
 } as const
 
 export type BookingSource = (typeof BOOKING_SOURCES)[keyof typeof BOOKING_SOURCES]
 
 export const BOOKING_SOURCE_LABELS: Record<BookingSource, string> = {
-  Website: 'Website',
-  App: 'App',
-  WhatsApp: 'WhatsApp',
-  PhoneCall: 'Phone Call',
-  Referral: 'Referral',
+  website: 'Website',
+  direct: 'Direct',
+  whatsapp: 'WhatsApp',
+  phone: 'Phone Call',
+  admin: 'Admin',
 }
