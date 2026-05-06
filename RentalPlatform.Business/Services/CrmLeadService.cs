@@ -31,7 +31,8 @@ public class CrmLeadService : ICrmLeadService
         Guid? assignedAdminUserId = null,
         CancellationToken cancellationToken = default)
     {
-        var query = _unitOfWork.CrmLeads.Query();
+        IQueryable<CrmLead> query = _unitOfWork.CrmLeads.Query()
+            .Include(l => l.TargetUnit);
 
         if (!string.IsNullOrWhiteSpace(leadStatus))
         {
@@ -49,7 +50,9 @@ public class CrmLeadService : ICrmLeadService
 
     public async Task<CrmLead?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        return await _unitOfWork.CrmLeads.GetByIdAsync(id, cancellationToken);
+        return await _unitOfWork.CrmLeads.Query()
+            .Include(l => l.TargetUnit)
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
     }
 
     public async Task<CrmLead> CreateAsync(
@@ -152,16 +155,16 @@ public class CrmLeadService : ICrmLeadService
         string leadStatus,
         CancellationToken cancellationToken = default)
     {
-        var lead = await _unitOfWork.CrmLeads.GetByIdAsync(id, cancellationToken);
+        var lead = await _unitOfWork.CrmLeads.Query()
+            .Include(l => l.TargetUnit)
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
         if (lead == null)
             throw new NotFoundException($"CRM lead with ID {id} not found");
 
         var normalizedStatus = ValidateAndNormalizeStatus(leadStatus);
 
-        // Note: Direct manual change to "converted" is allowed via SetStatusAsync for
-        // administrative correction scenarios (e.g., lead was converted outside the system).
-        // The preferred path for conversion is ConvertToBookingAsync, which atomically
-        // creates the booking and marks the lead as converted.
+        // Enforce state machine transitions
+        ValidateStatusTransition(lead.LeadStatus, normalizedStatus);
 
         lead.LeadStatus = normalizedStatus;
         lead.UpdatedAt = DateTime.UtcNow;
@@ -268,6 +271,26 @@ public class CrmLeadService : ICrmLeadService
                 $"Invalid lead source '{source}'. Allowed values: {string.Join(", ", AllowedSources)}");
 
         return normalized;
+    }
+
+    private static readonly Dictionary<string, string[]> AllowedTransitions = new()
+    {
+        { "new",       new[] { "contacted", "lost" } },
+        { "contacted", new[] { "qualified", "lost" } },
+        { "qualified", new[] { "converted", "lost" } },
+        { "converted", Array.Empty<string>() },
+        { "lost",      Array.Empty<string>() },
+    };
+
+    private static void ValidateStatusTransition(string currentStatus, string targetStatus)
+    {
+        if (currentStatus == targetStatus)
+            return; // no-op is always allowed
+
+        if (!AllowedTransitions.TryGetValue(currentStatus, out var allowed) || !allowed.Contains(targetStatus))
+            throw new BusinessValidationException(
+                $"Cannot transition CRM lead from '{currentStatus}' to '{targetStatus}'. " +
+                $"Allowed transitions from '{currentStatus}': {(allowed?.Length > 0 ? string.Join(", ", allowed) : "none (terminal state)")}.");
     }
 
     private static string ValidateAndNormalizeStatus(string leadStatus)

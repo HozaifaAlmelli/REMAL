@@ -73,6 +73,12 @@ export function Modal({
     return () => mediaQuery.removeEventListener("change", handler);
   }, []);
 
+  // Keep a stable ref to onClose so the effect doesn't re-run on every render
+  const onCloseRef = React.useRef(onClose);
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   // Escape key, scroll lock, and focus trap
   React.useEffect(() => {
     if (!isOpen || !mounted) return;
@@ -83,7 +89,7 @@ export function Modal({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
     };
 
@@ -93,21 +99,8 @@ export function Modal({
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.body.classList.remove("overflow-hidden");
-      // Restore focus when modal closes
       previousFocusRef.current?.focus();
     };
-  }, [isOpen, mounted, onClose]);
-
-  // Set focus to modal when opened
-  React.useEffect(() => {
-    if (!isOpen || !mounted) return;
-
-    const modalElement = document.querySelector(
-      '[role="dialog"]'
-    ) as HTMLElement;
-    if (modalElement) {
-      modalElement.focus();
-    }
   }, [isOpen, mounted]);
 
   if (!mounted) return null;

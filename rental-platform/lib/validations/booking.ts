@@ -43,7 +43,7 @@ export const crmLeadRequestSchema = z
       .int("Guest count must be a whole number")
       .min(1, "At least 1 guest required")
       .max(50, "Maximum 50 guests allowed"),
-    source: z.enum(["Website", "App", "WhatsApp", "PhoneCall", "Referral"], {
+    source: z.enum(["website", "direct", "whatsapp", "phone", "admin"], {
       errorMap: () => ({ message: "Invalid source" }),
     }),
     notes: z.string().max(2000, "Notes are too long").optional(),

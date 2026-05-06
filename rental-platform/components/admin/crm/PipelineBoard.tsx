@@ -1,6 +1,6 @@
 "use client";
 
-import { useLeadsPipeline } from "@/lib/hooks/useCrm";
+import { useLeadsPipeline, useUpdateLeadStatus } from "@/lib/hooks/useCrm";
 import { PipelineColumn } from "./PipelineColumn";
 import { PipelineColumnSkeleton } from "./PipelineColumnSkeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -12,6 +12,8 @@ import {
   CRM_CLOSED_STATUSES,
   CRM_STATUS_LABELS,
 } from "@/lib/constants/booking-statuses";
+import type { CrmLeadStatus } from "@/lib/types/crm.types";
+import { toastError, toastSuccess } from "@/lib/utils/toast";
 
 export default function PipelineBoard() {
   const { groupedLeads, totalCount, isLoading, isError, refetch } =
@@ -70,12 +72,22 @@ export default function PipelineBoard() {
             label={CRM_STATUS_LABELS[status] || status}
             leads={groupedLeads[status] || []}
             isLoading={false}
+            onDropLead={async (leadId, target) => {
+              try {
+                const { crmService } = await import("@/lib/api/services/crm.service");
+                await crmService.updateLeadStatus(leadId, { leadStatus: target });
+                toastSuccess(`Lead moved to ${CRM_STATUS_LABELS[target] || target}`);
+                refetch();
+              } catch {
+                toastError("Cannot move lead to this stage");
+              }
+            }}
           />
         ))}
       </div>
 
       {/* Closed Section Accordion */}
-      {closedLeadsCount > 0 && (
+      {totalCount > 0 && (
         <div className="mt-auto flex flex-col gap-4 border-t border-neutral-200 pt-4">
           <button
             onClick={() => setIsClosedSectionOpen((prev) => !prev)}
@@ -98,6 +110,16 @@ export default function PipelineBoard() {
                   label={CRM_STATUS_LABELS[status] || status}
                   leads={groupedLeads[status] || []}
                   isLoading={false}
+                  onDropLead={async (leadId, target) => {
+                    try {
+                      const { crmService } = await import("@/lib/api/services/crm.service");
+                      await crmService.updateLeadStatus(leadId, { leadStatus: target });
+                      toastSuccess(`Lead moved to ${CRM_STATUS_LABELS[target] || target}`);
+                      refetch();
+                    } catch {
+                      toastError("Cannot move lead to this stage");
+                    }
+                  }}
                 />
               ))}
             </div>

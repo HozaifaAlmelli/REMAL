@@ -74,7 +74,7 @@ export function ConvertToBookingPanel({
       {/* Summary */}
       {lead.targetUnitId && (
         <div className="text-sm text-neutral-600">
-          <p>Unit: {lead.targetUnitId}</p>
+          <p>Unit: {lead.targetUnitName || lead.targetUnitId}</p>
           {lead.desiredCheckInDate && lead.desiredCheckOutDate && (
             <p>
               Dates:{" "}

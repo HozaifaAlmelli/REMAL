@@ -29,7 +29,7 @@ const createLeadSchema = z.object({
   guestCount: z
     .union([z.number().int().min(1, "Must be at least 1"), z.nan()])
     .optional(),
-  source: z.enum(["Website", "App", "WhatsApp", "PhoneCall", "Referral"]),
+  source: z.enum(["website", "direct", "whatsapp", "phone", "admin"]),
   notes: z.string().optional(),
 });
 
@@ -59,7 +59,7 @@ export function CreateLeadForm({
       contactName: "",
       contactPhone: "",
       contactEmail: "",
-      source: "PhoneCall",
+      source: "phone",
       targetUnitId: undefined,
       guestCount: undefined,
       notes: "",
@@ -88,17 +88,17 @@ export function CreateLeadForm({
       targetUnitId: values.targetUnitId || undefined,
       desiredCheckInDate: values.desiredCheckInDate
         ? [
-            values.desiredCheckInDate.getFullYear(),
-            String(values.desiredCheckInDate.getMonth() + 1).padStart(2, "0"),
-            String(values.desiredCheckInDate.getDate()).padStart(2, "0"),
-          ].join("-")
+          values.desiredCheckInDate.getFullYear(),
+          String(values.desiredCheckInDate.getMonth() + 1).padStart(2, "0"),
+          String(values.desiredCheckInDate.getDate()).padStart(2, "0"),
+        ].join("-")
         : undefined,
       desiredCheckOutDate: values.desiredCheckOutDate
         ? [
-            values.desiredCheckOutDate.getFullYear(),
-            String(values.desiredCheckOutDate.getMonth() + 1).padStart(2, "0"),
-            String(values.desiredCheckOutDate.getDate()).padStart(2, "0"),
-          ].join("-")
+          values.desiredCheckOutDate.getFullYear(),
+          String(values.desiredCheckOutDate.getMonth() + 1).padStart(2, "0"),
+          String(values.desiredCheckOutDate.getDate()).padStart(2, "0"),
+        ].join("-")
         : undefined,
       guestCount: validGuestCount,
       source: values.source,

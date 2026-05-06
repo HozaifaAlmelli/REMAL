@@ -23,7 +23,7 @@ export function LeadUnitInfo({ lead }: LeadUnitInfoProps) {
             <Home className="h-4 w-4 text-neutral-400" />
             {lead.targetUnitId ? (
               <span className="font-mono text-sm font-medium text-neutral-800">
-                Unit ID: {lead.targetUnitId}
+                Unit: {lead.targetUnitName || lead.targetUnitId}
               </span>
             ) : (
               <span className="text-sm italic text-neutral-400">

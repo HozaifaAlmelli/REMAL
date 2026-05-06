@@ -108,7 +108,7 @@ export interface PublicCreateCrmLeadRequest {
   desiredCheckInDate: string; // NOT 'checkInDate' per P06 — ISO date
   desiredCheckOutDate: string; // NOT 'checkOutDate' per P06 — ISO date
   guestCount: number; // NOT 'numberOfGuests' per P06
-  source: "Website" | "App" | "WhatsApp" | "PhoneCall" | "Referral"; // PascalCase enum
+  source: "website" | "direct" | "whatsapp" | "phone" | "admin";
   notes?: string; // optional — client message
 }
 

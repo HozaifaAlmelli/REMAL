@@ -22,6 +22,7 @@ export interface CrmLeadListItemResponse {
   desiredCheckInDate: string | null;
   desiredCheckOutDate: string | null;
   guestCount: number | null;
+  targetUnitName?: string | null;
   createdAt: string;
 }
 
@@ -40,6 +41,7 @@ export interface CrmLeadDetailsResponse {
   desiredCheckInDate: string | null;
   desiredCheckOutDate: string | null;
   guestCount: number | null;
+  targetUnitName?: string | null;
   createdAt: string;
   updatedAt: string;
 }

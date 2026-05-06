@@ -32,9 +32,15 @@ export function LeadCard({ lead, className }: LeadCardProps) {
       onKeyDown={(e) =>
         e.key === "Enter" && router.push(ROUTES.admin.crm.leadDetail(lead.id))
       }
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("leadId", lead.id);
+        e.dataTransfer.setData("leadStatus", lead.leadStatus);
+        e.dataTransfer.effectAllowed = "move";
+      }}
       className={cn(
         "bg-white rounded-lg p-3.5 shadow-sm hover:shadow-card-hover cursor-pointer",
-        "border border-neutral-100 transition-shadow duration-150",
+        "border border-neutral-100 transition-shadow duration-150 active:scale-95 active:rotate-1 opacity-100",
         isNoAnswer && "border-l-2 border-l-warning",
         className
       )}
@@ -57,7 +63,7 @@ export function LeadCard({ lead, className }: LeadCardProps) {
 
       {lead.targetUnitId && (
         <p className="text-xs text-neutral-600 mb-1.5 truncate">
-          ?? Unit ID: {lead.targetUnitId}
+          Unit: {lead.targetUnitName || lead.targetUnitId.slice(0, 8)}
         </p>
       )}
 
