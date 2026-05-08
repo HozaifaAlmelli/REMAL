@@ -8,6 +8,7 @@ using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Business.Services;
 
@@ -17,8 +18,15 @@ public class CrmLeadService : ICrmLeadService
     private readonly IBookingService _bookingService;
 
     private static readonly string[] AllowedSources = { "direct", "admin", "phone", "whatsapp", "website" };
-    private static readonly string[] AllowedStatuses = { "new", "contacted", "qualified", "converted", "lost" };
-    private const string DefaultLeadStatus = "new";
+
+    private static readonly Dictionary<LeadStatus, LeadStatus[]> AllowedTransitions = new()
+    {
+        { LeadStatus.New,       new[] { LeadStatus.Contacted, LeadStatus.Lost } },
+        { LeadStatus.Contacted, new[] { LeadStatus.Qualified, LeadStatus.Lost } },
+        { LeadStatus.Qualified, new[] { LeadStatus.Converted, LeadStatus.Lost } },
+        { LeadStatus.Converted, Array.Empty<LeadStatus>() },
+        { LeadStatus.Lost,      Array.Empty<LeadStatus>() },
+    };
 
     public CrmLeadService(IUnitOfWork unitOfWork, IBookingService bookingService)
     {
@@ -36,8 +44,9 @@ public class CrmLeadService : ICrmLeadService
 
         if (!string.IsNullOrWhiteSpace(leadStatus))
         {
-            var normalized = leadStatus.Trim().ToLower();
-            query = query.Where(l => l.LeadStatus == normalized);
+            if (!Enum.TryParse<LeadStatus>(leadStatus.Trim(), ignoreCase: true, out var parsed))
+                throw new BusinessValidationException($"Invalid lead status '{leadStatus}'.");
+            query = query.Where(l => l.LeadStatus == parsed);
         }
 
         if (assignedAdminUserId.HasValue)
@@ -69,15 +78,12 @@ public class CrmLeadService : ICrmLeadService
         string? notes,
         CancellationToken cancellationToken = default)
     {
-        // --- Input validation ---
         ValidateContactInfo(contactName, contactPhone);
         ValidateDesiredStay(desiredCheckInDate, desiredCheckOutDate, guestCount);
         var normalizedSource = ValidateAndNormalizeSource(source);
 
-        // --- Optional reference checks ---
         await ValidateOptionalReferencesAsync(clientId, targetUnitId, assignedAdminUserId, cancellationToken);
 
-        // --- Create lead entity ---
         var lead = new CrmLead
         {
             Id = Guid.NewGuid(),
@@ -90,7 +96,7 @@ public class CrmLeadService : ICrmLeadService
             DesiredCheckInDate = desiredCheckInDate,
             DesiredCheckOutDate = desiredCheckOutDate,
             GuestCount = guestCount,
-            LeadStatus = DefaultLeadStatus,
+            LeadStatus = LeadStatus.New,
             Source = normalizedSource,
             Notes = notes?.Trim(),
             CreatedAt = DateTime.UtcNow,
@@ -122,15 +128,12 @@ public class CrmLeadService : ICrmLeadService
         if (lead == null)
             throw new NotFoundException($"CRM lead with ID {id} not found");
 
-        // --- Input validation ---
         ValidateContactInfo(contactName, contactPhone);
         ValidateDesiredStay(desiredCheckInDate, desiredCheckOutDate, guestCount);
         var normalizedSource = ValidateAndNormalizeSource(source);
 
-        // --- Optional reference checks ---
         await ValidateOptionalReferencesAsync(clientId, targetUnitId, assignedAdminUserId, cancellationToken);
 
-        // --- Apply updates ---
         lead.ClientId = clientId;
         lead.TargetUnitId = targetUnitId;
         lead.AssignedAdminUserId = assignedAdminUserId;
@@ -161,12 +164,13 @@ public class CrmLeadService : ICrmLeadService
         if (lead == null)
             throw new NotFoundException($"CRM lead with ID {id} not found");
 
-        var normalizedStatus = ValidateAndNormalizeStatus(leadStatus);
+        if (!Enum.TryParse<LeadStatus>(leadStatus.Trim(), ignoreCase: true, out var targetStatus))
+            throw new BusinessValidationException(
+                $"Invalid lead status '{leadStatus}'. Allowed values: {string.Join(", ", Enum.GetNames<LeadStatus>())}");
 
-        // Enforce state machine transitions
-        ValidateStatusTransition(lead.LeadStatus, normalizedStatus);
+        ValidateStatusTransition(lead.LeadStatus, targetStatus);
 
-        lead.LeadStatus = normalizedStatus;
+        lead.LeadStatus = targetStatus;
         lead.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.CrmLeads.Update(lead);
@@ -185,19 +189,16 @@ public class CrmLeadService : ICrmLeadService
         string? internalNotes,
         CancellationToken cancellationToken = default)
     {
-        // --- Lead must exist ---
         var lead = await _unitOfWork.CrmLeads.GetByIdAsync(leadId, cancellationToken);
         if (lead == null)
             throw new NotFoundException($"CRM lead with ID {leadId} not found");
 
-        // --- Lead must not already be converted or lost ---
-        if (lead.LeadStatus == "converted")
+        if (lead.LeadStatus == LeadStatus.Converted)
             throw new ConflictException($"CRM lead {leadId} has already been converted to a booking");
 
-        if (lead.LeadStatus == "lost")
+        if (lead.LeadStatus == LeadStatus.Lost)
             throw new ConflictException($"CRM lead {leadId} is marked as lost and cannot be converted");
 
-        // --- Client/unit mismatch checks against pre-linked lead data ---
         if (lead.ClientId.HasValue && lead.ClientId.Value != clientId)
             throw new ConflictException(
                 $"CRM lead {leadId} is already linked to client {lead.ClientId.Value}, but conversion was requested for client {clientId}");
@@ -206,7 +207,6 @@ public class CrmLeadService : ICrmLeadService
             throw new ConflictException(
                 $"CRM lead {leadId} is already linked to unit {lead.TargetUnitId.Value}, but conversion was requested for unit {unitId}");
 
-        // --- Create booking via IBookingService (delegates all booking validation) ---
         var booking = await _bookingService.CreateAsync(
             clientId: clientId,
             unitId: unitId,
@@ -218,8 +218,7 @@ public class CrmLeadService : ICrmLeadService
             internalNotes: internalNotes,
             cancellationToken: cancellationToken);
 
-        // --- Booking creation succeeded => mark lead as converted ---
-        lead.LeadStatus = "converted";
+        lead.LeadStatus = LeadStatus.Converted;
 
         if (!lead.ClientId.HasValue)
             lead.ClientId = clientId;
@@ -273,37 +272,15 @@ public class CrmLeadService : ICrmLeadService
         return normalized;
     }
 
-    private static readonly Dictionary<string, string[]> AllowedTransitions = new()
-    {
-        { "new",       new[] { "contacted", "lost" } },
-        { "contacted", new[] { "qualified", "lost" } },
-        { "qualified", new[] { "converted", "lost" } },
-        { "converted", Array.Empty<string>() },
-        { "lost",      Array.Empty<string>() },
-    };
-
-    private static void ValidateStatusTransition(string currentStatus, string targetStatus)
+    private static void ValidateStatusTransition(LeadStatus currentStatus, LeadStatus targetStatus)
     {
         if (currentStatus == targetStatus)
-            return; // no-op is always allowed
+            return;
 
         if (!AllowedTransitions.TryGetValue(currentStatus, out var allowed) || !allowed.Contains(targetStatus))
             throw new BusinessValidationException(
                 $"Cannot transition CRM lead from '{currentStatus}' to '{targetStatus}'. " +
                 $"Allowed transitions from '{currentStatus}': {(allowed?.Length > 0 ? string.Join(", ", allowed) : "none (terminal state)")}.");
-    }
-
-    private static string ValidateAndNormalizeStatus(string leadStatus)
-    {
-        if (string.IsNullOrWhiteSpace(leadStatus))
-            throw new BusinessValidationException("Lead status is required");
-
-        var normalized = leadStatus.Trim().ToLower();
-        if (!AllowedStatuses.Contains(normalized))
-            throw new BusinessValidationException(
-                $"Invalid lead status '{leadStatus}'. Allowed values: {string.Join(", ", AllowedStatuses)}");
-
-        return normalized;
     }
 
     private async Task ValidateOptionalReferencesAsync(

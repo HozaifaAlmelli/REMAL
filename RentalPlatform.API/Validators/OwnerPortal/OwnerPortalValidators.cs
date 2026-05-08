@@ -22,7 +22,7 @@ public class GetOwnerPortalUnitsRequestValidator : AbstractValidator<GetOwnerPor
 public class GetOwnerPortalBookingsRequestValidator : AbstractValidator<GetOwnerPortalBookingsRequest>
 {
     private static readonly string[] ValidBookingStatuses =
-        ["inquiry", "pending", "confirmed", "cancelled", "completed"];
+        ["prospecting", "relevant", "noanswer", "notrelevant", "booked", "confirmed", "checkin", "completed", "cancelled", "leftearly"];
 
     public GetOwnerPortalBookingsRequestValidator()
     {

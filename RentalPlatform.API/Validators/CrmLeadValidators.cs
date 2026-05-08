@@ -73,13 +73,13 @@ public class UpdateCrmLeadRequestValidator : AbstractValidator<UpdateCrmLeadRequ
 
 public class UpdateCrmLeadStatusRequestValidator : AbstractValidator<UpdateCrmLeadStatusRequest>
 {
-    private static readonly string[] AllowedStatuses = { "new", "contacted", "qualified", "converted", "lost" };
+    private static readonly string[] AllowedStatuses = Enum.GetNames<RentalPlatform.Shared.Enums.LeadStatus>();
 
     public UpdateCrmLeadStatusRequestValidator()
     {
         RuleFor(x => x.LeadStatus)
             .NotEmpty()
-            .Must(x => !string.IsNullOrWhiteSpace(x) && AllowedStatuses.Contains(x.Trim().ToLower()))
+            .Must(x => !string.IsNullOrWhiteSpace(x) && AllowedStatuses.Any(s => s.Equals(x.Trim(), StringComparison.OrdinalIgnoreCase)))
             .WithMessage($"LeadStatus must be one of: {string.Join(", ", AllowedStatuses)}.");
     }
 }

@@ -7,6 +7,8 @@ using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Constants;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Business.Services;
 
@@ -23,8 +25,9 @@ public class BookingLifecycleService : IBookingLifecycleService
         _invoiceService = invoiceService;
     }
 
-    public async Task<Booking> ConfirmAsync(
+    public async Task<Booking> TransitionAsync(
         Guid bookingId,
+        BookingStatus targetStatus,
         Guid changedByAdminUserId,
         string? notes,
         CancellationToken cancellationToken = default)
@@ -32,51 +35,29 @@ public class BookingLifecycleService : IBookingLifecycleService
         var booking = await GetBookingOrThrowAsync(bookingId, cancellationToken);
         await ValidateAdminExistsAsync(changedByAdminUserId, cancellationToken);
 
-        // Allowed from: pending, inquiry
-        if (booking.BookingStatus != "pending" && booking.BookingStatus != "inquiry")
+        if (!BookingStatusTransitions.IsValidTransition(booking.BookingStatus, targetStatus))
+        {
+            var allowed = BookingStatusTransitions.GetAllowedTargets(booking.BookingStatus);
             throw new ConflictException(
-                $"Cannot confirm booking {bookingId}: current status '{booking.BookingStatus}' does not allow confirmation. Allowed from: pending, inquiry.");
+                $"Cannot transition booking {bookingId} from '{booking.BookingStatus}' to '{targetStatus}'. " +
+                $"Allowed transitions: {(allowed.Length > 0 ? string.Join(", ", allowed) : "none (terminal state)")}.");
+        }
 
-        // --- Re-check unit is still active ---
-        var unit = await _unitOfWork.Units.FirstOrDefaultAsync(
-            u => u.Id == booking.UnitId && u.IsActive && u.DeletedAt == null, cancellationToken);
-        if (unit == null)
-            throw new ConflictException(
-                $"Cannot confirm booking {bookingId}: unit {booking.UnitId} is no longer active or has been deleted.");
+        return targetStatus switch
+        {
+            BookingStatus.Confirmed => await ConfirmInternalAsync(booking, changedByAdminUserId, notes, cancellationToken),
+            BookingStatus.Cancelled => await CancelInternalAsync(booking, changedByAdminUserId, notes, cancellationToken),
+            _ => await ApplySimpleTransitionAsync(booking, targetStatus, changedByAdminUserId, notes, cancellationToken),
+        };
+    }
 
-        // --- Re-check operational availability (checkInDate through checkOutDate - 1 day) ---
-        var pricingStartDate = booking.CheckInDate;
-        var pricingEndDate = booking.CheckOutDate.AddDays(-1);
-
-        var availability = await _availabilityService.CheckOperationalAvailabilityAsync(
-            booking.UnitId, pricingStartDate, pricingEndDate, cancellationToken);
-        if (!availability.IsAvailable)
-            throw new ConflictException(
-                $"Cannot confirm booking {bookingId}: unit {booking.UnitId} is not operationally available for the requested dates: {availability.Reason}");
-
-        // --- Re-check confirmed booking overlap excluding self ---
-        await EnsureNoConfirmedOverlap(booking.UnitId, booking.CheckInDate, booking.CheckOutDate, bookingId, cancellationToken);
-
-        // --- Transition ---
-        var oldStatus = booking.BookingStatus;
-        booking.BookingStatus = "confirmed";
-        booking.UpdatedAt = DateTime.UtcNow;
-
-        _unitOfWork.Bookings.Update(booking);
-        await AppendStatusHistoryAsync(booking.Id, oldStatus, "confirmed", changedByAdminUserId, notes, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        // Auto-generate invoice
-        var invoiceNumber = $"INV-{booking.Id.ToString()[..8].ToUpper()}";
-        var draftInvoice = await _invoiceService.CreateDraftFromBookingAsync(
-            booking.Id, 
-            invoiceNumber, 
-            "Auto-generated on confirmation", 
-            cancellationToken);
-
-        await _invoiceService.IssueAsync(draftInvoice.Id, cancellationToken);
-
-        return booking;
+    public async Task<Booking> ConfirmAsync(
+        Guid bookingId,
+        Guid changedByAdminUserId,
+        string? notes,
+        CancellationToken cancellationToken = default)
+    {
+        return await TransitionAsync(bookingId, BookingStatus.Confirmed, changedByAdminUserId, notes, cancellationToken);
     }
 
     public async Task<Booking> CancelAsync(
@@ -85,27 +66,7 @@ public class BookingLifecycleService : IBookingLifecycleService
         string? notes,
         CancellationToken cancellationToken = default)
     {
-        var booking = await GetBookingOrThrowAsync(bookingId, cancellationToken);
-        await ValidateAdminExistsAsync(changedByAdminUserId, cancellationToken);
-
-        // Allowed from: inquiry, pending, confirmed
-        // Not allowed from: cancelled, completed
-        if (booking.BookingStatus != "inquiry" &&
-            booking.BookingStatus != "pending" &&
-            booking.BookingStatus != "confirmed")
-            throw new ConflictException(
-                $"Cannot cancel booking {bookingId}: current status '{booking.BookingStatus}' does not allow cancellation. Allowed from: inquiry, pending, confirmed.");
-
-        // --- Transition ---
-        var oldStatus = booking.BookingStatus;
-        booking.BookingStatus = "cancelled";
-        booking.UpdatedAt = DateTime.UtcNow;
-
-        _unitOfWork.Bookings.Update(booking);
-        await AppendStatusHistoryAsync(booking.Id, oldStatus, "cancelled", changedByAdminUserId, notes, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return booking;
+        return await TransitionAsync(bookingId, BookingStatus.Cancelled, changedByAdminUserId, notes, cancellationToken);
     }
 
     public async Task<Booking> CompleteAsync(
@@ -114,24 +75,7 @@ public class BookingLifecycleService : IBookingLifecycleService
         string? notes,
         CancellationToken cancellationToken = default)
     {
-        var booking = await GetBookingOrThrowAsync(bookingId, cancellationToken);
-        await ValidateAdminExistsAsync(changedByAdminUserId, cancellationToken);
-
-        // Allowed from: confirmed only
-        if (booking.BookingStatus != "confirmed")
-            throw new ConflictException(
-                $"Cannot complete booking {bookingId}: current status '{booking.BookingStatus}' does not allow completion. Allowed from: confirmed.");
-
-        // --- Transition ---
-        var oldStatus = booking.BookingStatus;
-        booking.BookingStatus = "completed";
-        booking.UpdatedAt = DateTime.UtcNow;
-
-        _unitOfWork.Bookings.Update(booking);
-        await AppendStatusHistoryAsync(booking.Id, oldStatus, "completed", changedByAdminUserId, notes, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return booking;
+        return await TransitionAsync(bookingId, BookingStatus.Completed, changedByAdminUserId, notes, cancellationToken);
     }
 
     public async Task<Booking> CheckInAsync(
@@ -140,15 +84,7 @@ public class BookingLifecycleService : IBookingLifecycleService
         string? notes,
         CancellationToken cancellationToken = default)
     {
-        var booking = await GetBookingOrThrowAsync(bookingId, cancellationToken);
-        await ValidateAdminExistsAsync(changedByAdminUserId, cancellationToken);
-
-        // We don't change the booking status since check_in is not a valid DB status for bookings
-        // but we record it in the history
-        await AppendStatusHistoryAsync(booking.Id, booking.BookingStatus, "check_in", changedByAdminUserId, notes, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return booking;
+        return await TransitionAsync(bookingId, BookingStatus.CheckIn, changedByAdminUserId, notes, cancellationToken);
     }
 
     public async Task<Booking> LeftEarlyAsync(
@@ -157,16 +93,82 @@ public class BookingLifecycleService : IBookingLifecycleService
         string? notes,
         CancellationToken cancellationToken = default)
     {
-        var booking = await GetBookingOrThrowAsync(bookingId, cancellationToken);
-        await ValidateAdminExistsAsync(changedByAdminUserId, cancellationToken);
+        return await TransitionAsync(bookingId, BookingStatus.LeftEarly, changedByAdminUserId, notes, cancellationToken);
+    }
 
-        // Transition to completed when they leave early
+    // ---------------------------------------------------------------
+    //  Internal transition handlers with side effects
+    // ---------------------------------------------------------------
+
+    private async Task<Booking> ConfirmInternalAsync(
+        Booking booking,
+        Guid changedByAdminUserId,
+        string? notes,
+        CancellationToken cancellationToken)
+    {
+        var unit = await _unitOfWork.Units.FirstOrDefaultAsync(
+            u => u.Id == booking.UnitId && u.IsActive && u.DeletedAt == null, cancellationToken);
+        if (unit == null)
+            throw new ConflictException(
+                $"Cannot confirm booking {booking.Id}: unit {booking.UnitId} is no longer active or has been deleted.");
+
+        var pricingStartDate = booking.CheckInDate;
+        var pricingEndDate = booking.CheckOutDate.AddDays(-1);
+
+        var availability = await _availabilityService.CheckOperationalAvailabilityAsync(
+            booking.UnitId, pricingStartDate, pricingEndDate, cancellationToken);
+        if (!availability.IsAvailable)
+            throw new ConflictException(
+                $"Cannot confirm booking {booking.Id}: unit {booking.UnitId} is not operationally available: {availability.Reason}");
+
+        await EnsureNoOverlap(booking.UnitId, booking.CheckInDate, booking.CheckOutDate, booking.Id, cancellationToken);
+
         var oldStatus = booking.BookingStatus;
-        booking.BookingStatus = "completed";
+        booking.BookingStatus = BookingStatus.Confirmed;
         booking.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.Bookings.Update(booking);
-        await AppendStatusHistoryAsync(booking.Id, oldStatus, "left_early", changedByAdminUserId, notes, cancellationToken);
+        await AppendStatusHistoryAsync(booking.Id, oldStatus, BookingStatus.Confirmed, changedByAdminUserId, notes, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var invoiceNumber = $"INV-{booking.Id.ToString()[..8].ToUpper()}";
+        var draftInvoice = await _invoiceService.CreateDraftFromBookingAsync(
+            booking.Id, invoiceNumber, "Auto-generated on confirmation", cancellationToken);
+        await _invoiceService.IssueAsync(draftInvoice.Id, cancellationToken);
+
+        return booking;
+    }
+
+    private async Task<Booking> CancelInternalAsync(
+        Booking booking,
+        Guid changedByAdminUserId,
+        string? notes,
+        CancellationToken cancellationToken)
+    {
+        var oldStatus = booking.BookingStatus;
+        booking.BookingStatus = BookingStatus.Cancelled;
+        booking.UpdatedAt = DateTime.UtcNow;
+
+        _unitOfWork.Bookings.Update(booking);
+        await AppendStatusHistoryAsync(booking.Id, oldStatus, BookingStatus.Cancelled, changedByAdminUserId, notes, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return booking;
+    }
+
+    private async Task<Booking> ApplySimpleTransitionAsync(
+        Booking booking,
+        BookingStatus targetStatus,
+        Guid changedByAdminUserId,
+        string? notes,
+        CancellationToken cancellationToken)
+    {
+        var oldStatus = booking.BookingStatus;
+        booking.BookingStatus = targetStatus;
+        booking.UpdatedAt = DateTime.UtcNow;
+
+        _unitOfWork.Bookings.Update(booking);
+        await AppendStatusHistoryAsync(booking.Id, oldStatus, targetStatus, changedByAdminUserId, notes, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return booking;
@@ -194,8 +196,8 @@ public class BookingLifecycleService : IBookingLifecycleService
 
     private async Task AppendStatusHistoryAsync(
         Guid bookingId,
-        string oldStatus,
-        string newStatus,
+        BookingStatus oldStatus,
+        BookingStatus newStatus,
         Guid changedByAdminUserId,
         string? notes,
         CancellationToken cancellationToken)
@@ -204,8 +206,8 @@ public class BookingLifecycleService : IBookingLifecycleService
         {
             Id = Guid.NewGuid(),
             BookingId = bookingId,
-            OldStatus = oldStatus,
-            NewStatus = newStatus,
+            OldStatus = oldStatus.ToString().ToLower(),
+            NewStatus = newStatus.ToString().ToLower(),
             ChangedByAdminUserId = changedByAdminUserId,
             Notes = notes?.Trim(),
             ChangedAt = DateTime.UtcNow
@@ -214,26 +216,23 @@ public class BookingLifecycleService : IBookingLifecycleService
         await _unitOfWork.BookingStatusHistories.AddAsync(history, cancellationToken);
     }
 
-    /// <summary>
-    /// Ensures no confirmed booking on the same unit overlaps the requested date range.
-    /// Two stays overlap when: newCheckIn &lt; existingCheckOut AND newCheckOut &gt; existingCheckIn.
-    /// </summary>
-    private async Task EnsureNoConfirmedOverlap(
+    private async Task EnsureNoOverlap(
         Guid unitId,
         DateOnly checkInDate,
         DateOnly checkOutDate,
         Guid excludeBookingId,
         CancellationToken cancellationToken)
     {
+        var holdingStatuses = BookingStatusTransitions.HoldingStatuses;
         var hasOverlap = await _unitOfWork.Bookings.Query()
             .Where(b => b.UnitId == unitId)
-            .Where(b => b.BookingStatus == "confirmed")
+            .Where(b => holdingStatuses.Contains(b.BookingStatus))
             .Where(b => b.Id != excludeBookingId)
             .Where(b => checkInDate < b.CheckOutDate && checkOutDate > b.CheckInDate)
             .AnyAsync(cancellationToken);
 
         if (hasOverlap)
             throw new ConflictException(
-                $"Cannot confirm: the requested dates overlap with an existing confirmed booking on unit {unitId}");
+                $"Cannot confirm: the requested dates overlap with an existing booking on unit {unitId}");
     }
 }

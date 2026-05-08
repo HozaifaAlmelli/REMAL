@@ -8,6 +8,8 @@ using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Constants;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Business.Services;
 
@@ -17,7 +19,6 @@ public class BookingService : IBookingService
     private readonly IUnitAvailabilityService _availabilityService;
 
     private static readonly string[] AllowedSources = { "direct", "admin", "phone", "whatsapp", "website" };
-    private const string DefaultStatus = "pending";
 
     public BookingService(IUnitOfWork unitOfWork, IUnitAvailabilityService availabilityService)
     {
@@ -38,8 +39,9 @@ public class BookingService : IBookingService
 
         if (!string.IsNullOrWhiteSpace(bookingStatus))
         {
-            var normalizedStatus = bookingStatus.Trim().ToLower();
-            query = query.Where(b => b.BookingStatus == normalizedStatus);
+            if (!Enum.TryParse<BookingStatus>(bookingStatus.Trim(), ignoreCase: true, out var parsedStatus))
+                throw new BusinessValidationException($"Invalid booking status '{bookingStatus}'.");
+            query = query.Where(b => b.BookingStatus == parsedStatus);
         }
 
         if (assignedAdminUserId.HasValue)
@@ -138,7 +140,7 @@ public class BookingService : IBookingService
             Unit = unit,
             OwnerId = unit.OwnerId, // snapshot from unit, not caller input
             AssignedAdminUserId = assignedAdminUserId,
-            BookingStatus = DefaultStatus,
+            BookingStatus = BookingStatus.Prospecting,
             CheckInDate = checkInDate,
             CheckOutDate = checkOutDate,
             GuestCount = guestCount,
@@ -158,7 +160,7 @@ public class BookingService : IBookingService
             Id = Guid.NewGuid(),
             BookingId = booking.Id,
             OldStatus = null,
-            NewStatus = DefaultStatus,
+            NewStatus = BookingStatus.Prospecting.ToString().ToLower(),
             ChangedByAdminUserId = assignedAdminUserId,
             Notes = "Booking created",
             ChangedAt = DateTime.UtcNow
@@ -185,10 +187,9 @@ public class BookingService : IBookingService
         if (booking == null)
             throw new NotFoundException($"Booking with ID {id} not found");
 
-        // Only pending or inquiry bookings can be updated
-        if (booking.BookingStatus != "pending" && booking.BookingStatus != "inquiry")
+        if (booking.BookingStatus != BookingStatus.Prospecting && booking.BookingStatus != BookingStatus.Relevant)
             throw new ConflictException(
-                $"Booking {id} cannot be updated because its status is '{booking.BookingStatus}'. Only pending or inquiry bookings can be updated.");
+                $"Booking {id} cannot be updated because its status is '{booking.BookingStatus}'. Only prospecting or relevant bookings can be updated.");
 
         // --- Input validation ---
         ValidateStayDates(checkInDate, checkOutDate);
@@ -287,10 +288,6 @@ public class BookingService : IBookingService
         return normalized;
     }
 
-    /// <summary>
-    /// Ensures no confirmed booking on the same unit overlaps the requested date range.
-    /// Two stays overlap when: newCheckIn &lt; existingCheckOut AND newCheckOut &gt; existingCheckIn.
-    /// </summary>
     private async Task EnsureNoConfirmedOverlap(
         Guid unitId,
         DateOnly checkInDate,
@@ -298,9 +295,10 @@ public class BookingService : IBookingService
         Guid? excludeBookingId,
         CancellationToken cancellationToken)
     {
+        var holdingStatuses = BookingStatusTransitions.HoldingStatuses;
         var query = _unitOfWork.Bookings.Query()
             .Where(b => b.UnitId == unitId)
-            .Where(b => b.BookingStatus == "confirmed")
+            .Where(b => holdingStatuses.Contains(b.BookingStatus))
             .Where(b => checkInDate < b.CheckOutDate && checkOutDate > b.CheckInDate);
 
         if (excludeBookingId.HasValue)
@@ -311,6 +309,6 @@ public class BookingService : IBookingService
         var hasOverlap = await query.AnyAsync(cancellationToken);
         if (hasOverlap)
             throw new ConflictException(
-                $"The requested dates overlap with an existing confirmed booking on unit {unitId}");
+                $"The requested dates overlap with an existing booking on unit {unitId}");
     }
 }

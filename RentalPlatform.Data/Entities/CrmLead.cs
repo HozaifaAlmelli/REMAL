@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Data.Entities;
 
@@ -15,7 +16,7 @@ public class CrmLead
     public DateOnly? DesiredCheckInDate { get; set; }
     public DateOnly? DesiredCheckOutDate { get; set; }
     public int? GuestCount { get; set; }
-    public string LeadStatus { get; set; } = null!;
+    public LeadStatus LeadStatus { get; set; }
     public string Source { get; set; } = null!;
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }

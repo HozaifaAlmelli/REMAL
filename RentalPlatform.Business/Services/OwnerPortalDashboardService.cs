@@ -6,6 +6,7 @@ using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Models;
 using RentalPlatform.Data;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Business.Services;
 
@@ -53,8 +54,8 @@ public class OwnerPortalDashboardService : IOwnerPortalDashboardService
             TotalUnits               = units.Count,
             ActiveUnits              = units.Count(u => u.IsActive),
             TotalBookings            = bookings.Count,
-            ConfirmedBookings        = bookings.Count(b => b.BookingStatus == "confirmed"),
-            CompletedBookings        = bookings.Count(b => b.BookingStatus == "completed"),
+            ConfirmedBookings        = bookings.Count(b => string.Equals(b.BookingStatus, nameof(BookingStatus.Confirmed), StringComparison.OrdinalIgnoreCase)),
+            CompletedBookings        = bookings.Count(b => string.Equals(b.BookingStatus, nameof(BookingStatus.Completed), StringComparison.OrdinalIgnoreCase)),
             TotalPaidAmount          = financeSummary.TotalPaidAmount,
             TotalPendingPayoutAmount = financeSummary.TotalPendingPayoutAmount,
             TotalPaidPayoutAmount    = financeSummary.TotalPaidPayoutAmount,

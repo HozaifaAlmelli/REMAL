@@ -8,6 +8,7 @@ using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Business.Services;
 
@@ -58,7 +59,7 @@ public class OwnerPayoutService : IOwnerPayoutService
         if (booking == null)
             throw new NotFoundException($"Booking with ID {bookingId} not found");
 
-        if (booking.BookingStatus != "confirmed" && booking.BookingStatus != "completed")
+        if (booking.BookingStatus != BookingStatus.Confirmed && booking.BookingStatus != BookingStatus.Completed)
             throw new ConflictException(
                 $"Cannot create or update payout: booking {bookingId} has status '{booking.BookingStatus}'. Booking must be confirmed or completed.");
 

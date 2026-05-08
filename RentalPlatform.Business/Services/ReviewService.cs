@@ -8,6 +8,7 @@ using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Business.Services;
 
@@ -86,7 +87,7 @@ public class ReviewService : IReviewService
                 $"Booking {bookingId} does not belong to client {clientId}");
 
         // --- Booking must be completed ---
-        if (booking.BookingStatus != "completed")
+        if (booking.BookingStatus != BookingStatus.Completed)
             throw new ConflictException(
                 $"Cannot create a review for booking {bookingId}: status is '{booking.BookingStatus}'. Only completed bookings can be reviewed.");
 

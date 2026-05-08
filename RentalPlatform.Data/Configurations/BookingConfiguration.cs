@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Data.Configurations;
 
@@ -33,7 +34,10 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.Property(b => b.BookingStatus)
             .HasColumnName("booking_status")
             .HasMaxLength(50)
-            .IsRequired();
+            .IsRequired()
+            .HasConversion(
+                v => v.ToString().ToLower(),
+                v => Enum.Parse<BookingStatus>(v, ignoreCase: true));
 
         builder.Property(b => b.CheckInDate)
             .HasColumnName("check_in_date")

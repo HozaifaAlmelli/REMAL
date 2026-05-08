@@ -92,7 +92,7 @@ public class BookingLifecycleController : ControllerBase
             UnitId = booking.UnitId,
             OwnerId = booking.OwnerId,
             AssignedAdminUserId = booking.AssignedAdminUserId,
-            BookingStatus = booking.BookingStatus,
+            BookingStatus = booking.BookingStatus.ToString(),
             CheckInDate = booking.CheckInDate,
             CheckOutDate = booking.CheckOutDate,
             GuestCount = booking.GuestCount,

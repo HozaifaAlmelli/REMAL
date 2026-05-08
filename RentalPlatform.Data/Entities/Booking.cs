@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Data.Entities;
 
@@ -10,7 +11,7 @@ public class Booking
     public Guid UnitId { get; set; }
     public Guid OwnerId { get; set; }
     public Guid? AssignedAdminUserId { get; set; }
-    public string BookingStatus { get; set; } = null!;
+    public BookingStatus BookingStatus { get; set; }
     public DateOnly CheckInDate { get; set; }
     public DateOnly CheckOutDate { get; set; }
     public int GuestCount { get; set; }

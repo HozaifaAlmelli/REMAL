@@ -21,12 +21,18 @@ export function OwnerBookingRow({ booking, onClick }: OwnerBookingRowProps) {
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case "confirmed":
-        return "bg-blue-100 text-blue-700";
       case "completed":
         return "bg-green-100 text-green-700";
+      case "booked":
+      case "checkin":
+        return "bg-blue-100 text-blue-700";
       case "cancelled":
+      case "notrelevant":
         return "bg-red-100 text-red-700";
-      case "pending":
+      case "prospecting":
+      case "relevant":
+      case "noanswer":
+      case "leftearly":
         return "bg-yellow-100 text-yellow-700";
       default:
         return "bg-neutral-100 text-neutral-700";

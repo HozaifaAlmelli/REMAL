@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Data.Configurations;
 
@@ -51,7 +52,10 @@ public class CrmLeadConfiguration : IEntityTypeConfiguration<CrmLead>
         builder.Property(e => e.LeadStatus)
             .HasColumnName("lead_status")
             .HasMaxLength(50)
-            .IsRequired();
+            .IsRequired()
+            .HasConversion(
+                v => v.ToString().ToLower(),
+                v => Enum.Parse<LeadStatus>(v, ignoreCase: true));
 
         builder.Property(e => e.Source)
             .HasColumnName("source")
