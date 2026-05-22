@@ -25,7 +25,7 @@ export default function OwnerDashboard() {
   };
 
   return (
-    <div className="w-full space-y-6 md:space-y-10 pb-6 md:pb-12">
+    <div className="w-full space-y-5 md:space-y-10 pb-6 md:pb-12">
       <motion.div initial="hidden" animate="visible" variants={containerVariants}>
         
         {/* Sleek Header (Desktop only - Mobile has navbar header) */}
@@ -49,13 +49,13 @@ export default function OwnerDashboard() {
         </motion.header>
 
         {/* Mobile Header Greeting */}
-        <motion.div variants={itemVariants} className="md:hidden mb-6">
+        <motion.div variants={itemVariants} className="md:hidden mb-4">
           <p className="text-gray-500 text-sm font-medium mb-1">مرحباً بعودتك، احمد</p>
           <h1 className="text-2xl font-black text-brand-950 tracking-tight">نظرة عامة على محفظتك</h1>
         </motion.div>
 
         {/* Premium Stats Row - Grid cols 2 on mobile */}
-        <motion.div variants={containerVariants} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-6 mb-8 md:mb-12">
+        <motion.div variants={containerVariants} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-6 mb-6 md:mb-12">
           
           {/* Main Balance Card */}
           <motion.div variants={itemVariants} className="col-span-2 md:col-span-1">
@@ -70,8 +70,8 @@ export default function OwnerDashboard() {
                  </div>
                  <div>
                    <p className="text-brand-200/80 font-bold mb-1 md:mb-2 text-[10px] uppercase tracking-widest">إجمالي الأرباح المستحقة</p>
-                   <div className="text-3xl md:text-5xl font-black tracking-tighter flex items-end">
-                     <span className="text-lg md:text-2xl text-brand-300 mr-2 mb-1">EGP</span>
+                   <div className="text-3xl md:text-5xl font-black tracking-tighter flex items-end gap-2">
+                     <span className="text-lg md:text-2xl text-brand-300 mb-1">EGP</span>
                      {(totalEarnings || 124500).toLocaleString()}
                    </div>
                  </div>
@@ -113,7 +113,7 @@ export default function OwnerDashboard() {
         </motion.div>
 
         {/* Modern Upcoming Bookings */}
-        <motion.div variants={itemVariants} className="mt-8 md:mt-16">
+        <motion.div variants={itemVariants} className="mt-6 md:mt-16">
           <div className="flex justify-between items-center mb-6 md:mb-8">
             <h2 className="text-xl md:text-2xl font-black text-brand-900 tracking-tight">أحدث الحجوزات</h2>
             <button className="text-accent-600 bg-accent-50 px-3 py-1.5 rounded-full text-xs md:text-sm font-bold flex items-center gap-1 hover:bg-accent-100 transition-colors">

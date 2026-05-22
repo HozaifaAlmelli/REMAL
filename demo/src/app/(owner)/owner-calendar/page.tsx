@@ -11,19 +11,19 @@ export default function OwnerCalendarPage() {
   const [selectedUnit, setSelectedUnit] = useState<string | null>(myUnits[0]?.id || null);
 
   return (
-    <div className="h-[calc(100vh-100px)] flex flex-col animate-in fade-in duration-500 max-w-7xl mx-auto pb-6">
-      <div className="mb-8 shrink-0 flex flex-col md:flex-row justify-between md:items-end gap-4">
+    <div className="flex flex-col animate-in fade-in duration-500 max-w-7xl mx-auto pb-6 gap-6 md:gap-8">
+      <div className="shrink-0 flex flex-col md:flex-row justify-between md:items-end gap-4">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-50 mb-3">
              <span className="w-2 h-2 rounded-full bg-brand-500"></span>
              <span className="text-xs font-bold text-brand-700">إدارة الإشغال</span>
           </div>
-          <h1 className="text-3xl lg:text-4xl font-extrabold text-brand-950 mb-2 tracking-tight">تقويم الوحدات</h1>
-          <p className="text-gray-500 font-medium text-lg">متابعة الحجوزات المؤكدة والأيام المغلقة لوحداتك بشكل تفاعلي.</p>
+          <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold text-brand-950 mb-2 tracking-tight">تقويم الوحدات</h1>
+          <p className="text-gray-500 font-medium md:text-lg">متابعة الحجوزات المؤكدة والأيام المغلقة لوحداتك بشكل تفاعلي.</p>
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6 flex-1 overflow-hidden custom-scrollbar">
+      <div className="flex flex-col lg:flex-row gap-4 md:gap-6 flex-1 min-h-0 overflow-hidden custom-scrollbar">
         {/* Left Col - Units List */}
         <div className="w-full lg:w-80 flex flex-row lg:flex-col gap-4 overflow-x-auto lg:overflow-y-auto pr-1 pb-2 lg:pb-0 shrink-0 custom-scrollbar">
           <h3 className="font-black text-brand-950 px-1 hidden lg:block mb-2">وحداتي النشطة</h3>

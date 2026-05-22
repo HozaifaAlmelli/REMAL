@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>KAZA — Company Profile 2026</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    @page { size: A4 portrait; margin: 0; }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --navy:       #0D1B2A;
+      --navy-mid:   #1A2E5B;
+      --navy-light: #243B6E;
+      --gold:       #C5A059;
+      --gold-lt:    #D4B872;
+      --gold-pale:  #F5EDD8;
+      --pearl:      #F8F5F0;
+      --white:      #FFFFFF;
+      --g100:       #F4F4F5;
+      --g200:       #E4E4E7;
+      --g400:       #A1A1AA;
+      --g600:       #52525B;
+      --g800:       #27272A;
+    }
+
+    html, body {
+      width: 210mm;
+      font-family: 'Inter', sans-serif;
+      color: var(--navy);
+      background: var(--white);
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    /* ── PRINT BUTTON (hidden on print) ── */
+    .print-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+      background: var(--navy); color: var(--white);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px; font-size: 13px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .print-bar strong { color: var(--gold); letter-spacing: 2px; font-size: 15px; }
+    .print-btn {
+      background: var(--gold); color: var(--navy); border: none;
+      padding: 8px 22px; border-radius: 20px; font-weight: 700;
+      font-size: 13px; cursor: pointer; letter-spacing: 0.5px;
+    }
+    .print-btn:hover { background: var(--gold-lt); }
+    @media print { .print-bar { display: none !important; } }
+    body { padding-top: 44px; }
+    @media print { body { padding-top: 0; } }
+
+    /* ── PAGE ── */
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      page-break-after: always;
+      break-after: page;
+    }
+    .page:last-child { page-break-after: avoid; break-after: avoid; }
+
+    /* ── TYPOGRAPHY ── */
+    h1, h2, h3 { font-family: 'Playfair Display', serif; }
+    .serif { font-family: 'Playfair Display', serif; }
+    .eyebrow {
+      font-size: 7pt; font-weight: 700; letter-spacing: 3.5px;
+      text-transform: uppercase; color: var(--gold); margin-bottom: 2.5mm;
+    }
+    .h-cover   { font-family: 'Playfair Display', serif; font-size: 52pt; font-weight: 800; letter-spacing: 10px; line-height: 1; }
+    .h-xl      { font-family: 'Playfair Display', serif; font-size: 24pt; font-weight: 700; line-height: 1.25; margin-bottom: 3mm; }
+    .h-lg      { font-family: 'Playfair Display', serif; font-size: 19pt; font-weight: 700; line-height: 1.3; margin-bottom: 3mm; }
+    .h-md      { font-family: 'Playfair Display', serif; font-size: 13pt; font-weight: 700; line-height: 1.3; margin-bottom: 2mm; }
+    .h-sm      { font-size: 10pt; font-weight: 700; line-height: 1.4; margin-bottom: 1.5mm; }
+    .body-lg   { font-size: 10pt; line-height: 1.8; color: var(--g600); }
+    .body-md   { font-size: 9pt;  line-height: 1.75; color: var(--g600); }
+    .body-sm   { font-size: 8pt;  line-height: 1.7;  color: var(--g400); }
+    .gold-span { color: var(--gold); }
+    .divider-gold { width: 14mm; height: 0.6mm; background: var(--gold); margin: 3mm 0 4mm; }
+    .divider   { height: 0.25mm; background: var(--g200); margin: 4mm 0; }
+
+    /* ── PAGE CHROME ── */
+    .page-header {
+      padding: 5.5mm 14mm 4mm;
+      border-bottom: 0.25mm solid var(--g200);
+      display: flex; justify-content: space-between; align-items: center;
+      background: var(--white);
+    }
+    .page-header-dark {
+      padding: 5.5mm 14mm 4mm;
+      border-bottom: 0.25mm solid rgba(255,255,255,0.1);
+      display: flex; justify-content: space-between; align-items: center;
+      background: rgba(255,255,255,0.04);
+    }
+    .page-logo        { font-family: 'Playfair Display', serif; font-size: 12pt; font-weight: 700; letter-spacing: 4px; color: var(--navy); }
+    .page-logo-white  { font-family: 'Playfair Display', serif; font-size: 12pt; font-weight: 700; letter-spacing: 4px; color: var(--white); }
+    .page-section     { font-size: 7pt; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--gold); }
+    .page-footer {
+      margin-top: auto; padding: 4mm 14mm;
+      border-top: 0.25mm solid var(--g200);
+      display: flex; justify-content: space-between; align-items: center;
+      background: var(--white);
+    }
+    .page-footer-dark {
+      margin-top: auto; padding: 4mm 14mm;
+      border-top: 0.25mm solid rgba(255,255,255,0.08);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .footer-txt { font-size: 6.5pt; color: var(--g400); letter-spacing: 0.5px; }
+    .footer-txt-dim { font-size: 6.5pt; color: rgba(255,255,255,0.25); letter-spacing: 0.5px; }
+    .page-num { font-size: 7pt; color: var(--g400); font-weight: 600; }
+    .page-num-dim { font-size: 7pt; color: rgba(255,255,255,0.25); font-weight: 600; }
+
+    /* ── CONTENT AREA ── */
+    .content       { padding: 7mm 14mm; flex: 1; }
+    .content-tight { padding: 5mm 14mm; flex: 1; }
+
+    /* ── GRID ── */
+    .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 3.5mm; }
+    .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3mm; }
+
+    /* ── CARDS ── */
+    .card { background: var(--white); border: 0.25mm solid var(--g200); border-radius: 3mm; padding: 5mm 5.5mm; }
+    .card-navy { background: var(--navy); border-radius: 3mm; padding: 5mm 5.5mm; }
+    .card-pearl { background: var(--pearl); border-radius: 2.5mm; padding: 4mm 5mm; }
+    .card-gold  { border: 0.5mm solid var(--gold); border-radius: 3mm; padding: 5mm 5.5mm; }
+    .card-accent { border-left: 1mm solid var(--gold); border-radius: 0 2.5mm 2.5mm 0; background: var(--white); padding: 3.5mm 4.5mm; border-top: 0.25mm solid var(--g200); border-right: 0.25mm solid var(--g200); border-bottom: 0.25mm solid var(--g200); }
+
+    /* ── HIGHLIGHT BOX ── */
+    .hbox {
+      background: linear-gradient(135deg, var(--navy), var(--navy-mid));
+      border-radius: 3mm; padding: 5.5mm 7mm; color: var(--white); position: relative; overflow: hidden;
+    }
+    .hbox::before {
+      content: ''; position: absolute; top: -12mm; right: -12mm;
+      width: 45mm; height: 45mm; border-radius: 50%;
+      border: 0.4mm solid rgba(197,160,89,0.18);
+    }
+
+    /* ── STATS ── */
+    .stats-row { display: flex; gap: 3.5mm; margin: 4mm 0; }
+    .stat-box {
+      flex: 1; text-align: center;
+      border: 0.25mm solid rgba(197,160,89,0.35); border-radius: 3mm;
+      padding: 3.5mm 2mm; background: rgba(255,255,255,0.05); backdrop-filter: blur(4px);
+    }
+    .stat-val { font-family: 'Playfair Display', serif; font-size: 20pt; font-weight: 700; color: var(--gold); line-height: 1; }
+    .stat-lbl { font-size: 6.5pt; color: rgba(255,255,255,0.55); margin-top: 1.5mm; line-height: 1.5; }
+
+    /* ── BULLET LIST ── */
+    .bl { list-style: none; }
+    .bl li { display: flex; gap: 2.5mm; align-items: flex-start; margin-bottom: 2mm; font-size: 9pt; line-height: 1.65; color: var(--g600); }
+    .bl li::before { content: ''; display: inline-block; width: 4.5mm; height: 0.5mm; background: var(--gold); margin-top: 3.8mm; flex-shrink: 0; }
+    .bl-white li { color: rgba(255,255,255,0.82); }
+    .bl-white li::before { background: var(--gold); }
+
+    /* ── SERVICE ITEM ── */
+    .svc { display: flex; gap: 3mm; align-items: flex-start; margin-bottom: 3.5mm; }
+    .svc-dot { width: 6mm; height: 6mm; border-radius: 1.5mm; background: rgba(197,160,89,0.15); border: 0.25mm solid rgba(197,160,89,0.4); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.5mm; }
+    .svc-num { font-family: 'Playfair Display', serif; font-size: 7.5pt; font-weight: 700; color: var(--gold); }
+
+    /* ── PROCESS ── */
+    .pstep { display: flex; gap: 4mm; align-items: flex-start; margin-bottom: 3.5mm; }
+    .pnum { font-family: 'Playfair Display', serif; font-size: 18pt; font-weight: 700; color: var(--gold); line-height: 1; min-width: 11mm; background: var(--pearl); padding: 0 0.5mm; position: relative; z-index: 2; }
+
+    /* ── COMPARISON TABLE ── */
+    .ctbl { width: 100%; border-collapse: collapse; font-size: 8pt; }
+    .ctbl thead th { background: var(--navy); color: var(--white); padding: 2.5mm 3.5mm; text-align: left; font-weight: 600; font-size: 7.5pt; letter-spacing: 0.5px; }
+    .ctbl thead th.gold-th { background: var(--gold); color: var(--navy); }
+    .ctbl tbody td { padding: 2.5mm 3.5mm; border-bottom: 0.2mm solid var(--g200); color: var(--g600); vertical-align: top; }
+    .ctbl tbody tr:nth-child(even) td { background: var(--g100); }
+    .ctbl .kaza-td { color: var(--navy); font-weight: 500; }
+    .kaza-td::before { content: '✓  '; color: var(--gold); font-weight: 700; }
+
+    /* ── BRAND PILLS ── */
+    .pills { display: flex; flex-wrap: wrap; gap: 2mm; margin-top: 2.5mm; }
+    .pill { padding: 1.5mm 3.5mm; border: 0.3mm solid rgba(197,160,89,0.45); border-radius: 10mm; font-size: 7pt; font-weight: 600; color: var(--gold); background: rgba(197,160,89,0.08); letter-spacing: 0.5px; }
+
+    /* ── PULL QUOTE ── */
+    .pull-quote {
+      border-left: 1mm solid var(--gold); padding: 3mm 5mm; margin: 4mm 0;
+      font-family: 'Playfair Display', serif; font-style: italic; font-size: 11pt;
+      color: var(--navy); background: var(--pearl); border-radius: 0 2.5mm 2.5mm 0;
+    }
+
+    /* ── COVER SPECIFICS ── */
+    .cover-geo {
+      position: absolute; border-radius: 50%; border: 0.4mm solid rgba(197,160,89,0.2);
+    }
+  </style>
+</head>
+<body>
+
+<!-- PRINT BAR -->
+<div class="print-bar">
+  <strong>KAZA</strong>
+  <span style="color:rgba(255,255,255,0.55); font-size:12px;">Company Profile 2026 — Open in Chrome for best PDF quality</span>
+  <button class="print-btn" onclick="window.print()">Save as PDF</button>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 1 · COVER
+═══════════════════════════════════════════════ -->
+<div class="page" style="background: var(--navy); color: var(--white);">
+  <!-- gold accent strip top -->
+  <div style="height: 2.5mm; background: linear-gradient(90deg, var(--gold), var(--gold-lt), var(--gold));"></div>
+
+  <!-- Geometric decoration -->
+  <div class="cover-geo" style="width:120mm; height:120mm; top:-30mm; right:-30mm;"></div>
+  <div class="cover-geo" style="width:75mm; height:75mm; top:-5mm; right:-5mm; border-color:rgba(197,160,89,0.1);"></div>
+  <div class="cover-geo" style="width:55mm; height:55mm; bottom:35mm; left:-18mm; background:rgba(197,160,89,0.04);"></div>
+
+  <div style="flex:1; display:flex; flex-direction:column; justify-content:center; padding: 18mm 16mm 10mm; position:relative; z-index:2;">
+
+    <!-- Eyebrow -->
+    <div style="font-size:7.5pt; font-weight:700; letter-spacing:4px; text-transform:uppercase; color:var(--gold); margin-bottom:6mm;">
+      Hospitality Asset Management · Egypt
+    </div>
+
+    <!-- Logo wordmark -->
+    <div class="h-cover" style="color:var(--white); margin-bottom:4mm;">KAZA</div>
+
+    <!-- Tagline -->
+    <div style="font-size:13pt; font-weight:300; color:rgba(255,255,255,0.72); letter-spacing:1px; margin-bottom:8mm;">
+      Hotel-Grade Operations for Premium Properties
+    </div>
+
+    <!-- Gold rule -->
+    <div style="width:22mm; height:0.6mm; background:var(--gold); margin-bottom:8mm;"></div>
+
+    <!-- Description -->
+    <p style="font-size:9.5pt; line-height:1.85; color:rgba(255,255,255,0.62); max-width:130mm; margin-bottom:12mm;">
+      KAZA is an integrated hospitality operations company that manages premium vacation rentals
+      and residential properties as high-performing hospitality assets — applying the same standards,
+      systems, and discipline used in five-star hotels to private properties across Egypt's most
+      sought-after destinations.
+    </p>
+
+    <!-- Key figures row -->
+    <div style="display:flex; gap:10mm; align-items:flex-start;">
+      <div>
+        <div style="font-family:'Playfair Display',serif; font-size:24pt; font-weight:700; color:var(--gold); line-height:1;">30+</div>
+        <div style="font-size:7pt; color:rgba(255,255,255,0.45); margin-top:1.5mm; letter-spacing:1.5px; text-transform:uppercase;">Years Executive Experience</div>
+      </div>
+      <div style="width:0.25mm; height:14mm; background:rgba(255,255,255,0.12); margin-top:4mm;"></div>
+      <div>
+        <div style="font-family:'Playfair Display',serif; font-size:24pt; font-weight:700; color:var(--gold); line-height:1;">9+</div>
+        <div style="font-size:7pt; color:rgba(255,255,255,0.45); margin-top:1.5mm; letter-spacing:1.5px; text-transform:uppercase;">Global Hotel Brands</div>
+      </div>
+      <div style="width:0.25mm; height:14mm; background:rgba(255,255,255,0.12); margin-top:4mm;"></div>
+      <div>
+        <div style="font-family:'Playfair Display',serif; font-size:24pt; font-weight:700; color:var(--gold); line-height:1;">5</div>
+        <div style="font-size:7pt; color:rgba(255,255,255,0.45); margin-top:1.5mm; letter-spacing:1.5px; text-transform:uppercase;">Regions of Operation</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cover footer -->
+  <div style="padding:6mm 16mm; border-top:0.25mm solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+    <div style="font-size:7.5pt; color:rgba(255,255,255,0.35); letter-spacing:2px; text-transform:uppercase;">Company Profile · 2026</div>
+    <div style="font-size:7.5pt; color:var(--gold); font-weight:600; letter-spacing:2px; text-transform:uppercase;">Confidential &amp; Proprietary</div>
+  </div>
+
+  <!-- gold accent strip bottom -->
+  <div style="height: 2mm; background: linear-gradient(90deg, var(--gold), var(--gold-lt), var(--gold));"></div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 2 · COMPANY OVERVIEW
+═══════════════════════════════════════════════ -->
+<div class="page" style="background:var(--pearl);">
+  <div class="page-header">
+    <div class="page-logo">KAZA</div>
+    <div class="page-section">Company Overview</div>
+  </div>
+
+  <div class="content">
+    <div class="eyebrow">About KAZA</div>
+    <h1 class="h-xl">We are a hospitality operations company —<br/><span class="gold-span">not a booking middleman.</span></h1>
+    <div class="divider-gold"></div>
+
+    <p class="body-lg" style="max-width:165mm; margin-bottom:5mm;">
+      KAZA is an operating partner for property owners and real-estate developers who want to turn their
+      private units into profitable, sustainable hospitality assets. We combine luxury-hotel discipline
+      with investment-focused execution — managing every aspect of the operation from setup through
+      ongoing performance optimization.
+    </p>
+
+    <div class="g2" style="margin-bottom:5mm;">
+      <!-- Mission -->
+      <div class="card-navy" style="padding:6mm;">
+        <div style="font-size:7pt; font-weight:700; letter-spacing:2.5px; text-transform:uppercase; color:var(--gold); margin-bottom:2.5mm;">Our Mission</div>
+        <p style="font-size:9pt; line-height:1.78; color:rgba(255,255,255,0.83);">
+          Enable property owners to unlock stronger returns through transparent operations,
+          continuous asset protection, and a premium guest experience that matches
+          the value of the property.
+        </p>
+      </div>
+      <!-- Vision -->
+      <div class="card-gold" style="padding:6mm;">
+        <div style="font-size:7pt; font-weight:700; letter-spacing:2.5px; text-transform:uppercase; color:var(--gold); margin-bottom:2.5mm;">Our Vision</div>
+        <p style="font-size:9pt; line-height:1.78; color:var(--g600);">
+          To become Egypt's leading benchmark in premium hospitality asset management
+          and redefine private-unit operations with institutional standards comparable
+          to global hotels.
+        </p>
+      </div>
+    </div>
+
+    <div class="g2">
+      <!-- How We Work -->
+      <div>
+        <div class="eyebrow">How We Deliver</div>
+        <ul class="bl">
+          <li>Hotel-grade SOPs, measurable quality and disciplined daily execution from booking to checkout</li>
+          <li>Dynamic pricing, multi-channel distribution, and ongoing RevPAR optimization</li>
+          <li>Property condition tracking, preventive maintenance, and strict quality control</li>
+          <li>Transparent owner reporting and data-backed operating decisions — not guesswork</li>
+        </ul>
+      </div>
+      <!-- Values -->
+      <div>
+        <div class="eyebrow">Our Core Values</div>
+        <div class="g2" style="gap:2.5mm; margin-top:1mm;">
+          <div class="card-pearl" style="text-align:center; padding:3mm 2mm;">
+            <div style="font-size:8.5pt; font-weight:700; color:var(--navy);">Professionalism</div>
+          </div>
+          <div class="card-pearl" style="text-align:center; padding:3mm 2mm;">
+            <div style="font-size:8.5pt; font-weight:700; color:var(--navy);">Transparency</div>
+          </div>
+          <div class="card-pearl" style="text-align:center; padding:3mm 2mm;">
+            <div style="font-size:8.5pt; font-weight:700; color:var(--navy);">Discipline</div>
+          </div>
+          <div class="card-pearl" style="text-align:center; padding:3mm 2mm;">
+            <div style="font-size:8.5pt; font-weight:700; color:var(--navy);">Luxury Mindset</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <div class="footer-txt">kaza.hospitality · Confidential 2026</div>
+    <div class="page-num">02</div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 3 · THE CHALLENGE
+═══════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-logo">KAZA</div>
+    <div class="page-section">Market Context</div>
+  </div>
+
+  <div class="content">
+    <div class="eyebrow">The Challenge</div>
+    <h1 class="h-xl">Owning a premium property does not<br/><span class="gold-span">automatically mean it performs like one.</span></h1>
+    <div class="divider-gold"></div>
+
+    <p class="body-lg" style="max-width:165mm; margin-bottom:6mm;">
+      Many high-value units in New Alamein and the North Coast underperform because they are managed
+      casually: inconsistent pricing, weak marketing, broker dependency, no performance reporting,
+      and no structured hospitality standards.
+    </p>
+
+    <div class="g2" style="gap:3mm;">
+      <div class="card">
+        <div style="font-family:'Playfair Display',serif; font-size:15pt; font-weight:700; color:var(--gold); opacity:0.45; line-height:1; margin-bottom:2mm;">01</div>
+        <div class="h-sm">Low Occupancy</div>
+        <p class="body-sm" style="margin-top:1mm;">The unit is available but occupancy is significantly below its real potential.</p>
+      </div>
+      <div class="card">
+        <div style="font-family:'Playfair Display',serif; font-size:15pt; font-weight:700; color:var(--gold); opacity:0.45; line-height:1; margin-bottom:2mm;">02</div>
+        <div class="h-sm">Pricing Guesswork</div>
+        <p class="body-sm" style="margin-top:1mm;">Rates are set on intuition rather than demand, seasonality, and competition.</p>
+      </div>
+      <div class="card">
+        <div style="font-family:'Playfair Display',serif; font-size:15pt; font-weight:700; color:var(--gold); opacity:0.45; line-height:1; margin-bottom:2mm;">03</div>
+        <div class="h-sm">Daily Owner Burden</div>
+        <p class="body-sm" style="margin-top:1mm;">The owner handles guests, complaints, cleaning, and coordination personally.</p>
+      </div>
+      <div class="card">
+        <div style="font-family:'Playfair Display',serif; font-size:15pt; font-weight:700; color:var(--gold); opacity:0.45; line-height:1; margin-bottom:2mm;">04</div>
+        <div class="h-sm">No Quality Control</div>
+        <p class="body-sm" style="margin-top:1mm;">No structured housekeeping, maintenance, or hotel-grade handover process.</p>
+      </div>
+      <div class="card">
+        <div style="font-family:'Playfair Display',serif; font-size:15pt; font-weight:700; color:var(--gold); opacity:0.45; line-height:1; margin-bottom:2mm;">05</div>
+        <div class="h-sm">No Financial Visibility</div>
+        <p class="body-sm" style="margin-top:1mm;">No clear monthly reporting on revenue, expenses, and net yield to the owner.</p>
+      </div>
+      <div class="card">
+        <div style="font-family:'Playfair Display',serif; font-size:15pt; font-weight:700; color:var(--gold); opacity:0.45; line-height:1; margin-bottom:2mm;">06</div>
+        <div class="h-sm">Asset Depreciation</div>
+        <p class="body-sm" style="margin-top:1mm;">Property wears down over time without brand standards or quality oversight.</p>
+      </div>
+    </div>
+
+    <div class="pull-quote" style="margin-top:5mm;">
+      "Most property owners don't lose money because they own bad units — they lose it because their
+      units are managed without a system."
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <div class="footer-txt">kaza.hospitality · Confidential 2026</div>
+    <div class="page-num">03</div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 4 · THE KAZA APPROACH
+═══════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-logo">KAZA</div>
+    <div class="page-section">Our Approach</div>
+  </div>
+
+  <div class="content">
+    <div class="eyebrow">The KAZA Solution</div>
+    <h1 class="h-xl">KAZA manages your property as a hospitality asset —<br/><span class="gold-span">not just a rental listing.</span></h1>
+    <div class="divider-gold"></div>
+
+    <p class="body-lg" style="max-width:165mm; margin-bottom:5mm;">
+      We do more than publish your unit online. We build the full operating system around it:
+      positioning, pricing, distribution, guest experience, operations, quality control, and
+      transparent reporting — the same model used in professional hotel management.
+    </p>
+
+    <div class="g2" style="gap:3mm; margin-bottom:5mm;">
+      <div class="card-pearl">
+        <div class="h-sm">Dynamic Pricing</div>
+        <p class="body-sm" style="margin-top:1mm;">Daily market analysis to optimize rates and maximize annual yield.</p>
+      </div>
+      <div class="card-pearl">
+        <div class="h-sm">Professional Multi-Channel Marketing</div>
+        <p class="body-sm" style="margin-top:1mm;">B2C visibility on Airbnb, Booking.com, Expedia, and direct booking channels.</p>
+      </div>
+      <div class="card-pearl">
+        <div class="h-sm">Asset Protection &amp; Maintenance</div>
+        <p class="body-sm" style="margin-top:1mm;">Regular inspections and hotel-grade handover process to protect your unit.</p>
+      </div>
+      <div class="card-pearl">
+        <div class="h-sm">Full Guest Management</div>
+        <p class="body-sm" style="margin-top:1mm;">Instant responses, guest screening, arrival coordination, and experience management.</p>
+      </div>
+      <div class="card-pearl">
+        <div class="h-sm">Total Transparency</div>
+        <p class="body-sm" style="margin-top:1mm;">Owner portal to track bookings, revenue, and expenses at any time.</p>
+      </div>
+      <div class="card-pearl">
+        <div class="h-sm">Clear Monthly Reporting</div>
+        <p class="body-sm" style="margin-top:1mm;">Revenue, expenses, occupancy rate, and ADR in one clear monthly report.</p>
+      </div>
+    </div>
+
+    <div class="hbox">
+      <div style="position:relative; z-index:2;">
+        <div style="font-size:7pt; font-weight:700; letter-spacing:2.5px; text-transform:uppercase; color:var(--gold); margin-bottom:2mm;">Our Promise</div>
+        <div style="font-family:'Playfair Display',serif; font-size:14pt; font-weight:600; font-style:italic; color:var(--white);">
+          "We treat your property as our own."
+        </div>
+        <p style="font-size:8.5pt; color:rgba(255,255,255,0.68); margin-top:2mm; line-height:1.65; max-width:145mm;">
+          Every decision we make — from pricing to housekeeping to guest communication — is made as if
+          the property were our own investment. That's not a claim. That's our operating standard.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <div class="footer-txt">kaza.hospitality · Confidential 2026</div>
+    <div class="page-num">04</div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 5 · SERVICE PORTFOLIO
+═══════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-logo">KAZA</div>
+    <div class="page-section">Service Portfolio</div>
+  </div>
+
+  <div class="content-tight">
+    <div class="eyebrow">Our Full Services</div>
+    <h1 class="h-lg">A complete management system from property<br/>readiness to <span class="gold-span">performance reporting.</span></h1>
+    <p class="body-md" style="margin-top:2mm; margin-bottom:5mm; max-width:160mm;">
+      Everything a smart property owner needs — from launch to monthly reporting —
+      under one integrated management system.
+    </p>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:3mm;">
+
+      <div class="svc">
+        <div class="svc-dot"><div class="svc-num">01</div></div>
+        <div>
+          <div class="h-sm">Property Launch &amp; Setup</div>
+          <p class="body-sm">We assess the property, define its positioning, identify readiness gaps, and prepare it for market.</p>
+        </div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-dot"><div class="svc-num">02</div></div>
+        <div>
+          <div class="h-sm">Luxury Furnishing &amp; Full Setup</div>
+          <p class="body-sm">Full hospitality-grade furnishing: furniture selection, styling, core equipment, and final readiness for premium guests.</p>
+        </div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-dot"><div class="svc-num">03</div></div>
+        <div>
+          <div class="h-sm">Revenue Management &amp; Dynamic Pricing</div>
+          <p class="body-sm">Pricing optimized by seasonality, demand, weekday/weekend patterns, and competitive context.</p>
+        </div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-dot"><div class="svc-num">04</div></div>
+        <div>
+          <div class="h-sm">Channel &amp; Booking Management</div>
+          <p class="body-sm">Distribution across Airbnb, Booking.com, Expedia, B2C marketplaces, direct booking, and partner networks.</p>
+        </div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-dot"><div class="svc-num">05</div></div>
+        <div>
+          <div class="h-sm">Professional Marketing</div>
+          <p class="body-sm">Photography direction, content creation, positioning, and conversion-focused B2C presentation across all channels.</p>
+        </div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-dot"><div class="svc-num">06</div></div>
+        <div>
+          <div class="h-sm">Guest Experience Management</div>
+          <p class="body-sm">Inquiry handling, guest qualification, arrival coordination, stay support, and review management.</p>
+        </div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-dot"><div class="svc-num">07</div></div>
+        <div>
+          <div class="h-sm">Housekeeping &amp; Quality Control</div>
+          <p class="body-sm">Cleaning coordination, readiness checklists, pre-arrival and post-departure quality checks.</p>
+        </div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-dot"><div class="svc-num">08</div></div>
+        <div>
+          <div class="h-sm">Maintenance Coordination</div>
+          <p class="body-sm">Issue tracking, vendor coordination, and operational follow-up to protect the asset's condition and value.</p>
+        </div>
+      </div>
+
+      <!-- Full-width last service -->
+      <div class="svc" style="grid-column:1/-1; background:var(--pearl); border-radius:2.5mm; padding:3.5mm 4.5mm; border:0.25mm solid var(--g200);">
+        <div class="svc-dot" style="background:var(--navy); border-color:var(--navy);">
+          <div class="svc-num" style="color:var(--gold);">09</div>
+        </div>
+        <div>
+          <div class="h-sm">Transparent Owner Reporting</div>
+          <p class="body-sm">
+            Clear monthly reporting on revenue, expenses, occupancy, ADR, and operational notes.
+            Full access via the owner portal — anytime, from anywhere.
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <div class="footer-txt">kaza.hospitality · Confidential 2026</div>
+    <div class="page-num">05</div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 6 · EXECUTIVE LEADERSHIP (dark)
+═══════════════════════════════════════════════ -->
+<div class="page" style="background:var(--navy); color:var(--white);">
+  <div class="page-header-dark">
+    <div class="page-logo-white">KAZA</div>
+    <div class="page-section">Executive Leadership</div>
+  </div>
+
+  <!-- Decorative circles -->
+  <div style="position:absolute; top:-25mm; right:-25mm; width:110mm; height:110mm; border-radius:50%; border:0.4mm solid rgba(197,160,89,0.14);"></div>
+  <div style="position:absolute; top:5mm; right:5mm; width:65mm; height:65mm; border-radius:50%; border:0.25mm solid rgba(197,160,89,0.08);"></div>
+
+  <div class="content" style="position:relative; z-index:2;">
+    <div class="eyebrow">The Leadership Behind KAZA</div>
+    <h1 class="h-xl" style="color:var(--white);">A team that ran world-class hotels<br/>now manages <span style="color:var(--gold);">your property.</span></h1>
+    <div class="divider-gold"></div>
+
+    <!-- Two column: bio + profile card -->
+    <div style="display:flex; gap:6mm; margin-bottom:5mm;">
+      <div style="flex:1;">
+        <p style="font-size:9.5pt; line-height:1.82; color:rgba(255,255,255,0.78); margin-bottom:3.5mm;">
+          KAZA is led by a hospitality executive with 30+ years of direct hands-on experience across luxury
+          hotels, international resorts, multi-property portfolios, full hotel openings, operational
+          restructuring, revenue optimization, and institutional asset management — spanning Egypt,
+          the Middle East, Africa, the USA, and Europe.
+        </p>
+        <p style="font-size:9.5pt; line-height:1.82; color:rgba(255,255,255,0.78);">
+          This is not a brokerage. This is hotel-grade operational leadership applied to your private property.
+        </p>
+
+        <div class="stats-row" style="margin-top:4.5mm;">
+          <div class="stat-box">
+            <div class="stat-val">30+</div>
+            <div class="stat-lbl">Years of Executive<br/>Experience</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val">9+</div>
+            <div class="stat-lbl">Global Hospitality<br/>Brands</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val">5</div>
+            <div class="stat-lbl">Egypt · Middle East<br/>Africa · USA · Europe</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Profile card -->
+      <div style="width:52mm; flex-shrink:0;">
+        <div style="background:rgba(255,255,255,0.05); border:0.3mm solid rgba(197,160,89,0.3); border-radius:3mm; padding:5mm; text-align:center;">
+          <div style="font-family:'Playfair Display',serif; font-size:14pt; font-weight:700; color:var(--white); margin-bottom:1.5mm;">Ashraf Khalil</div>
+          <div style="font-size:7pt; color:var(--gold); letter-spacing:1px; text-transform:uppercase; margin-bottom:4mm;">Executive Partner<br/>International Hospitality</div>
+          <div style="height:0.25mm; background:rgba(255,255,255,0.1); margin-bottom:4mm;"></div>
+          <div style="font-family:'Playfair Display',serif; font-style:italic; font-size:8.5pt; color:rgba(255,255,255,0.65); line-height:1.7;">
+            "Your property is not a rental — it's a hospitality asset that deserves professional management."
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Career bullets (two columns) -->
+    <div class="eyebrow" style="margin-bottom:2mm;">Career Highlights</div>
+    <div style="columns:2; gap:5mm;">
+      <ul class="bl bl-white">
+        <li>Direct operational experience with Mövenpick, InterContinental, Crowne Plaza, Holiday Inn, Rotana &amp; Millennium Hotels</li>
+        <li>Led openings &amp; full operations: Coral Sea, Tolip El Galala Majestic &amp; Palm Hills Hospitality</li>
+        <li>Multi-property P&amp;L management, revenue optimization &amp; financial performance across international markets</li>
+        <li>International SOP development, brand standards &amp; hospitality quality control implementation</li>
+        <li>Owner and investor relations at institutional hospitality standards</li>
+        <li>Hotel turnarounds: repositioning underperforming assets into profitable operations</li>
+      </ul>
+    </div>
+
+    <!-- Brand pills -->
+    <div style="margin-top:4mm;">
+      <div style="font-size:6.5pt; font-weight:600; letter-spacing:2.5px; text-transform:uppercase; color:rgba(255,255,255,0.35); margin-bottom:2.5mm;">International Brands — Direct Leadership Experience</div>
+      <div class="pills">
+        <span class="pill">Mövenpick</span>
+        <span class="pill">InterContinental</span>
+        <span class="pill">Crowne Plaza</span>
+        <span class="pill">Holiday Inn</span>
+        <span class="pill">Rotana</span>
+        <span class="pill">Millennium Hotels</span>
+        <span class="pill">Coral Sea</span>
+        <span class="pill">Tolip Galala</span>
+        <span class="pill">Palm Hills</span>
+      </div>
+      <p style="font-size:6pt; color:rgba(255,255,255,0.22); margin-top:2.5mm; font-style:italic;">
+        * These brands represent direct leadership experience within KAZA's executive team and do not imply a formal corporate affiliation with KAZA.
+      </p>
+    </div>
+  </div>
+
+  <div class="page-footer-dark">
+    <div class="footer-txt-dim">kaza.hospitality · Confidential 2026</div>
+    <div class="page-num-dim">06</div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 7 · WHY KAZA — COMPARISON
+═══════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-logo">KAZA</div>
+    <div class="page-section">Competitive Advantage</div>
+  </div>
+
+  <div class="content">
+    <div class="eyebrow">Quick Comparison</div>
+    <h1 class="h-lg">The difference between managing bookings<br/><span class="gold-span">and managing hospitality.</span></h1>
+    <div class="divider-gold"></div>
+
+    <p class="body-md" style="margin-bottom:5mm; max-width:165mm;">
+      Most property management options in the market offer basic booking coordination.
+      KAZA delivers a hotel-grade operating system — with entirely different results.
+    </p>
+
+    <table class="ctbl" style="margin-bottom:5mm;">
+      <thead>
+        <tr>
+          <th style="width:30%;">Standard</th>
+          <th style="width:35%;">Casual Management</th>
+          <th class="gold-th" style="width:35%;">KAZA</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Pricing Model</td>
+          <td>Fixed or emotional pricing</td>
+          <td class="kaza-td">Dynamic pricing and revenue optimization</td>
+        </tr>
+        <tr>
+          <td>Marketing Quality</td>
+          <td>Weak photography &amp; marketing</td>
+          <td class="kaza-td">Professional B2C presentation and verified experience</td>
+        </tr>
+        <tr>
+          <td>Distribution</td>
+          <td>Broker-led demand only</td>
+          <td class="kaza-td">Multi-channel + B2C + Direct booking strategy</td>
+        </tr>
+        <tr>
+          <td>Operations</td>
+          <td>Owner handles daily issues</td>
+          <td class="kaza-td">Professional guest and full operations management</td>
+        </tr>
+        <tr>
+          <td>Reporting</td>
+          <td>No performance visibility</td>
+          <td class="kaza-td">Transparent owner reporting with monthly statements</td>
+        </tr>
+        <tr>
+          <td>Asset Protection</td>
+          <td>Property wears down unmanaged</td>
+          <td class="kaza-td">Quality control and preventive asset protection</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="g2" style="gap:4mm;">
+      <div class="hbox" style="padding:5mm 6mm;">
+        <div style="position:relative; z-index:2;">
+          <div style="font-size:7pt; font-weight:700; text-transform:uppercase; letter-spacing:2px; color:var(--gold); margin-bottom:2mm;">Our Target Market</div>
+          <p style="font-size:8.5pt; color:rgba(255,255,255,0.78); line-height:1.7;">
+            Premium property owners in New Alamein, the North Coast, Ain Sokhna, Cairo,
+            and sought-after Egyptian destinations.
+          </p>
+        </div>
+      </div>
+      <div class="hbox" style="padding:5mm 6mm;">
+        <div style="position:relative; z-index:2;">
+          <div style="font-size:7pt; font-weight:700; text-transform:uppercase; letter-spacing:2px; color:var(--gold); margin-bottom:2mm;">Quality Standard</div>
+          <p style="font-size:8.5pt; color:rgba(255,255,255,0.78); line-height:1.7;">
+            KAZA only accepts properties that meet its hospitality and quality standards.
+            Not every unit qualifies — we maintain standards across the entire portfolio.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <div class="footer-txt">kaza.hospitality · Confidential 2026</div>
+    <div class="page-num">07</div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 8 · ONBOARDING PROCESS
+═══════════════════════════════════════════════ -->
+<div class="page" style="background:var(--pearl);">
+  <div class="page-header" style="background:var(--white);">
+    <div class="page-logo">KAZA</div>
+    <div class="page-section">Onboarding Journey</div>
+  </div>
+
+  <div class="content">
+    <div class="eyebrow">The Onboarding Journey</div>
+    <h1 class="h-lg" style="margin-bottom:2mm;">How your property joins <span class="gold-span">KAZA.</span></h1>
+    <p class="body-md" style="margin-bottom:6mm; max-width:155mm;">
+      A structured, six-step process to ensure every property is fully prepared,
+      positioned, and launched with complete operational readiness.
+    </p>
+
+    <!-- Steps with vertical connector line -->
+    <div style="position:relative;">
+      <div style="position:absolute; top:0; bottom:0; left:5.3mm; width:0.25mm; background:rgba(197,160,89,0.28);"></div>
+
+      <div class="pstep">
+        <div class="pnum">01</div>
+        <div style="flex:1;">
+          <div class="card-accent">
+            <div class="h-sm">Expression of Interest</div>
+            <p class="body-sm" style="margin-top:1mm;">Submit your property details or request an initial discussion with our partnerships team. No commitment required at this stage.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="pstep">
+        <div class="pnum">02</div>
+        <div style="flex:1;">
+          <div class="card-accent">
+            <div class="h-sm">Property Evaluation</div>
+            <p class="body-sm" style="margin-top:1mm;">We review the location, type, condition, furnishing, view, and operational suitability against KAZA's quality criteria.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="pstep">
+        <div class="pnum">03</div>
+        <div style="flex:1;">
+          <div class="card-accent">
+            <div class="h-sm">Revenue &amp; Readiness Review</div>
+            <p class="body-sm" style="margin-top:1mm;">We identify revenue opportunities, readiness gaps, pricing potential, photography requirements, and launch timeline.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="pstep">
+        <div class="pnum">04</div>
+        <div style="flex:1;">
+          <div class="card-accent">
+            <div class="h-sm">Partnership Structure</div>
+            <p class="body-sm" style="margin-top:1mm;">We agree on the management model, responsibilities, fees, reporting cadence, and payout timelines — full transparency before signing.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="pstep">
+        <div class="pnum">05</div>
+        <div style="flex:1;">
+          <div class="card-accent">
+            <div class="h-sm">Launch Setup</div>
+            <p class="body-sm" style="margin-top:1mm;">We prepare the property for market: professional photography, channel listings, pricing strategy, house rules, and operational checklists.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="pstep" style="margin-bottom:0;">
+        <div class="pnum" style="background:var(--pearl);">06</div>
+        <div style="flex:1;">
+          <div class="card-navy" style="border-left:1mm solid var(--gold-lt); border-radius:0 2.5mm 2.5mm 0; padding:3.5mm 4.5mm;">
+            <div class="h-sm" style="color:var(--gold);">Ongoing Management</div>
+            <p style="font-size:8pt; color:rgba(255,255,255,0.72); line-height:1.65; margin-top:1mm;">
+              We manage all bookings, guests, operations, maintenance, reporting, and continuous
+              performance optimization — so you don't have to.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer" style="background:var(--white);">
+    <div class="footer-txt">kaza.hospitality · Confidential 2026</div>
+    <div class="page-num">08</div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 9 · CONTACT & CTA
+═══════════════════════════════════════════════ -->
+<div class="page" style="background:var(--navy); color:var(--white);">
+  <!-- top gold strip -->
+  <div style="height:2.5mm; background:linear-gradient(90deg, var(--gold), var(--gold-lt), var(--gold));"></div>
+
+  <!-- Decorative circles -->
+  <div style="position:absolute; top:-20mm; right:-20mm; width:100mm; height:100mm; border-radius:50%; border:0.4mm solid rgba(197,160,89,0.12);"></div>
+  <div style="position:absolute; bottom:20mm; left:-15mm; width:65mm; height:65mm; border-radius:50%; border:0.3mm solid rgba(197,160,89,0.09);"></div>
+  <div style="position:absolute; bottom:35mm; right:20mm; width:35mm; height:35mm; border-radius:50%; background:rgba(197,160,89,0.04);"></div>
+
+  <!-- CTA content — vertically centered -->
+  <div style="flex:1; display:flex; flex-direction:column; justify-content:center; padding:14mm 16mm; position:relative; z-index:2;">
+
+    <div style="max-width:150mm; margin:0 auto; text-align:center;">
+
+      <div class="eyebrow" style="text-align:center; font-size:7.5pt; margin-bottom:5mm;">Start Now</div>
+
+      <h1 style="font-family:'Playfair Display',serif; font-size:25pt; font-weight:700; color:var(--white); line-height:1.3; margin-bottom:5mm;">
+        Is your property ready to become a<br/>
+        <span style="color:var(--gold);">high-performing hospitality asset?</span>
+      </h1>
+
+      <div style="width:18mm; height:0.6mm; background:var(--gold); margin:0 auto 5mm;"></div>
+
+      <p style="font-size:10pt; color:rgba(255,255,255,0.72); line-height:1.8; margin-bottom:7mm;">
+        If you own a premium unit in New Alamein, the North Coast, Ain Sokhna, Cairo,
+        or another sought-after Egyptian destination, KAZA can evaluate its revenue
+        potential and fit for professional management.
+      </p>
+
+      <!-- CTAs -->
+      <div style="display:inline-flex; gap:4mm; flex-wrap:wrap; justify-content:center; margin-bottom:8mm;">
+        <div style="padding:3mm 8mm; background:var(--gold); color:var(--navy); border-radius:10mm; font-weight:700; font-size:9.5pt; letter-spacing:0.3px;">
+          Request a Property Evaluation
+        </div>
+        <div style="padding:3mm 8mm; border:0.3mm solid rgba(255,255,255,0.28); color:var(--white); border-radius:10mm; font-size:9.5pt; font-weight:500;">
+          Book a Call with KAZA
+        </div>
+      </div>
+
+      <!-- Contact strip -->
+      <div style="border-top:0.25mm solid rgba(255,255,255,0.1); padding-top:6mm; margin-bottom:5mm;">
+        <div style="font-size:7pt; color:rgba(255,255,255,0.35); letter-spacing:2px; text-transform:uppercase; margin-bottom:3.5mm;">Owner Portal &amp; Contact</div>
+        <div style="display:flex; justify-content:center; gap:10mm; flex-wrap:wrap;">
+          <div style="text-align:center;">
+            <div style="font-size:7pt; color:rgba(255,255,255,0.38); text-transform:uppercase; letter-spacing:1px; margin-bottom:1mm;">Owner Portal</div>
+            <div style="font-size:9pt; color:var(--gold); font-weight:500;">demo-jade-beta.vercel.app/owner-dashboard</div>
+          </div>
+        </div>
+      </div>
+
+      <p style="font-size:7pt; color:rgba(255,255,255,0.28); font-style:italic;">
+        Initial evaluation does not guarantee acceptance. KAZA only accepts properties that meet its hospitality and quality standards.
+      </p>
+    </div>
+  </div>
+
+  <!-- bottom gold strip -->
+  <div style="height:2.5mm; background:linear-gradient(90deg, var(--gold), var(--gold-lt), var(--gold));"></div>
+</div>
+
+</body>
+</html>

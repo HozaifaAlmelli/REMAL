@@ -12,16 +12,21 @@ const OWNER_TRANSACTIONS = [
 ];
 
 export default function OwnerEarningsPage() {
+  const [avgNightRate, setAvgNightRate] = React.useState(2500);
+  const [occupiedNights, setOccupiedNights] = React.useState(15);
+
+  const expectedRevenue = avgNightRate * occupiedNights;
+
   return (
-    <div className="h-full flex flex-col animate-in fade-in duration-500">
-      <div className="flex justify-between items-end mb-8 shrink-0">
+    <div className="h-full flex flex-col animate-in fade-in duration-500 gap-6 md:gap-8">
+      <div className="flex justify-between items-end shrink-0">
         <div>
-          <h1 className="text-3xl font-extrabold text-gray-900 mb-2">أرباحي ودفعاتي</h1>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-2">أرباحي ودفعاتي</h1>
           <p className="text-gray-500 font-medium">متابعة إيرادات حجوزاتك، ودفعاتك المحولة من Kaza Booking.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 shrink-0">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 shrink-0">
         <Card padding="lg" className="bg-white border-none shadow-soft">
           <div className="flex items-center gap-4 mb-4">
             <div className="p-3 bg-brand-50 text-brand-600 rounded-2xl"><Wallet className="w-6 h-6" /></div>
@@ -45,7 +50,64 @@ export default function OwnerEarningsPage() {
         </Card>
       </div>
 
-      <Card padding="none" className="bg-white flex-1 overflow-hidden shadow-soft flex flex-col border-none">
+      <Card padding="none" className="bg-white border border-gray-100 shadow-soft rounded-3xl overflow-hidden shrink-0">
+        <div className="p-5 md:p-8">
+          <div className="text-center mb-6 md:mb-8">
+            <h2 className="text-2xl md:text-4xl font-black text-brand-950 tracking-tight mb-2">احسب أرباحك الشهرية المتوقعة</h2>
+            <p className="text-gray-500 font-medium">اختار متوسط سعر الليلة وعدد الليالي المحجوزة وشوف ناتج الأرباح فورًا.</p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 md:gap-8 items-stretch">
+            <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4 md:p-6 space-y-7">
+              <div>
+                <div className="flex items-center justify-between mb-3 gap-3">
+                  <p className="text-sm md:text-lg font-bold text-brand-950">متوسط سعر الليلة</p>
+                  <p className="text-lg md:text-2xl font-black text-accent-600">{avgNightRate.toLocaleString()} EGP</p>
+                </div>
+                <input
+                  type="range"
+                  min={500}
+                  max={10000}
+                  step={100}
+                  value={avgNightRate}
+                  onChange={(event) => setAvgNightRate(Number(event.target.value))}
+                  className="w-full h-2 accent-accent-600 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3 gap-3">
+                  <p className="text-sm md:text-lg font-bold text-brand-950">عدد الليالي المتوقعة في الشهر</p>
+                  <p className="text-lg md:text-2xl font-black text-accent-600">{occupiedNights} ليلة</p>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={30}
+                  step={1}
+                  value={occupiedNights}
+                  onChange={(event) => setOccupiedNights(Number(event.target.value))}
+                  className="w-full h-2 accent-accent-600 cursor-pointer"
+                />
+              </div>
+
+              <p className="text-sm text-gray-400 font-medium">* الأرقام تقديرية وتختلف حسب نوع الوحدة، الموسم، ومعدل الطلب.</p>
+            </div>
+
+            <div className="rounded-2xl bg-brand-900 text-white p-5 md:p-8 flex flex-col justify-center text-center">
+              <p className="text-lg md:text-3xl font-black mb-4">الأرباح الشهرية المتوقعة</p>
+              <div className="text-4xl md:text-6xl font-black tracking-tight text-accent-400 mb-6">
+                {expectedRevenue.toLocaleString()} <span className="text-white text-2xl md:text-4xl">EGP</span>
+              </div>
+              <button className="bg-white text-brand-900 font-bold py-3.5 px-6 rounded-full hover:bg-gray-100 transition-colors">
+                اطلب تقييم فعلي لوحدتك
+              </button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card padding="none" className="bg-white flex-1 overflow-hidden shadow-soft flex flex-col border-none min-h-[320px]">
         <div className="p-6 border-b border-gray-100">
           <h2 className="text-xl font-bold text-gray-900">سجل الحساب المالي</h2>
         </div>

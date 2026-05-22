@@ -32,16 +32,16 @@ export default function OwnerBookingsPage() {
   }, [filter]);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-20 max-w-7xl mx-auto">
+    <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500 pb-6 md:pb-20 max-w-7xl mx-auto">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 md:gap-6 bg-white p-5 md:p-8 rounded-[2rem] shadow-sm border border-gray-100">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-50 mb-3">
              <span className="w-2 h-2 rounded-full bg-brand-500"></span>
              <span className="text-xs font-bold text-brand-700">إدارة الحجوزات</span>
           </div>
-          <h1 className="text-3xl lg:text-4xl font-black text-brand-950 mb-2">سجل حجوزاتي</h1>
-          <p className="text-gray-500 font-medium text-lg">تتبع جميع الحجوزات الحالية، السابقة، والمعتمدة لوحداتك.</p>
+          <h1 className="text-2xl md:text-3xl lg:text-4xl font-black text-brand-950 mb-2">سجل حجوزاتي</h1>
+          <p className="text-gray-500 font-medium md:text-lg">تتبع جميع الحجوزات الحالية، السابقة، والمعتمدة لوحداتك.</p>
         </div>
         <div className="bg-gray-50 px-6 py-4 rounded-2xl border border-gray-100 text-center min-w-[140px]">
            <div className="text-sm font-bold text-gray-400 mb-1">إجمالي الحجوزات</div>
@@ -67,7 +67,7 @@ export default function OwnerBookingsPage() {
       </div>
 
       {/* Bookings List or Premium Empty State */}
-      <div className="min-h-[400px]">
+      <div className="min-h-[320px] md:min-h-[400px]">
         <AnimatePresence mode="wait">
           {bookings.length > 0 ? (
             <motion.div 

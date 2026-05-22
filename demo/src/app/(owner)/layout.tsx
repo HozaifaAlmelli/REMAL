@@ -102,14 +102,14 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-full overflow-y-auto relative pb-[76px] md:pb-0">
-        <div className="p-4 md:p-8 lg:p-12 w-full max-w-6xl mx-auto">
+      <main className="flex-1 flex flex-col h-full overflow-y-auto relative pb-[112px] md:pb-0">
+        <div className="px-4 pt-4 pb-2 md:p-8 lg:p-12 w-full max-w-6xl mx-auto">
           {children}
         </div>
       </main>
 
       {/* Mobile Bottom Navigation (0 - 640px) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex items-center px-2 pt-2 pb-safe-bottom h-[68px] z-40 shadow-[0_-8px_30px_rgba(0,0,0,0.06)]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex items-center px-2 pt-2 pb-2 h-[76px] z-40 shadow-[0_-8px_30px_rgba(0,0,0,0.06)]">
         <div className="flex w-full items-center justify-between px-2">
           {MENU_ITEMS.filter(item => !item.hiddenOnMobile).map((item, idx) => {
             const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
