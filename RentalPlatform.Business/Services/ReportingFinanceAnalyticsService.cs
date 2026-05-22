@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Models;
@@ -21,10 +22,12 @@ namespace RentalPlatform.Business.Services;
 public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<ReportingFinanceAnalyticsService> _logger;
 
-    public ReportingFinanceAnalyticsService(IUnitOfWork unitOfWork)
+    public ReportingFinanceAnalyticsService(IUnitOfWork unitOfWork, ILogger<ReportingFinanceAnalyticsService> logger)
     {
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<ReportingFinanceDailySummary>> GetDailySummaryAsync(
@@ -90,36 +93,38 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
         var payouts = await payoutsQuery.ToListAsync(cancellationToken);
 
         // Debug logging
-        Console.WriteLine($"[FinanceAnalytics] Date range: {dateFrom} to {dateTo}");
-        Console.WriteLine($"[FinanceAnalytics] Active invoices: {activeInvoices.Count}");
-        Console.WriteLine($"[FinanceAnalytics] Paid payments: {paidPayments.Count}");
-        Console.WriteLine($"[FinanceAnalytics] Total paid amount: {paidPayments.Sum(p => p.Amount)}");
-        
+        _logger.LogDebug("[FinanceAnalytics] Date range: {DateFrom} to {DateTo}", dateFrom, dateTo);
+        _logger.LogDebug("[FinanceAnalytics] Active invoices: {Count}", activeInvoices.Count);
+        _logger.LogDebug("[FinanceAnalytics] Paid payments: {Count}", paidPayments.Count);
+        _logger.LogDebug("[FinanceAnalytics] Total paid amount: {Total}", paidPayments.Sum(p => p.Amount));
+
         foreach (var payment in paidPayments)
         {
-            Console.WriteLine($"[FinanceAnalytics] Payment: {payment.Id}, Amount: {payment.Amount}, BookingId: {payment.BookingId}, InvoiceId: {payment.InvoiceId}, Status: {payment.PaymentStatus}");
+            _logger.LogDebug("[FinanceAnalytics] Payment: {Id}, Amount: {Amount}, BookingId: {BookingId}, InvoiceId: {InvoiceId}, Status: {Status}",
+                payment.Id, payment.Amount, payment.BookingId, payment.InvoiceId, payment.PaymentStatus);
         }
 
         var totalInvoiced = activeInvoices.Sum(i => i.TotalAmount);
         var totalPaid = paidPayments.Sum(p => p.Amount);
         var totalRemaining = totalInvoiced - totalPaid;
 
-        Console.WriteLine($"[FinanceAnalytics] RESULT - Invoiced: {totalInvoiced}, Paid: {totalPaid}, Remaining: {totalRemaining}");
+        _logger.LogDebug("[FinanceAnalytics] RESULT - Invoiced: {Invoiced}, Paid: {Paid}, Remaining: {Remaining}", totalInvoiced, totalPaid, totalRemaining);
 
         // Debug payout calculations
-        Console.WriteLine($"[FinanceAnalytics] Total payouts: {payouts.Count}");
+        _logger.LogDebug("[FinanceAnalytics] Total payouts: {Count}", payouts.Count);
         foreach (var payout in payouts)
         {
-            Console.WriteLine($"[FinanceAnalytics] Payout: {payout.Id}, BookingId: {payout.BookingId}, Status: '{payout.PayoutStatus}', Amount: {payout.PayoutAmount}");
+            _logger.LogDebug("[FinanceAnalytics] Payout: {Id}, BookingId: {BookingId}, Status: '{Status}', Amount: {Amount}",
+                payout.Id, payout.BookingId, payout.PayoutStatus, payout.PayoutAmount);
         }
 
         var pendingPayouts = payouts.Where(p => p.PayoutStatus == "pending").ToList();
         var scheduledPayouts = payouts.Where(p => p.PayoutStatus == "scheduled").ToList();
         var paidPayouts = payouts.Where(p => p.PayoutStatus == "paid").ToList();
 
-        Console.WriteLine($"[FinanceAnalytics] Pending payouts: {pendingPayouts.Count}, Total: {pendingPayouts.Sum(p => p.PayoutAmount)}");
-        Console.WriteLine($"[FinanceAnalytics] Scheduled payouts: {scheduledPayouts.Count}, Total: {scheduledPayouts.Sum(p => p.PayoutAmount)}");
-        Console.WriteLine($"[FinanceAnalytics] Paid payouts: {paidPayouts.Count}, Total: {paidPayouts.Sum(p => p.PayoutAmount)}");
+        _logger.LogDebug("[FinanceAnalytics] Pending payouts: {Count}, Total: {Total}", pendingPayouts.Count, pendingPayouts.Sum(p => p.PayoutAmount));
+        _logger.LogDebug("[FinanceAnalytics] Scheduled payouts: {Count}, Total: {Total}", scheduledPayouts.Count, scheduledPayouts.Sum(p => p.PayoutAmount));
+        _logger.LogDebug("[FinanceAnalytics] Paid payouts: {Count}, Total: {Total}", paidPayouts.Count, paidPayouts.Sum(p => p.PayoutAmount));
 
         return new FinanceAnalyticsSummaryResult
         {

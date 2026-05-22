@@ -30,6 +30,7 @@ export function useAdminNotificationSummary() {
     queryFn: () => notificationsService.getAdminSummary(),
     refetchInterval: 1000 * 60 * 2, // poll every 2 minutes for bell badge
     staleTime: 0,
+    retry: false,
   });
 }
 
@@ -103,6 +104,7 @@ export function useOwnerNotificationSummary() {
     queryFn: () => notificationsService.getOwnerSummary(),
     refetchInterval: 1000 * 60 * 2,
     staleTime: 0,
+    retry: false,
   });
 }
 
@@ -176,6 +178,7 @@ export function useClientNotificationSummary() {
     queryFn: () => notificationsService.getClientSummary(),
     refetchInterval: 1000 * 60 * 2,
     staleTime: 0,
+    retry: false,
   });
 }
 

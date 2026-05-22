@@ -3,14 +3,17 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Models;
 
 namespace RentalPlatform.Business.Interfaces;
 
 public interface IInvoiceService
 {
-    Task<IReadOnlyList<Invoice>> GetAllAsync(
+    Task<PagedResult<Invoice>> GetAllAsync(
         string? invoiceStatus = null,
         Guid? bookingId = null,
+        int page = 1,
+        int pageSize = 20,
         CancellationToken cancellationToken = default);
 
     Task<Invoice?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);

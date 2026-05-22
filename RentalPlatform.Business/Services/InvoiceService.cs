@@ -8,6 +8,7 @@ using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Models;
 
 namespace RentalPlatform.Business.Services;
 
@@ -20,9 +21,11 @@ public class InvoiceService : IInvoiceService
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<IReadOnlyList<Invoice>> GetAllAsync(
+    public async Task<PagedResult<Invoice>> GetAllAsync(
         string? invoiceStatus = null,
         Guid? bookingId = null,
+        int page = 1,
+        int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
         IQueryable<Invoice> query = _unitOfWork.Invoices.Query()
@@ -34,7 +37,14 @@ public class InvoiceService : IInvoiceService
         if (bookingId.HasValue)
             query = query.Where(i => i.BookingId == bookingId.Value);
 
-        return await query.OrderByDescending(i => i.CreatedAt).ToListAsync(cancellationToken);
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(i => i.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return new PagedResult<Invoice>(items, total);
     }
 
     public async Task<Invoice?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -307,110 +317,114 @@ public class InvoiceService : IInvoiceService
         if (duplicate)
             throw new ConflictException($"Invoice number '{normalizedNumber}' is already in use");
 
-        // Mark old invoice as superseded (not cancelled, to preserve audit trail)
-        oldInvoice.InvoiceStatus = "superseded";
-        oldInvoice.Notes = string.IsNullOrEmpty(oldInvoice.Notes)
-            ? $"Superseded by {normalizedNumber}"
-            : $"{oldInvoice.Notes}\n\nSuperseded by {normalizedNumber}";
-        oldInvoice.UpdatedAt = DateTime.UtcNow;
-        _unitOfWork.Invoices.Update(oldInvoice);
-
-        // Create new draft invoice with same structure
-        var newInvoice = new Invoice
+        await using var tx = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
         {
-            Id = Guid.NewGuid(),
-            BookingId = oldInvoice.BookingId,
-            InvoiceNumber = normalizedNumber,
-            InvoiceStatus = "draft",
-            SubtotalAmount = oldInvoice.SubtotalAmount,
-            TotalAmount = oldInvoice.TotalAmount,
-            Notes = notes?.Trim() ?? "Re-issued invoice",
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
+            // Mark old invoice as superseded (not cancelled, to preserve audit trail)
+            oldInvoice.InvoiceStatus = "superseded";
+            oldInvoice.Notes = string.IsNullOrEmpty(oldInvoice.Notes)
+                ? $"Superseded by {normalizedNumber}"
+                : $"{oldInvoice.Notes}\n\nSuperseded by {normalizedNumber}";
+            oldInvoice.UpdatedAt = DateTime.UtcNow;
+            _unitOfWork.Invoices.Update(oldInvoice);
 
-        await _unitOfWork.Invoices.AddAsync(newInvoice, cancellationToken);
-        
-        // Save the invoice first so it exists in the database before adding items
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        // Copy all line items from old invoice to new invoice
-        foreach (var oldItem in oldInvoice.InvoiceItems)
-        {
-            var newItem = new InvoiceItem
+            // Create new draft invoice with same structure
+            var newInvoice = new Invoice
             {
                 Id = Guid.NewGuid(),
-                InvoiceId = newInvoice.Id,
-                LineType = oldItem.LineType,
-                Description = oldItem.Description,
-                Quantity = oldItem.Quantity,
-                UnitAmount = oldItem.UnitAmount,
-                LineTotal = oldItem.LineTotal,
+                BookingId = oldInvoice.BookingId,
+                InvoiceNumber = normalizedNumber,
+                InvoiceStatus = "draft",
+                SubtotalAmount = oldInvoice.SubtotalAmount,
+                TotalAmount = oldInvoice.TotalAmount,
+                Notes = notes?.Trim() ?? "Re-issued invoice",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
 
-            await _unitOfWork.InvoiceItems.AddAsync(newItem, cancellationToken);
-        }
+            await _unitOfWork.Invoices.AddAsync(newInvoice, cancellationToken);
 
-        // Transfer ALL payments from old invoice to new invoice (including paid, pending, failed, cancelled)
-        var paymentsToTransfer = await _unitOfWork.Payments.Query()
-            .Where(p => p.InvoiceId == oldInvoice.Id)
-            .ToListAsync(cancellationToken);
+            // Flush so the new invoice row exists before FK-referencing items are inserted
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        decimal totalPaidFromTransferred = 0m;
-
-        foreach (var payment in paymentsToTransfer)
-        {
-            payment.InvoiceId = newInvoice.Id;
-            payment.UpdatedAt = DateTime.UtcNow;
-            _unitOfWork.Payments.Update(payment);
-            
-            // Track paid amount
-            if (payment.PaymentStatus == "paid")
+            // Copy all line items from old invoice to new invoice
+            foreach (var oldItem in oldInvoice.InvoiceItems)
             {
-                totalPaidFromTransferred += payment.Amount;
+                var newItem = new InvoiceItem
+                {
+                    Id = Guid.NewGuid(),
+                    InvoiceId = newInvoice.Id,
+                    LineType = oldItem.LineType,
+                    Description = oldItem.Description,
+                    Quantity = oldItem.Quantity,
+                    UnitAmount = oldItem.UnitAmount,
+                    LineTotal = oldItem.LineTotal,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                await _unitOfWork.InvoiceItems.AddAsync(newItem, cancellationToken);
             }
-        }
 
-        // Also link any unlinked payments for this booking
-        var unlinkedPayments = await _unitOfWork.Payments.Query()
-            .Where(p => p.BookingId == oldInvoice.BookingId && p.InvoiceId == null)
-            .ToListAsync(cancellationToken);
+            // Transfer ALL payments from old invoice to new invoice (including paid, pending, failed, cancelled)
+            var paymentsToTransfer = await _unitOfWork.Payments.Query()
+                .Where(p => p.InvoiceId == oldInvoice.Id)
+                .ToListAsync(cancellationToken);
 
-        foreach (var payment in unlinkedPayments)
-        {
-            payment.InvoiceId = newInvoice.Id;
-            payment.UpdatedAt = DateTime.UtcNow;
-            _unitOfWork.Payments.Update(payment);
-            
-            // Track paid amount
-            if (payment.PaymentStatus == "paid")
+            decimal totalPaidFromTransferred = 0m;
+
+            foreach (var payment in paymentsToTransfer)
             {
-                totalPaidFromTransferred += payment.Amount;
+                payment.InvoiceId = newInvoice.Id;
+                payment.UpdatedAt = DateTime.UtcNow;
+                _unitOfWork.Payments.Update(payment);
+
+                if (payment.PaymentStatus == "paid")
+                    totalPaidFromTransferred += payment.Amount;
             }
-        }
 
-        // Check if the new invoice should be marked as paid based on existing paid payments
-        if (totalPaidFromTransferred >= newInvoice.TotalAmount)
+            // Also link any unlinked payments for this booking
+            var unlinkedPayments = await _unitOfWork.Payments.Query()
+                .Where(p => p.BookingId == oldInvoice.BookingId && p.InvoiceId == null)
+                .ToListAsync(cancellationToken);
+
+            foreach (var payment in unlinkedPayments)
+            {
+                payment.InvoiceId = newInvoice.Id;
+                payment.UpdatedAt = DateTime.UtcNow;
+                _unitOfWork.Payments.Update(payment);
+
+                if (payment.PaymentStatus == "paid")
+                    totalPaidFromTransferred += payment.Amount;
+            }
+
+            // Determine final status for new invoice based on transferred paid amount
+            if (totalPaidFromTransferred >= newInvoice.TotalAmount)
+            {
+                newInvoice.InvoiceStatus = "paid";
+            }
+            else
+            {
+                // Auto-issue the new invoice since it's replacing an issued/paid invoice
+                newInvoice.InvoiceStatus = "issued";
+                newInvoice.IssuedAt = DateTime.UtcNow;
+            }
+
+            newInvoice.UpdatedAt = DateTime.UtcNow;
+            _unitOfWork.Invoices.Update(newInvoice);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            // Reload with items
+            return await _unitOfWork.Invoices.Query()
+                .Include(i => i.InvoiceItems)
+                .FirstOrDefaultAsync(i => i.Id == newInvoice.Id, cancellationToken) ?? newInvoice;
+        }
+        catch
         {
-            newInvoice.InvoiceStatus = "paid";
+            await tx.RollbackAsync(cancellationToken);
+            throw;
         }
-        else
-        {
-            // Auto-issue the new invoice since it's replacing an issued/paid invoice
-            newInvoice.InvoiceStatus = "issued";
-            newInvoice.IssuedAt = DateTime.UtcNow;
-        }
-
-        newInvoice.UpdatedAt = DateTime.UtcNow;
-        _unitOfWork.Invoices.Update(newInvoice);
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        // Reload with items
-        return await _unitOfWork.Invoices.Query()
-            .Include(i => i.InvoiceItems)
-            .FirstOrDefaultAsync(i => i.Id == newInvoice.Id, cancellationToken) ?? newInvoice;
     }
 }

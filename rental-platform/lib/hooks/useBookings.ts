@@ -46,6 +46,7 @@ export function useBookingFinanceSnapshot(bookingId: string) {
     staleTime: 2000, // Consider data stale after 2 seconds (reduced from 30s)
     refetchInterval: 5000, // Auto-refetch every 5 seconds
     refetchOnWindowFocus: true, // Refetch when user returns to tab
+    retry: false,
   });
 }
 
@@ -366,6 +367,7 @@ export function useInvoiceDetail(invoiceId: string | null) {
     refetchInterval: 5000, // Auto-refetch every 5 seconds
     refetchOnWindowFocus: true, // Refetch when user returns to tab
     staleTime: 2000, // Consider data stale after 2 seconds
+    retry: false,
   });
 }
 
@@ -398,6 +400,7 @@ export function useInvoiceBalance(invoiceId: string | null) {
     refetchInterval: 5000, // Auto-refetch every 5 seconds
     refetchOnWindowFocus: true, // Refetch when user returns to tab
     staleTime: 2000, // Consider data stale after 2 seconds
+    retry: false,
   });
 }
 

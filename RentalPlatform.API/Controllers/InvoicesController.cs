@@ -32,19 +32,13 @@ public class InvoicesController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        var allInvoices = await _invoiceService.GetAllAsync(invoiceStatus, bookingId);
+        var result = await _invoiceService.GetAllAsync(invoiceStatus, bookingId, page, pageSize);
 
-        int total = allInvoices.Count;
-        int totalPages = (int)Math.Ceiling(total / (double)pageSize);
+        int totalPages = (int)Math.Ceiling(result.Total / (double)pageSize);
         if (totalPages == 0) totalPages = 1;
 
-        var paged = allInvoices
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToList();
-
-        var response = paged.Select(MapToResponse).ToList();
-        var pagination = new PaginationMeta(total, page, pageSize, totalPages);
+        var response = result.Items.Select(MapToResponse).ToList();
+        var pagination = new PaginationMeta(result.Total, page, pageSize, totalPages);
 
         return Ok(ApiResponse<IReadOnlyList<InvoiceResponse>>.CreateSuccess(response, null, pagination));
     }
@@ -131,19 +125,6 @@ public class InvoicesController : ControllerBase
         return Ok(ApiResponse<object>.CreateSuccess(
             new { linkedPaymentsCount = linkedCount },
             $"Successfully linked {linkedCount} orphaned payment(s) to their invoices."
-        ));
-    }
-
-    // POST /api/internal/invoices/fix-paid-payments
-    [HttpPost("fix-paid-payments")]
-    [Authorize(Policy = "FinanceOrSuperAdmin")]
-    public async Task<ActionResult<ApiResponse<object>>> FixPaidPayments()
-    {
-        var linkedCount = await _invoiceService.LinkOrphanedPaymentsAsync();
-
-        return Ok(ApiResponse<object>.CreateSuccess(
-            new { linkedPaymentsCount = linkedCount },
-            $"Fixed {linkedCount} paid payment(s) by linking them to their invoices."
         ));
     }
 

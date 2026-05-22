@@ -123,18 +123,29 @@ public class BookingLifecycleService : IBookingLifecycleService
 
         await EnsureNoOverlap(booking.UnitId, booking.CheckInDate, booking.CheckOutDate, booking.Id, cancellationToken);
 
-        var oldStatus = booking.BookingStatus;
-        booking.BookingStatus = BookingStatus.Confirmed;
-        booking.UpdatedAt = DateTime.UtcNow;
+        await using var tx = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var oldStatus = booking.BookingStatus;
+            booking.BookingStatus = BookingStatus.Confirmed;
+            booking.UpdatedAt = DateTime.UtcNow;
 
-        _unitOfWork.Bookings.Update(booking);
-        await AppendStatusHistoryAsync(booking.Id, oldStatus, BookingStatus.Confirmed, changedByAdminUserId, notes, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+            _unitOfWork.Bookings.Update(booking);
+            await AppendStatusHistoryAsync(booking.Id, oldStatus, BookingStatus.Confirmed, changedByAdminUserId, notes, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        var invoiceNumber = $"INV-{booking.Id.ToString()[..8].ToUpper()}";
-        var draftInvoice = await _invoiceService.CreateDraftFromBookingAsync(
-            booking.Id, invoiceNumber, "Auto-generated on confirmation", cancellationToken);
-        await _invoiceService.IssueAsync(draftInvoice.Id, cancellationToken);
+            var invoiceNumber = $"INV-{booking.Id.ToString()[..8].ToUpper()}";
+            var draftInvoice = await _invoiceService.CreateDraftFromBookingAsync(
+                booking.Id, invoiceNumber, "Auto-generated on confirmation", cancellationToken);
+            await _invoiceService.IssueAsync(draftInvoice.Id, cancellationToken);
+
+            await tx.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
 
         return booking;
     }

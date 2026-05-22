@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using RentalPlatform.API.Options;
@@ -11,10 +12,12 @@ namespace RentalPlatform.API.Services;
 public class JwtTokenService : ITokenService
 {
     private readonly JwtOptions _options;
+    private readonly ILogger<JwtTokenService> _logger;
 
-    public JwtTokenService(IOptions<JwtOptions> options)
+    public JwtTokenService(IOptions<JwtOptions> options, ILogger<JwtTokenService> logger)
     {
         _options = options.Value;
+        _logger = logger;
     }
 
     public string GenerateAccessToken(AuthenticatedSubject subject)
@@ -78,8 +81,9 @@ public class JwtTokenService : ITokenService
 
             return principal;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Token validation failed");
             return null;
         }
     }

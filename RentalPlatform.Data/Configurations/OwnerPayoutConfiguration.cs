@@ -57,6 +57,9 @@ public class OwnerPayoutConfiguration : IEntityTypeConfiguration<OwnerPayout>
         builder.Property(op => op.PaidAt)
             .HasColumnName("paid_at");
 
+        builder.Property(op => op.ProofOfPaymentUrl)
+            .HasColumnName("proof_of_payment_url");
+
         builder.Property(op => op.Notes)
             .HasColumnName("notes");
 

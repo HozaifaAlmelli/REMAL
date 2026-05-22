@@ -16,6 +16,7 @@ export function usePaymentsList(filters?: PaymentListFilters) {
     refetchInterval: 5000, // Auto-refetch every 5 seconds
     refetchOnWindowFocus: true, // Refetch when user returns to tab
     staleTime: 2000, // Consider data stale after 2 seconds
+    retry: false,
   });
 }
 

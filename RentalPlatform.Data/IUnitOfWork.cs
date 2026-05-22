@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore.Storage;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Data.ReadModels;
 using RentalPlatform.Data.Repositories;
@@ -54,4 +55,11 @@ public interface IUnitOfWork
 
     int SaveChanges();
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Begins an explicit database transaction. All subsequent SaveChangesAsync calls
+    /// participate in the transaction; call CommitAsync/RollbackAsync on the returned
+    /// IDbContextTransaction to finalise or abort.
+    /// </summary>
+    Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default);
 }

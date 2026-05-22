@@ -171,17 +171,22 @@ public class ReviewModerationService : IReviewModerationService
     // Upserts the row (create if missing, update if exists).
     private async Task RecomputeSummaryAsync(Guid unitId, CancellationToken cancellationToken)
     {
-        var publishedReviews = await _unitOfWork.Reviews.Query()
+        var stats = await _unitOfWork.Reviews.Query()
             .Where(r => r.UnitId == unitId && r.ReviewStatus == "published")
-            .ToListAsync(cancellationToken);
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Count = g.Count(),
+                AverageRating = (double?)g.Average(r => r.Rating),
+                LastPublishedAt = g.Max(r => r.PublishedAt)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
 
-        var count = publishedReviews.Count;
-        var averageRating = count > 0
-            ? Math.Round(publishedReviews.Average(r => (decimal)r.Rating), 2)
+        var count = stats?.Count ?? 0;
+        var averageRating = stats?.AverageRating.HasValue == true
+            ? Math.Round((decimal)stats.AverageRating.Value, 2)
             : 0.00m;
-        var lastPublishedAt = count > 0
-            ? publishedReviews.Max(r => r.PublishedAt)
-            : null;
+        var lastPublishedAt = stats?.LastPublishedAt;
 
         var existing = await _unitOfWork.UnitReviewSummaries.GetByIdAsync(unitId, cancellationToken);
 

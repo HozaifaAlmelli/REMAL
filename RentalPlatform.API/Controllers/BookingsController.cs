@@ -36,21 +36,14 @@ public class BookingsController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        var allBookings = await _bookingService.GetAllAsync(bookingStatus, assignedAdminUserId, clientId, ownerId, search);
-        
-        int total = allBookings.Count;
-        int totalPages = (int)Math.Ceiling(total / (double)pageSize);
+        var result = await _bookingService.GetAllAsync(bookingStatus, assignedAdminUserId, clientId, ownerId, search, page, pageSize);
+
+        int totalPages = (int)Math.Ceiling(result.Total / (double)pageSize);
         if (totalPages == 0) totalPages = 1;
-        
-        var pagedBookings = allBookings
-            .OrderByDescending(b => b.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToList();
-            
-        var response = pagedBookings.Select(MapToListItemResponse).ToList();
-        var pagination = new PaginationMeta(total, page, pageSize, totalPages);
-        
+
+        var response = result.Items.Select(MapToListItemResponse).ToList();
+        var pagination = new PaginationMeta(result.Total, page, pageSize, totalPages);
+
         return Ok(ApiResponse<IReadOnlyList<BookingListItemResponse>>.CreateSuccess(response, null, pagination));
     }
 

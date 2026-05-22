@@ -10,6 +10,7 @@ using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Enums;
+using RentalPlatform.Shared.Models;
 
 namespace RentalPlatform.Business.Services;
 
@@ -26,12 +27,14 @@ public class BookingService : IBookingService
         _availabilityService = availabilityService;
     }
 
-    public async Task<IReadOnlyList<Booking>> GetAllAsync(
+    public async Task<PagedResult<Booking>> GetAllAsync(
         string? bookingStatus = null,
         Guid? assignedAdminUserId = null,
         Guid? clientId = null,
         Guid? ownerId = null,
         string? search = null,
+        int page = 1,
+        int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
         IQueryable<Booking> query = _unitOfWork.Bookings.Query()
@@ -46,19 +49,13 @@ public class BookingService : IBookingService
         }
 
         if (assignedAdminUserId.HasValue)
-        {
             query = query.Where(b => b.AssignedAdminUserId == assignedAdminUserId.Value);
-        }
 
         if (clientId.HasValue)
-        {
             query = query.Where(b => b.ClientId == clientId.Value);
-        }
 
         if (ownerId.HasValue)
-        {
             query = query.Where(b => b.OwnerId == ownerId.Value);
-        }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -69,7 +66,14 @@ public class BookingService : IBookingService
                 b.Unit.Name.ToLower().Contains(s));
         }
 
-        return await query.ToListAsync(cancellationToken);
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(b => b.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return new PagedResult<Booking>(items, total);
     }
 
     public async Task<Booking?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
