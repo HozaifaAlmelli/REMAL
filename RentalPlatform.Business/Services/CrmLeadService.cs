@@ -57,6 +57,15 @@ public class CrmLeadService : ICrmLeadService
         return await query.ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CrmLead>> GetByClientIdAsync(Guid clientId, CancellationToken cancellationToken = default)
+    {
+        return await _unitOfWork.CrmLeads.Query()
+            .Include(l => l.TargetUnit)
+            .Where(l => l.ClientId == clientId)
+            .OrderByDescending(l => l.CreatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<CrmLead?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _unitOfWork.CrmLeads.Query()

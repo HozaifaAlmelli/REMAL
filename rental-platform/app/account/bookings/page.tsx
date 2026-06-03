@@ -14,6 +14,7 @@ export default function ClientBookingsPage() {
     pageSize: 20,
   });
   const bookings = data?.items ?? [];
+  console.log("CLIENT BOOKINGS FETCHED:", data);
 
   return (
     <div className="space-y-6">

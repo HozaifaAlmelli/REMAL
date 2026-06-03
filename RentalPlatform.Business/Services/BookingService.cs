@@ -129,7 +129,7 @@ public class BookingService : IBookingService
 
         // --- Operational availability check (date blocks) ---
         var availability = await _availabilityService.CheckOperationalAvailabilityAsync(
-            unitId, pricingStartDate, pricingEndDate, cancellationToken);
+            unitId, pricingStartDate, pricingEndDate, cancellationToken: cancellationToken);
         if (!availability.IsAvailable)
             throw new ConflictException(
                 $"Unit {unitId} is not operationally available for the requested dates: {availability.Reason}");
@@ -231,7 +231,7 @@ public class BookingService : IBookingService
 
         // --- Re-check operational availability ---
         var availability = await _availabilityService.CheckOperationalAvailabilityAsync(
-            booking.UnitId, pricingStartDate, pricingEndDate, cancellationToken);
+            booking.UnitId, pricingStartDate, pricingEndDate, booking.Id, cancellationToken);
         if (!availability.IsAvailable)
             throw new ConflictException(
                 $"Unit {booking.UnitId} is not operationally available for the requested dates: {availability.Reason}");
@@ -309,7 +309,8 @@ public class BookingService : IBookingService
         var query = _unitOfWork.Bookings.Query()
             .Where(b => b.UnitId == unitId)
             .Where(b => holdingStatuses.Contains(b.BookingStatus))
-            .Where(b => checkInDate < b.CheckOutDate && checkOutDate > b.CheckInDate);
+            .Where(b => checkInDate < b.CheckOutDate && checkOutDate > b.CheckInDate)
+            .Where(b => b.Client.DeletedAt == null && b.Unit.DeletedAt == null);
 
         if (excludeBookingId.HasValue)
         {

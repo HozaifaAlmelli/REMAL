@@ -81,15 +81,15 @@ export function BookingStep3Review({
 
     // Build CRM lead request (P06 corrected)
     const leadRequest: PublicCreateCrmLeadRequest = {
-      targetUnitId: unit.id, // P06: targetUnitId, NOT unitId
-      desiredCheckInDate: startDate, // P06: desiredCheckInDate, NOT checkInDate
-      desiredCheckOutDate: endDate, // P06: desiredCheckOutDate, NOT checkOutDate
-      guestCount: guestCount, // P06: guestCount, NOT numberOfGuests
+      targetUnitId: unit.id,
+      desiredCheckInDate: startDate,
+      desiredCheckOutDate: endDate,
+      guestCount: guestCount || 1,
       source: "website",
-      contactName: contactName || "", // P06: contactName
-      contactPhone: contactPhone || "", // P06: contactPhone
-      contactEmail: contactEmail || undefined, // P06: contactEmail, optional
-      clientId: clientId || undefined, // P06: clientId, optional
+      contactName: contactName || "Client User",
+      contactPhone: contactPhone || "0000000000",
+      contactEmail: contactEmail || undefined,
+      clientId: clientId || undefined,
     };
 
     try {
@@ -102,8 +102,8 @@ export function BookingStep3Review({
         message?: string;
       };
       const message =
-        errorData?.response?.data?.message ||
         errorData?.response?.data?.errors?.[0] ||
+        errorData?.response?.data?.message ||
         errorData?.message ||
         "Something went wrong. Please try again.";
       setSubmitError(message);

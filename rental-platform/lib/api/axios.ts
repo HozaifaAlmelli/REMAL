@@ -81,6 +81,11 @@ api.interceptors.response.use(
     const message = data?.message ?? "Request failed";
     const errors = data?.errors ?? [];
 
+    // ── Ignore 401 for auth endpoints ──
+    if (status === 401 && (originalRequest.url?.includes('/login') || originalRequest.url?.includes('/register'))) {
+      throw new ApiError(status, message, errors);
+    }
+
     // ── 401: try refresh once ──
     if (status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
@@ -136,13 +141,16 @@ api.interceptors.response.use(
 
         // Hard redirect to the appropriate login page based on subjectType
         if (typeof window !== "undefined") {
-          const loginRoute =
-            subjectType === "Owner"
-              ? ROUTES.auth.ownerLogin
-              : subjectType === "Client"
-                ? ROUTES.auth.clientLogin
-                : ROUTES.auth.adminLogin;
-          window.location.href = loginRoute;
+          // Don't redirect if we are already on an auth page (prevents kicking users to admin login)
+          if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
+            const loginRoute =
+              subjectType === "Owner"
+                ? ROUTES.auth.ownerLogin
+                : subjectType === "Client"
+                  ? ROUTES.auth.clientLogin
+                  : ROUTES.auth.adminLogin;
+            window.location.href = loginRoute;
+          }
         }
 
         throw new ApiError(401, "Session expired");

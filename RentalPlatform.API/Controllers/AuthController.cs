@@ -10,6 +10,8 @@ using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Models;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using RentalPlatform.Data;
+using System;
 
 namespace RentalPlatform.API.Controllers;
 
@@ -21,17 +23,20 @@ public class AuthController : ControllerBase
     private readonly IClientService _clientService;
     private readonly ITokenService _tokenService;
     private readonly IWebHostEnvironment _environment;
+    private readonly IUnitOfWork _unitOfWork;
 
     public AuthController(
         IAuthService authService,
         IClientService clientService,
         ITokenService tokenService,
-        IWebHostEnvironment environment)
+        IWebHostEnvironment environment,
+        IUnitOfWork unitOfWork)
     {
         _authService = authService;
         _clientService = clientService;
         _tokenService = tokenService;
         _environment = environment;
+        _unitOfWork = unitOfWork;
     }
 
     [HttpPost("client/register")]
@@ -83,7 +88,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("refresh")]
-    public ActionResult<ApiResponse<AuthResponse>> Refresh()
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Refresh()
     {
         var refreshToken = Request.Cookies["refresh_token"];
         if (string.IsNullOrEmpty(refreshToken))
@@ -106,12 +111,45 @@ public class AuthController : ControllerBase
 
         // Normalize subjectType claim (JWT stores lowercase) back to PascalCase for the response body
         var normalizedSubjectType = char.ToUpper(subjectTypeClaim[0]) + subjectTypeClaim.Substring(1);
+        var userId = Guid.Parse(subClaim);
+
+        string? identifier = subClaim;
+        string? name = null;
+
+        if (normalizedSubjectType == "Client")
+        {
+            var client = await _unitOfWork.Clients.GetByIdAsync(userId);
+            if (client != null)
+            {
+                identifier = client.Phone;
+                name = client.Name;
+            }
+        }
+        else if (normalizedSubjectType == "Owner")
+        {
+            var owner = await _unitOfWork.Owners.GetByIdAsync(userId);
+            if (owner != null)
+            {
+                identifier = owner.Phone;
+                name = owner.Name;
+            }
+        }
+        else if (normalizedSubjectType == "Admin")
+        {
+            var admin = await _unitOfWork.AdminUsers.GetByIdAsync(userId);
+            if (admin != null)
+            {
+                identifier = admin.Email;
+                name = admin.Name;
+            }
+        }
 
         var subject = new AuthenticatedSubject
         {
-            UserId = Guid.Parse(subClaim),
+            UserId = userId,
             SubjectType = normalizedSubjectType,
-            Identifier = subClaim, // Best effort
+            Identifier = identifier,
+            Name = name,
             AdminRole = string.IsNullOrEmpty(roleClaim) ? null : Enum.Parse<Shared.Enums.AdminRole>(roleClaim)
         };
 

@@ -136,7 +136,7 @@ public class BookingLifecycleService : IBookingLifecycleService
         var pricingEndDate = booking.CheckOutDate.AddDays(-1);
 
         var availability = await _availabilityService.CheckOperationalAvailabilityAsync(
-            booking.UnitId, pricingStartDate, pricingEndDate, cancellationToken);
+            booking.UnitId, pricingStartDate, pricingEndDate, booking.Id, cancellationToken);
         if (!availability.IsAvailable)
             throw new ConflictException(
                 $"Cannot confirm booking {booking.Id}: unit {booking.UnitId} is not operationally available: {availability.Reason}");
@@ -269,6 +269,7 @@ public class BookingLifecycleService : IBookingLifecycleService
             .Where(b => holdingStatuses.Contains(b.BookingStatus))
             .Where(b => b.Id != excludeBookingId)
             .Where(b => checkInDate < b.CheckOutDate && checkOutDate > b.CheckInDate)
+            .Where(b => b.Client.DeletedAt == null && b.Unit.DeletedAt == null)
             .AnyAsync(cancellationToken);
 
         if (hasOverlap)

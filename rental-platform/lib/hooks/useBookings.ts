@@ -1,4 +1,4 @@
-﻿import {
+import {
   useQuery,
   useMutation,
   useQueryClient,
@@ -50,6 +50,19 @@ export function useBookingFinanceSnapshot(bookingId: string) {
   });
 }
 
+const handleMutationError = (error: any) => {
+  const apiMessage =
+    error.response?.data?.message ||
+    error.message ||
+    "An unexpected conflict occurred.";
+  const apiErrors =
+    error.response?.data?.errors ||
+    error.errors;
+  const displayMessage =
+    apiErrors && apiErrors.length > 0 ? apiErrors[0] : apiMessage;
+  toastError(displayMessage);
+};
+
 export function useConfirmBooking(bookingId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -70,6 +83,7 @@ export function useConfirmBooking(bookingId: string) {
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.invoices.all });
     },
+    onError: handleMutationError,
   });
 }
 
@@ -89,6 +103,7 @@ export function useBookedBooking(bookingId: string) {
         queryKey: queryKeys.bookings.statusHistory(bookingId),
       });
     },
+    onError: handleMutationError,
   });
 }
 
@@ -108,6 +123,7 @@ export function useRelevantBooking(bookingId: string) {
         queryKey: queryKeys.bookings.statusHistory(bookingId),
       });
     },
+    onError: handleMutationError,
   });
 }
 
@@ -127,6 +143,7 @@ export function useNoAnswerBooking(bookingId: string) {
         queryKey: queryKeys.bookings.statusHistory(bookingId),
       });
     },
+    onError: handleMutationError,
   });
 }
 
@@ -146,6 +163,7 @@ export function useNotRelevantBooking(bookingId: string) {
         queryKey: queryKeys.bookings.statusHistory(bookingId),
       });
     },
+    onError: handleMutationError,
   });
 }
 
@@ -168,6 +186,7 @@ export function useCancelBooking(bookingId: string) {
         queryKey: queryKeys.bookings.statusHistory(bookingId),
       });
     },
+    onError: handleMutationError,
   });
 }
 
@@ -190,6 +209,7 @@ export function useCompleteBooking(bookingId: string) {
         queryKey: queryKeys.bookings.statusHistory(bookingId),
       });
     },
+    onError: handleMutationError,
   });
 }
 
@@ -212,6 +232,7 @@ export function useCheckInBooking(bookingId: string) {
         queryKey: queryKeys.bookings.statusHistory(bookingId),
       });
     },
+    onError: handleMutationError,
   });
 }
 
@@ -234,6 +255,7 @@ export function useLeftEarlyBooking(bookingId: string) {
         queryKey: queryKeys.bookings.statusHistory(bookingId),
       });
     },
+    onError: handleMutationError,
   });
 }
 

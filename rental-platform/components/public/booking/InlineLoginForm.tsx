@@ -11,6 +11,7 @@ import { loginSchema, type LoginFormData } from "@/lib/validations/auth";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import api from "@/lib/api/axios";
+import { authService } from "@/lib/api/services/auth.service";
 import { endpoints } from "@/lib/api/endpoints";
 import { useAuthStore } from "@/lib/stores/auth.store";
 import { Eye, EyeOff } from "lucide-react";
@@ -43,11 +44,10 @@ export function InlineLoginForm({ onSuccess }: InlineLoginFormProps) {
     setLoginError(null);
 
     try {
-      const res = await api.post(endpoints.auth.clientLogin, {
-        phone: data.phone, // NOT email — clients use phone + password
+      const authData = await authService.clientLogin({
+        phone: data.phone,
         password: data.password,
       });
-      const authData = res.data as AuthResponse;
 
       // Populate auth store
       setAuth({

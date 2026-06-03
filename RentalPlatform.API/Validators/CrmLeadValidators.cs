@@ -13,11 +13,13 @@ public class PublicCreateCrmLeadRequestValidator : AbstractValidator<PublicCreat
     {
         RuleFor(x => x.ContactName)
             .NotEmpty()
+            .MaximumLength(150)
             .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
             .WithMessage("ContactName is required.");
 
         RuleFor(x => x.ContactPhone)
             .NotEmpty()
+            .MaximumLength(30)
             .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
             .WithMessage("ContactPhone is required.");
 
@@ -46,11 +48,13 @@ public class InternalCreateCrmLeadRequestValidator : AbstractValidator<InternalC
     {
         RuleFor(x => x.ContactName)
             .NotEmpty()
+            .MaximumLength(150)
             .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
             .WithMessage("ContactName is required.");
 
         RuleFor(x => x.ContactPhone)
             .NotEmpty()
+            .MaximumLength(30)
             .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
             .WithMessage("ContactPhone is required.");
 
@@ -79,11 +83,13 @@ public class UpdateCrmLeadRequestValidator : AbstractValidator<UpdateCrmLeadRequ
     {
         RuleFor(x => x.ContactName)
             .NotEmpty()
+            .MaximumLength(150)
             .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
             .WithMessage("ContactName is required.");
 
         RuleFor(x => x.ContactPhone)
             .NotEmpty()
+            .MaximumLength(30)
             .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
             .WithMessage("ContactPhone is required.");
 

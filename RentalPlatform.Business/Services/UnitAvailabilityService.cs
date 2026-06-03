@@ -21,7 +21,7 @@ public class UnitAvailabilityService : IUnitAvailabilityService
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<UnitAvailabilityResult> CheckOperationalAvailabilityAsync(Guid unitId, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default)
+    public async Task<UnitAvailabilityResult> CheckOperationalAvailabilityAsync(Guid unitId, DateOnly startDate, DateOnly endDate, Guid? excludeBookingId = null, CancellationToken cancellationToken = default)
     {
         if (startDate > endDate)
             throw new BusinessValidationException("Start date cannot be after end date");
@@ -67,11 +67,18 @@ public class UnitAvailabilityService : IUnitAvailabilityService
         }
 
         var holdingStatuses = BookingStatusTransitions.HoldingStatuses;
-        var overlappingBookings = await _unitOfWork.Bookings.Query()
+        var query = _unitOfWork.Bookings.Query()
             .Where(b => b.UnitId == unitId)
             .Where(b => holdingStatuses.Contains(b.BookingStatus))
             .Where(b => startDate < b.CheckOutDate && endDate > b.CheckInDate)
-            .ToListAsync(cancellationToken);
+            .Where(b => b.Client.DeletedAt == null && b.Unit.DeletedAt == null);
+
+        if (excludeBookingId.HasValue)
+        {
+            query = query.Where(b => b.Id != excludeBookingId.Value);
+        }
+
+        var overlappingBookings = await query.ToListAsync(cancellationToken);
 
         if (overlappingBookings.Any())
         {

@@ -219,6 +219,7 @@ export function useSubmitBookingRequest() {
       // Note: Client-side query keys for CRM are admin-only,
       // but we invalidate in case the user has admin access too
       queryClient.invalidateQueries({ queryKey: queryKeys.crm.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.clientBookings.all });
 
       // Also invalidate unit availability — the lead may affect availability
       if (data.targetUnitId) {

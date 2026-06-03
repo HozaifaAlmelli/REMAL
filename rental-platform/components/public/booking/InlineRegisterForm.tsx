@@ -12,6 +12,7 @@ import { registerSchema, type RegisterFormData } from "@/lib/validations/auth";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import api from "@/lib/api/axios";
+import { authService } from "@/lib/api/services/auth.service";
 import { endpoints } from "@/lib/api/endpoints";
 import { useAuthStore } from "@/lib/stores/auth.store";
 import toast from "react-hot-toast";
@@ -55,20 +56,15 @@ export function InlineRegisterForm({ onSuccess }: InlineRegisterFormProps) {
         email: data.email || undefined, // Send undefined, NOT empty string
         password: data.password,
       };
-      const registerRes = await api.post(
-        endpoints.auth.clientRegister,
-        registerPayload
-      );
-      const profile = registerRes.data as ClientProfileResponse;
+      const profile = await authService.clientRegister(registerPayload);
 
       // Step 2: Auto-login — obtain JWT with same credentials
       // This MUST happen immediately after registration
       try {
-        const loginRes = await api.post(endpoints.auth.clientLogin, {
+        const authData = await authService.clientLogin({
           phone: data.phone,
           password: data.password,
         });
-        const authData = loginRes.data as AuthResponse;
 
         // Step 3: Populate auth store
         setAuth({
@@ -81,7 +77,7 @@ export function InlineRegisterForm({ onSuccess }: InlineRegisterFormProps) {
 
         // Step 4: Pass contact info to parent booking form
         onSuccess({
-          clientId: profile.id,
+          clientId: authData.user.userId,
           contactName: profile.name,
           contactPhone: profile.phone,
           contactEmail: profile.email,
