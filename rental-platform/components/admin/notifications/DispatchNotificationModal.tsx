@@ -160,9 +160,6 @@ export function DispatchNotificationModal({
         toast.success("Notification sent successfully");
         handleClose();
       },
-      onError: () => {
-        toast.error("Could not send notification");
-      },
     };
 
     switch (data.recipientType) {

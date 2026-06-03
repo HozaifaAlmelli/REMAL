@@ -15,23 +15,46 @@ using RentalPlatform.Data.Entities;
 namespace RentalPlatform.API.Controllers;
 
 [ApiController]
+[Route("api/internal/notifications")]
 [Authorize(Policy = "AdminAuthenticated")]
 public class InternalNotificationsController : ControllerBase
 {
     private readonly INotificationService _notificationService;
+    private readonly IAdminUserService _adminUserService;
 
-    public InternalNotificationsController(INotificationService notificationService)
+    public InternalNotificationsController(
+        INotificationService notificationService,
+        IAdminUserService adminUserService)
     {
         _notificationService = notificationService;
+        _adminUserService = adminUserService;
     }
 
     // POST /api/internal/notifications/admins/{adminUserId}
-    [HttpPost("api/internal/notifications/admins/{adminUserId}")]
+    [HttpPost("admins/{adminUserId}")]
     public async Task<ActionResult<ApiResponse<NotificationResponse>>> CreateForAdmin(
         Guid adminUserId,
         [FromBody] CreateAdminNotificationRequest request,
         CancellationToken cancellationToken)
     {
+        var adminUser = await _adminUserService.GetByIdAsync(adminUserId, cancellationToken);
+        if (adminUser == null)
+        {
+            return BadRequest(new ApiResponse<NotificationResponse>
+            {
+                Success = false,
+                Errors = new[] { "The specified Admin User target identifier does not exist." }
+            });
+        }
+        if (!adminUser.IsActive)
+        {
+            return BadRequest(new ApiResponse<NotificationResponse>
+            {
+                Success = false,
+                Errors = new[] { "The specified Admin User is not active." }
+            });
+        }
+
         var notification = await _notificationService.CreateForAdminAsync(
             templateCode: request.TemplateCode,
             channel: request.Channel,
@@ -45,7 +68,7 @@ public class InternalNotificationsController : ControllerBase
     }
 
     // POST /api/internal/notifications/clients/{clientId}
-    [HttpPost("api/internal/notifications/clients/{clientId}")]
+    [HttpPost("clients/{clientId}")]
     public async Task<ActionResult<ApiResponse<NotificationResponse>>> CreateForClient(
         Guid clientId,
         [FromBody] CreateClientNotificationRequest request,
@@ -64,7 +87,7 @@ public class InternalNotificationsController : ControllerBase
     }
 
     // POST /api/internal/notifications/owners/{ownerId}
-    [HttpPost("api/internal/notifications/owners/{ownerId}")]
+    [HttpPost("owners/{ownerId}")]
     public async Task<ActionResult<ApiResponse<NotificationResponse>>> CreateForOwner(
         Guid ownerId,
         [FromBody] CreateOwnerNotificationRequest request,
@@ -83,7 +106,7 @@ public class InternalNotificationsController : ControllerBase
     }
 
     // GET /api/internal/notifications/{notificationId}
-    [HttpGet("api/internal/notifications/{notificationId}")]
+    [HttpGet("{notificationId}")]
     public async Task<ActionResult<ApiResponse<NotificationResponse>>> GetById(
         Guid notificationId,
         CancellationToken cancellationToken)
@@ -97,7 +120,7 @@ public class InternalNotificationsController : ControllerBase
     }
 
     // GET /api/internal/notifications
-    [HttpGet("api/internal/notifications")]
+    [HttpGet]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<NotificationResponse>>>> GetAll(
         [FromQuery] GetNotificationsRequest request,
         CancellationToken cancellationToken)

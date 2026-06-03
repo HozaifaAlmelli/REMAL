@@ -14,6 +14,8 @@ import type {
   CreateClientNotificationRequest,
   CreateOwnerNotificationRequest,
 } from "../types/notification.types";
+import { ApiError } from "@/lib/api/api-error";
+import { toastError } from "@/lib/utils/toast";
 
 // ── Admin Inbox ──
 
@@ -248,6 +250,17 @@ export function useSendAdminNotification() {
       adminUserId: string;
       data: CreateAdminNotificationRequest;
     }) => notificationsService.sendToAdmin(adminUserId, data),
+    onError: (error: unknown) => {
+      if (error instanceof ApiError) {
+        if (error.errors && error.errors.length > 0) {
+          toastError(error.errors.join(", "));
+        } else {
+          toastError(error.message || "Failed to send admin notification");
+        }
+      } else {
+        toastError("Failed to send admin notification. Please try again.");
+      }
+    },
   });
 }
 
@@ -260,6 +273,17 @@ export function useSendClientNotification() {
       clientId: string;
       data: CreateClientNotificationRequest;
     }) => notificationsService.sendToClient(clientId, data),
+    onError: (error: unknown) => {
+      if (error instanceof ApiError) {
+        if (error.errors && error.errors.length > 0) {
+          toastError(error.errors.join(", "));
+        } else {
+          toastError(error.message || "Failed to send client notification");
+        }
+      } else {
+        toastError("Failed to send client notification. Please try again.");
+      }
+    },
   });
 }
 
@@ -272,5 +296,16 @@ export function useSendOwnerNotification() {
       ownerId: string;
       data: CreateOwnerNotificationRequest;
     }) => notificationsService.sendToOwner(ownerId, data),
+    onError: (error: unknown) => {
+      if (error instanceof ApiError) {
+        if (error.errors && error.errors.length > 0) {
+          toastError(error.errors.join(", "));
+        } else {
+          toastError(error.message || "Failed to send owner notification");
+        }
+      } else {
+        toastError("Failed to send owner notification. Please try again.");
+      }
+    },
   });
 }
