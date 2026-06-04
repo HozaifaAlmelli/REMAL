@@ -20,6 +20,9 @@ export default function FinalCTASection() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitted(true);
+    setTimeout(() => {
+      window.dispatchEvent(new Event("resize"));
+    }, 50);
   }
 
   return (

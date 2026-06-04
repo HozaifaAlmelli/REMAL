@@ -4,6 +4,8 @@ import "./globals.css";
 import SmoothScrollProvider from "@/components/SmoothScrollProvider";
 import { LanguageProvider } from "@/context/LanguageContext";
 
+import { Suspense } from "react";
+
 const playfair = Playfair_Display({
   variable: "--font-playfair",
   subsets: ["latin"],
@@ -31,7 +33,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col font-sans">
         <LanguageProvider>
-          <SmoothScrollProvider>{children}</SmoothScrollProvider>
+          <Suspense fallback={null}>
+            <SmoothScrollProvider>{children}</SmoothScrollProvider>
+          </Suspense>
         </LanguageProvider>
       </body>
     </html>

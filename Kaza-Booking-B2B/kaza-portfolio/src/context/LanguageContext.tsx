@@ -170,6 +170,115 @@ export const copy = {
     navLinks: ["مزايا الملاك", "خدماتنا", "لماذا KAZA", "من نحن", "تواصل معنا"],
     navPortal: "بوابة الملاك",
     navCta: "ابدأ الآن",
+    navSectors: "القطاعات",
+    sectorsMenu: {
+      booking: "كازا للحجوزات",
+      beach: "كازا للشاطئ",
+      breakfast: "كازا للإفطار",
+      restaurant: "كازا للمطعم",
+      furniture: "كازا للأثاث"
+    },
+
+    // Sectors
+    sectors: {
+      booking: {
+        title: "كازا لإدارة الحجوزات المتكاملة",
+        heroSubtitle: "عظّم عوائدك من خلال أنظمة حجز آلية ومتعددة القنوات وبمعايير ضيافة خمس نجوم.",
+        aboutSection: "تدمج كازا KAZA قوائم الوحدات عبر إير بي إن بي، وبوكينج، وإكسبيديا، وقنوات الحجز المباشر لمنع تكرار الحجوزات وتعظيم نسب الإشغال ديناميكيًا.",
+        features: [
+          "المزامنة متعددة القنوات: تحديثات فورية لتوفر الوحدات عبر جميع مواقع السفر العالمية.",
+          "محرك الحجز المباشر: حجوزات خالية من العمولات عبر شبكة كازا الخاصة.",
+          "إدارة التقويم الذكية: فحص مرن للضيوف وتنسيق تلقائي للتقاويم المتاحة."
+        ],
+        ctaText: "اطلب تقييم تكامل الحجوزات"
+      },
+      beach: {
+        title: "كازا لتشغيل الوحدات الساحلية والشاطئية",
+        heroSubtitle: "حوّل الفيلات والشاليهات الشاطئية إلى أصول ضيافة فاخرة ذات عوائد مرتفعة.",
+        aboutSection: "تتطلب الإيجارات الساحلية رعاية متخصصة. توفر كازا KAZA إدارة متكاملة مخصصة للعقارات الساحلية الراقية في العلمين والساحل والسخنة لضمان الصيانة المثالية ورضا الضيوف.",
+        features: [
+          "الحماية والصيانة من الرطوبة والملوحة: رعاية استباقية ضد الرطوبة وتآكل الشواطئ.",
+          "إدارة مستلزمات الشاطئ: تجهيز كامل لمستلزمات الشاطئ الفاخرة والمناشف والضيافة الخارجية.",
+          "تعظيم العائد الموسمي: تسعير ديناميكي للاستفادة القصوى من مواسم الصيف والعطلات الأسبوعية."
+        ],
+        ctaText: "اطلب تقييم إدارة وحدة ساحلية"
+      },
+      breakfast: {
+        title: "كازا لخدمات الفطور والطهي داخل الفيلات",
+        heroSubtitle: "قدّم لضيوفك وجبات فطور فندقية فاخرة من فئة الخمس نجوم مباشرة إلى موائدهم.",
+        aboutSection: "تبدأ تجربة الضيافة المميزة من الصباح الباكر. توفر كازا KAZA خدمات تقديم فطور منسقة وخيارات طهي داخل الوحدة لتمييز عقارك عن الإيجارات العادية.",
+        features: [
+          "سلال الفطور المنسقة: مكونات طازجة وفاخرة يتم تسليمها يومياً للضيوف.",
+          "تجربة الشيف الخاص: إعداد طعام مخصص داخل الفيلا بواسطة طهاة محترفين بمعايير الفنادق.",
+          "خطط وجبات مرنة: خيارات أساسية وفاخرة تلبي الاحتياجات الغذائية المفضلة للضيوف."
+        ],
+        ctaText: "استكشف تكامل خدمات الطعام"
+      },
+      restaurant: {
+        title: "كازا لشراكات المطاعم وتجارب الطهي",
+        heroSubtitle: "مزايا حصرية ووصول خاص لأرقى المطاعم لضيوف عقارك الفاخر.",
+        aboutSection: "نتعاون مع المطاعم المحلية الكبرى لتقديم حجوزات ذات أولوية لضيوف كازا KAZA، وخدمة التوصيل الحصرية من قوائم طعام راقية، وتنسيق فعاليات تناول طعام خاصة لتعزيز مستوى الإقامة.",
+        features: [
+          "حجوزات كبار الشخصيات (VIP): مقاعد مضمونة وحجز ذو أولوية في أرقى مطاعم المنطقة.",
+          "قوائم طعام حصرية بالوحدة: قوائم طعام منسقة خصيصاً من طهاة المطاعم الشريكة تُوصل للوحدة.",
+          "فعاليات تناول طعام خاصة: تنسيق بوفيهات وحفلات عشاء خاصة للمناسبات داخل الفيلا."
+        ],
+        ctaText: "اطلب تفاصيل برنامج الشراكات"
+      },
+      furniture: {
+        title: "كازا للأثاث والتجهيز الداخلي",
+        heroSubtitle: "حوّل الوحدات الفارغة إلى مساحات ضيافة مذهلة وذات أداء تشغيلي مرتفع بتصميم متكامل وتجهيزات أثاث راقية.",
+        aboutSection: "التصميم يحدد مستوى الطلب. يعمل قسم كازا للأثاث والتجهيز الداخلي مع مصممي ديكور محترفين لتجهيز وتوريد وتركيب أثاث فاخر عالي التحمل ومحسن للتشغيل التجاري.",
+        features: [
+          "حزم كازا للأثاث المتكاملة (مفتاح باليد): تنسيق كامل للمخططات، المشتريات، التوصيل، والتركيب.",
+          "متانة تجارية فندقية: أقمشة ومواد راقية مصممة لتحمل تشغيل الإيجارات المتكرر.",
+          "تنسيق داخلي جذاب للصور: تنسيق جمالي استراتيجي لتعزيز معدلات الحجز عبر الإنترنت."
+        ],
+        ctaText: "اطلب مقايسة كازا للأثاث والتجهيز"
+      }
+    },
+    pegasusSection: {
+      slogans: {
+        modernLiving: "مُصمم للحياة العصرية",
+        styleMeets: "حيث تتقاطع الأناقة مع تفاصيل الحياة اليومية",
+        kindServices: "دائماً في خدمتكم بأرقى المعايير"
+      },
+      overview: {
+        title: "بيجاسوس للمطابخ والدريسنج",
+        description: "تعتبر شركة بيجاسوس للمطابخ والدريسنج واحدة من أبرز الشركات الرائدة في تصميم وتصنيع المطابخ، والمتخصصة في الخزائن المخصصة وحلول الأثاث المدمج. تجمع الشركة بسلاسة بين الحرفية الفاخرة وجماليات التصميم الحديث والتقليدي المصممة خصيصاً لتتناسب مع المخططات المعمارية الفريدة وتفضيلات العملاء النخبوية."
+      },
+      commitments: {
+        productionScale: "حجم الإنتاج: تدير الشركة أحد أكبر المصانع المتخصصة في إنتاج المطابخ الفاخرة، غرف الملابس (Dressings)، وقطع الأثاث الفاخرة.",
+        hub: "مركز التصنيع: يقع المصنع الرئيسي في موقع استراتيجي في القاهرة، جمهورية مصر العربية.",
+        turnaround: "سرعة التنفيذ: نضمن التسليم والتركيب بجودة فائقة خلال ٢١ يوماً فقط من تاريخ توقيع العقد.",
+        qa: "ضمان الجودة: تقديم شهادة ضمان رسمية ومعتمدة لجميع المنتجات وقطع الأثاث التي يتم تسليمها."
+      },
+      philosophies: {
+        minimalist: "لمسات بسيطة: تفاصيل أقل، أناقة أكثر",
+        lighting: "حيث تصنع الإضاءة أبعاد المكان",
+        transformation: "شكل منزلك بلمسة مفعمة بالأناقة"
+      },
+      metrics: {
+        audienceLabel: "متابعون على منصات التواصل",
+        audienceVal: "١١٠ ألف+ متابع",
+        outputLabel: "حجم الإنتاج والكتالوج",
+        outputVal: "أكثر من ١٥٠ ألف منتج",
+        satisfactionLabel: "نسبة رضا العملاء",
+        satisfactionVal: "٤.٧ / ٥.٠ تقييمات إيجابية"
+      },
+      characteristics: {
+        lighting: "إضاءة تأكيدية ساحرة: دمج مكثف لأنظمة إضاءة LED المخصصة أسفل الخزائن، وداخل وحدات العرض الزجاجية، والمطورة في مسارات الأسقف لتعميق الإحساس بالفراغ.",
+        materials: "خامات استثنائية فاخرة: استخدام تشطيبات اللاكيه عالية اللمعان، أسطح رخامية سوداء متباينة، وخلفيات مذهلة من رخام الأونيكس الذهبي المضاء من الخلف.",
+        hidden: "مساحات الخدمة المخفية: هندسة فراغية مبتكرة تعتمد على أبواب جرارة خشبية مفرغة (Slatted) مصممة لإخفاء الأجهزة العملية مثل الغسالات، المجففات، وأحواض الخدمة بأناقة تامة.",
+        islands: "طاولات المطبخ المركزية (Islands): جزر وسطية واسعة مجهزة بمواقد مدمجة، أسطح متساوية، وامتداد هيكلي مخصص ليكون ركناً راقياً للإفطار."
+      },
+      contact: {
+        addressLabel: "عنوان المعرض",
+        addressVal: "سيلفر ستار مول، محور محمد نجيب، القاهرة الجديدة، مصر",
+        phone: "٠١٠٥٠٧٠٠٠٤٤",
+        website: "www.pegasuskitchens.com"
+      }
+    },
 
     // Form
     formTitle: "اطلب تقييم وحدتك",
@@ -185,6 +294,17 @@ export const copy = {
     formSubmit: "أرسل الطلب",
     formNote: "سيتواصل معك فريق KAZA خلال 24 ساعة.",
     formPrivacy: "سيتواصل معك فريق KAZA خلال 24 ساعة. لن يتم مشاركة بياناتك مع أي طرف ثالث.",
+    beachPage: {
+      hero: {
+        title: "إدارة تشغيل الشواطئ والمناطق الساحلية",
+        subtitle: "لمحات من تجارب تشغيل وإدارة وجهاتنا الساحلية الفاخرة."
+      },
+      ctaButton: "اكتشف المزيد على إنستاجرام",
+      videoSection: {
+        title: "أبرز لقطات إنستاجرام",
+        subtitle: "شاهد كواليس عملياتنا الحية وخبرتنا في تشغيل الشواطئ والمناطق الساحلية."
+      }
+    },
   },
   en: {
     heroEyebrow: "Luxury Vacation Rental Management & Hospitality Services",
@@ -312,6 +432,115 @@ export const copy = {
     navLinks: ["Owner Benefits", "Our Services", "Why KAZA", "About", "Contact"],
     navPortal: "Owner Portal",
     navCta: "Get Started",
+    navSectors: "Sectors",
+    sectorsMenu: {
+      booking: "KAZA Booking",
+      beach: "KAZA Beach",
+      breakfast: "KAZA Breakfast",
+      restaurant: "KAZA Restaurant",
+      furniture: "KAZA Furniture"
+    },
+
+    // Sectors
+    sectors: {
+      booking: {
+        title: "KAZA Booking Operations",
+        heroSubtitle: "Maximize yield with automated, multi-channel booking systems and five-star hospitality standards.",
+        aboutSection: "KAZA integrates property listings across Airbnb, Booking.com, Expedia, and direct B2C channels. We eliminate double-bookings and optimize occupancy dynamically.",
+        features: [
+          "Multi-Channel Sync: Real-time availability updates across all global travel sites.",
+          "Direct Booking Engine: Commission-free reservations via KAZA's proprietary network.",
+          "Smart Calendar Management: Flexible guest screening and automated calendar blockages."
+        ],
+        ctaText: "Request a Booking Integration Evaluation"
+      },
+      beach: {
+        title: "KAZA Beach & Coastal Operations",
+        heroSubtitle: "Turn your coastal villas and beachfront chalets into premium, high-yield hospitality assets.",
+        aboutSection: "Coastal rentals require specialized care. KAZA offers end-to-end management tailored for high-end coastal properties in Alamein, North Coast, and Sokhna, ensuring pristine maintenance and premium guest satisfaction.",
+        features: [
+          "Saltwater Protection & Maintenance: Preemptive care against coastal humidity and salt air corrosion.",
+          "Beach Amenities Management: Full setup of premium beach gear, towels, and outdoor hospitality.",
+          "Seasonal Yield Maximization: Dynamic pricing to capitalize on peak summer seasons and weekend escapes."
+        ],
+        ctaText: "Request Coastal Property Management Evaluation"
+      },
+      breakfast: {
+        title: "KAZA In-Villa Breakfast & Dining",
+        heroSubtitle: "Deliver standard-setting, five-star hotel breakfasts directly to your guests' dining tables.",
+        aboutSection: "A signature hospitality experience starts in the morning. KAZA provides curated breakfast catering and chef-prepared in-villa dining options that set your property apart from casual rental listings.",
+        features: [
+          "Curated Breakfast Baskets: Gourmet, locally sourced ingredients delivered fresh daily.",
+          "Private Chef Experience: Customized in-villa culinary preparation by professional hotel-grade chefs.",
+          "Flexible Meal Plans: Standard and premium options tailored to guest dietary requirements and preferences."
+        ],
+        ctaText: "Explore Dining Service Integrations"
+      },
+      restaurant: {
+        title: "KAZA Restaurant Partnerships",
+        heroSubtitle: "Exclusive culinary access and dining privileges for premium vacation rentals.",
+        aboutSection: "We partner with leading local restaurants and culinary hot spots to offer KAZA guests priority reservations, in-unit delivery from elite menus, and bespoke dining events, elevating the value of your property's concierge service.",
+        features: [
+          "VIP Reservations: Guaranteed seating and priority booking at the destination's top-tier restaurants.",
+          "Exclusive In-Unit Menus: Access to specially curated chef menus delivered directly to the property.",
+          "Bespoke Dining Events: Tailored catering and micro-events coordination for special occasions."
+        ],
+        ctaText: "Request Partnership Program Details"
+      },
+      furniture: {
+        title: "KAZA Furniture & Interior Setup",
+        heroSubtitle: "Transform empty units into stunning, high-performance hospitality spaces with turn-key design and custom furniture services.",
+        aboutSection: "Design dictates demand. KAZA's furniture and interior design department works with professional interior designers to curate, procure, and install high-durability, luxury furniture and equipment optimized for commercial rental operations.",
+        features: [
+          "Turn-key KAZA Furniture Packages: Complete layout curation, purchase, delivery, and setup.",
+          "Commercial-Grade Durability: High-end fabrics and materials designed to withstand vacation wear.",
+          "Photogenic Interior Styling: Strategic aesthetic placement to maximize listing click-through rates."
+        ],
+        ctaText: "Request a KAZA Furniture Quote"
+      }
+    },
+    pegasusSection: {
+      slogans: {
+        modernLiving: "Designed for modern living",
+        styleMeets: "Where style meets everyday living",
+        kindServices: "Always in your kind services"
+      },
+      overview: {
+        title: "Pegasus Kitchens & Dressings",
+        description: "Pegasus Kitchens & Dressings is a prominent kitchen design and manufacturing firm specializing in bespoke cabinetry and fitted furniture solutions. The company seamlessly blends premium craftsmanship with modern and traditional design aesthetics tailored to complement unique architectural layouts and client preferences."
+      },
+      commitments: {
+        productionScale: "Scale of Production: Operates one of the largest manufacturing facilities dedicated to producing high-end kitchens, dressings, and general furniture pieces.",
+        hub: "Manufacturing Hub: The primary factory is strategically located in Cairo, Egypt.",
+        turnaround: "Rapid Turnaround Time: Promises premium-quality delivery and installation within 21 days from the date of contract signing.",
+        qa: "Quality Assurance: Offers an official warranty across all delivered products and furniture items."
+      },
+      philosophies: {
+        minimalist: "Simple Touch & Less Details, More elegance",
+        lighting: "Where lighting creates spaces",
+        transformation: "Shape your Home with a Touch of Elegance"
+      },
+      metrics: {
+        audienceLabel: "Social Media Audience",
+        audienceVal: "110k+ Followers",
+        outputLabel: "Product Output / Catalog",
+        outputVal: "Over 150k Products",
+        satisfactionLabel: "Customer Satisfaction",
+        satisfactionVal: "4.7 / 5.0 Good Reviews"
+      },
+      characteristics: {
+        lighting: "Dramatic Accent Lighting: Extensive integration of custom LED strip lighting under cabinets, within glass display units, and built into ceiling tracks to amplify depth.",
+        materials: "Premium Materials: Inclusion of high-gloss lacquer finishes, contrasting black stone countertops, and striking backlit golden onyx/marble backsplashes.",
+        hidden: "Concealed Utility Spaces: Custom spatial architecture featuring slatted sliding doors designed to elegantly conceal functional appliances like washing machines, dryers, and service sinks.",
+        islands: "Modern Kitchen Islands: Spacious center islands built with integrated hobs, flush countertop surfaces, and extended structural breakfast bars."
+      },
+      contact: {
+        addressLabel: "Showroom Address",
+        addressVal: "Silver Star Mall, Mohamed Naguib Axis, New Cairo, Egypt",
+        phone: "01050700044",
+        website: "www.pegasuskitchens.com"
+      }
+    },
 
     formTitle: "Request a Property Evaluation",
     formName: "Full Name",
@@ -326,5 +555,16 @@ export const copy = {
     formSubmit: "Send Request",
     formNote: "KAZA team will contact you within 24 hours.",
     formPrivacy: "KAZA team will contact you within 24 hours. Your data will never be shared with third parties.",
+    beachPage: {
+      hero: {
+        title: "Coastal & Beachfront Operations",
+        subtitle: "Curated moments from our premium managed coastal escapes."
+      },
+      ctaButton: "Explore More on Instagram",
+      videoSection: {
+        title: "Instagram Video Highlights",
+        subtitle: "Watch behind-the-scenes moments of our beachfront operations."
+      }
+    },
   },
 } as const;

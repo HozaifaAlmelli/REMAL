@@ -23,16 +23,21 @@ export default function HeroSection() {
 
   useEffect(() => {
     if (!container.current) return;
-    gsap.to(".hero-bg", {
-      y: "20%",
-      ease: "none",
-      scrollTrigger: {
-        trigger: container.current,
-        start: "top top",
-        end: "bottom top",
-        scrub: true,
-      }
-    });
+    const ctx = gsap.context(() => {
+      gsap.to(".hero-bg", {
+        y: "20%",
+        ease: "none",
+        scrollTrigger: {
+          trigger: container.current,
+          start: "top top",
+          end: "bottom top",
+          scrub: true,
+          invalidateOnRefresh: true,
+        }
+      });
+    }, container);
+
+    return () => ctx.revert();
   }, []);
 
   return (
