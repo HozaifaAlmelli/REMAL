@@ -10,7 +10,10 @@
     "type-check": "tsc --noEmit",
     "format": "prettier --write .",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:client-smoke": "playwright test --config=playwright.client.config.ts",
+    "test:client-smoke:ui": "playwright test --config=playwright.client.config.ts --ui",
+    "test:client-smoke:headed": "playwright test --config=playwright.client.config.ts --headed"
   },
   "dependencies": {
     "@gsap/react": "^2.1.1",
