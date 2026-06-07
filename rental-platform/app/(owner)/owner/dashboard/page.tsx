@@ -29,7 +29,9 @@ export default function OwnerDashboardPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-800">Dashboard</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+          Dashboard
+        </h1>
           <p className="mt-1 text-sm text-neutral-500">
             Welcome to your property management portal
           </p>
@@ -64,17 +66,19 @@ export default function OwnerDashboardPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-800">Dashboard</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+          Dashboard
+        </h1>
           <p className="mt-1 text-sm text-neutral-500">
             Welcome to your property management portal
           </p>
         </div>
 
-        <div className="rounded-lg border border-red-200 bg-red-50 p-6">
-          <h2 className="text-lg font-semibold text-red-700">
+        <div className="rounded-lg border border-error/30 bg-error/5 p-6">
+          <h2 className="text-lg font-semibold text-error">
             Failed to load dashboard
           </h2>
-          <p className="mt-1 text-sm text-red-600">
+          <p className="mt-1 text-sm text-neutral-600">
             We could not load the owner dashboard summary.
           </p>
           <Button variant="outline" onClick={() => refetch()} className="mt-4">
@@ -88,7 +92,9 @@ export default function OwnerDashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-neutral-800">Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+          Dashboard
+        </h1>
         <p className="mt-1 text-sm text-neutral-500">
           Welcome to your property management portal
         </p>
@@ -164,13 +170,13 @@ export default function OwnerDashboardPage() {
       <section className="flex flex-wrap gap-3">
         <Link
           href={ROUTES.owner.bookings}
-          className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+          className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-600"
         >
           View all bookings
         </Link>
         <Link
           href={ROUTES.owner.finance}
-          className="rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-50"
+          className="rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
         >
           View finance
         </Link>

@@ -2,136 +2,77 @@ import Link from "next/link";
 import type { OwnerPortalFinanceRowResponse } from "@/lib/types/owner-portal.types";
 import { formatCurrency, formatDate } from "@/lib/utils/format";
 import { ROUTES } from "@/lib/constants/routes";
-import { PAYOUT_STATUS_COLORS } from "@/lib/constants/payout-statuses";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 
 interface OwnerFinanceTableProps {
   rows: OwnerPortalFinanceRowResponse[];
 }
 
 export function OwnerFinanceTable({ rows }: OwnerFinanceTableProps) {
-  const getInvoiceStatusColor = (status: string) => {
-    switch (status) {
-      case "Draft":
-        return "bg-neutral-100 text-neutral-700";
-      case "Issued":
-        return "bg-blue-100 text-blue-700";
-      case "Cancelled":
-        return "bg-red-100 text-red-700";
-      default:
-        return "bg-neutral-100 text-neutral-700";
-    }
-  };
-
-  const getPayoutStatusColor = (status: string | null) => {
-    if (!status) return "bg-neutral-100 text-neutral-500";
-
-    const colorMap = {
-      warning: "bg-yellow-100 text-yellow-700",
-      info: "bg-blue-100 text-blue-700",
-      success: "bg-green-100 text-green-700",
-      danger: "bg-red-100 text-red-700",
-    };
-
-    const color = PAYOUT_STATUS_COLORS[status] || "warning";
-    return colorMap[color];
-  };
-
   return (
-    <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
+    <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-sm">
       <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-neutral-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-500">
-                Booking ID
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-500">
-                Unit ID
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-500">
-                Invoice Status
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-500">
-                Invoiced Amount
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-500">
-                Paid Amount
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-500">
-                Remaining Amount
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-500">
-                Payout Amount
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-500">
-                Payout Status
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-500">
-                Payout Paid At
-              </th>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-xs font-medium uppercase tracking-wide text-neutral-500">
+              <th className="px-4 py-3 font-medium">Booking</th>
+              <th className="px-4 py-3 font-medium">Unit</th>
+              <th className="px-4 py-3 font-medium">Invoice</th>
+              <th className="px-4 py-3 text-right font-medium">Invoiced</th>
+              <th className="px-4 py-3 text-right font-medium">Paid</th>
+              <th className="px-4 py-3 text-right font-medium">Remaining</th>
+              <th className="px-4 py-3 text-right font-medium">Payout</th>
+              <th className="px-4 py-3 font-medium">Payout status</th>
+              <th className="px-4 py-3 font-medium">Paid at</th>
             </tr>
           </thead>
-          <tbody className="bg-white">
+          <tbody className="divide-y divide-neutral-200">
             {rows.map((row) => (
               <tr
                 key={row.bookingId}
-                className="border-b border-neutral-200 transition-colors hover:bg-neutral-50"
+                className="transition-colors hover:bg-neutral-50"
               >
-                <td className="px-4 py-3 text-sm">
+                <td className="px-4 py-3">
                   <Link
                     href={ROUTES.owner.bookingDetail(row.bookingId)}
-                    className="font-mono text-xs text-primary-600 hover:text-primary-700 hover:underline"
+                    className="font-mono text-xs text-primary-600 hover:underline"
                   >
-                    {row.bookingId.slice(0, 8)}...
-                  </Link>
-                </td>
-                <td className="px-4 py-3 text-sm">
-                  <Link
-                    href={ROUTES.owner.unitDetail(row.unitId)}
-                    className="font-mono text-xs text-primary-600 hover:text-primary-700 hover:underline"
-                  >
-                    {row.unitId.slice(0, 8)}...
+                    {row.bookingId.slice(0, 8)}
                   </Link>
                 </td>
                 <td className="px-4 py-3">
-                  <span
-                    className={[
-                      "inline-flex rounded-full px-2.5 py-1 text-xs font-medium",
-                      getInvoiceStatusColor(row.invoiceStatus),
-                    ].join(" ")}
+                  <Link
+                    href={ROUTES.owner.unitDetail(row.unitId)}
+                    className="font-mono text-xs text-primary-600 hover:underline"
                   >
-                    {row.invoiceStatus}
-                  </span>
+                    {row.unitId.slice(0, 8)}
+                  </Link>
                 </td>
-                <td className="px-4 py-3 text-sm font-medium text-neutral-900">
+                <td className="px-4 py-3">
+                  <StatusBadge status={row.invoiceStatus} />
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-neutral-900">
                   {formatCurrency(row.invoicedAmount)}
                 </td>
-                <td className="px-4 py-3 text-sm font-medium text-green-600">
+                <td className="px-4 py-3 text-right tabular-nums text-neutral-900">
                   {formatCurrency(row.paidAmount)}
                 </td>
-                <td className="px-4 py-3 text-sm font-medium text-orange-600">
+                <td className="px-4 py-3 text-right tabular-nums text-neutral-600">
                   {formatCurrency(row.remainingAmount)}
                 </td>
-                <td className="px-4 py-3 text-sm font-medium text-neutral-900">
+                <td className="px-4 py-3 text-right tabular-nums text-neutral-900">
                   {row.payoutAmount !== null
                     ? formatCurrency(row.payoutAmount)
                     : "—"}
                 </td>
                 <td className="px-4 py-3">
                   {row.payoutStatus ? (
-                    <span
-                      className={[
-                        "inline-flex rounded-full px-2.5 py-1 text-xs font-medium",
-                        getPayoutStatusColor(row.payoutStatus),
-                      ].join(" ")}
-                    >
-                      {row.payoutStatus}
-                    </span>
+                    <StatusBadge status={row.payoutStatus} />
                   ) : (
                     <span className="text-xs text-neutral-400">—</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-sm text-neutral-600">
+                <td className="px-4 py-3 tabular-nums text-neutral-600">
                   {formatDate(row.payoutPaidAt)}
                 </td>
               </tr>

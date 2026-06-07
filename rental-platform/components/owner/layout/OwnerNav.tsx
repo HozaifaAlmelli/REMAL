@@ -42,16 +42,28 @@ export function OwnerNav({ collapsed = false }: { collapsed?: boolean }) {
           <Link
             key={item.href}
             href={item.href}
+            aria-current={active ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
               active
-                ? "bg-primary-500 text-white"
-                : "text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900",
+                ? "bg-neutral-100 font-semibold text-neutral-900"
+                : "font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900",
               collapsed && "justify-center"
             )}
             title={collapsed ? item.label : undefined}
           >
-            <Icon className="h-5 w-5 flex-shrink-0" />
+            {active && (
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-1.5 start-0 w-0.5 rounded-full bg-primary-500"
+              />
+            )}
+            <Icon
+              className={cn(
+                "h-5 w-5 flex-shrink-0",
+                active ? "text-primary-500" : "text-neutral-400"
+              )}
+            />
             {!collapsed && <span>{item.label}</span>}
           </Link>
         );

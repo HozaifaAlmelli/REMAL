@@ -65,11 +65,11 @@ export default function OwnerLayout({
   }, []);
 
   if (!showApp) {
-    return <PortalSplash label="Loading your dashboard" />;
+    return <PortalSplash className="portal-owner" label="Loading your dashboard" />;
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div className="portal-owner content-density-balanced min-h-screen bg-neutral-50 text-neutral-700">
       <div className="flex min-h-screen">
         <OwnerSidebar />
         <div className="flex min-w-0 flex-1 flex-col">

@@ -78,7 +78,9 @@ export default function OwnerFinancePage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-800">Finance</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+            Finance
+          </h1>
           <p className="mt-1 text-sm text-neutral-500">
             View your financial summary and transaction history
           </p>
@@ -113,17 +115,19 @@ export default function OwnerFinancePage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-800">Finance</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+            Finance
+          </h1>
           <p className="mt-1 text-sm text-neutral-500">
             View your financial summary and transaction history
           </p>
         </div>
 
-        <div className="rounded-lg border border-red-200 bg-red-50 p-6">
-          <h2 className="text-lg font-semibold text-red-700">
+        <div className="rounded-lg border border-error/30 bg-error/5 p-6">
+          <h2 className="text-lg font-semibold text-error">
             Failed to load finance summary
           </h2>
-          <p className="mt-1 text-sm text-red-600">
+          <p className="mt-1 text-sm text-neutral-600">
             We could not load your financial summary.
           </p>
           <Button
@@ -142,7 +146,9 @@ export default function OwnerFinancePage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-800">Finance</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+            Finance
+          </h1>
           <p className="mt-1 text-sm text-neutral-500">
             View your financial summary and transaction history
           </p>
@@ -156,11 +162,11 @@ export default function OwnerFinancePage() {
           <OwnerFinanceSummary summary={dynamicSummary} />
         </section>
 
-        <div className="rounded-lg border border-red-200 bg-red-50 p-6">
-          <h2 className="text-lg font-semibold text-red-700">
+        <div className="rounded-lg border border-error/30 bg-error/5 p-6">
+          <h2 className="text-lg font-semibold text-error">
             Failed to load finance records
           </h2>
-          <p className="mt-1 text-sm text-red-600">
+          <p className="mt-1 text-sm text-neutral-600">
             We could not load your financial records.
           </p>
           <Button
@@ -200,7 +206,7 @@ export default function OwnerFinancePage() {
 
         {/* Empty state */}
         {rows.length === 0 ? (
-          <div className="rounded-lg border border-neutral-200 bg-white p-12 text-center">
+          <div className="rounded-lg border border-neutral-200 bg-white p-12 text-center shadow-sm">
             <p className="text-lg font-medium text-neutral-900">
               No financial records yet
             </p>
@@ -248,11 +254,11 @@ export default function OwnerFinancePage() {
       </section>
 
       {/* Read-only notice */}
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-        <p className="text-sm text-blue-700">
-          <strong>Note:</strong> This is a read-only view of your financial
-          records. For payout inquiries or adjustments, please contact your
-          account manager.
+      <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+        <p className="text-sm text-neutral-600">
+          <strong className="font-semibold text-neutral-900">Note:</strong> This
+          is a read-only view of your financial records. For payout inquiries or
+          adjustments, please contact your account manager.
         </p>
       </div>
     </div>
