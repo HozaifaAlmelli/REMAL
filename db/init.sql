@@ -139,5 +139,8 @@
 \echo '=== Running migration 0045: reports analytics integrity cleanup ==='
 \i /docker-entrypoint-initdb.d/migrations/0045_reports_analytics_integrity_cleanup.sql
 
+\echo '=== Running migration 0047: seed minimal dev login users (owners + clients) ==='
+\i /docker-entrypoint-initdb.d/migrations/0047_seed_minimal_dev_login.sql
+
 \echo '=== All migrations completed successfully ==='
 

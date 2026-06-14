@@ -1,3 +1,5 @@
+name: kaza
+
 services:
   # ── PostgreSQL 16 ──
   db:
@@ -11,7 +13,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - kaza_pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
       - ./db/migrations:/docker-entrypoint-initdb.d/migrations:ro
       - ./db/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
     healthcheck:
@@ -25,6 +27,7 @@ services:
     build:
       context: .
       dockerfile: RentalPlatform.API/Dockerfile
+    image: kaza-api
     container_name: kaza-api
     restart: unless-stopped
     ports:
@@ -44,4 +47,4 @@ services:
         condition: service_healthy
 
 volumes:
-  kaza_pgdata:
+  pgdata:
