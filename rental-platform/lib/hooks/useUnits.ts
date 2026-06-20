@@ -61,12 +61,16 @@ export function useUnitPricing(
 // INTERNAL QUERIES
 // ========================================
 
-export function useInternalUnitsList(filters?: UnitListFilters) {
+export function useInternalUnitsList(
+  filters?: UnitListFilters,
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: queryKeys.units.internalList(filters),
     queryFn: () => unitsService.getInternalList(filters),
     placeholderData: keepPreviousData,
     staleTime: 1000 * 60 * 2,
+    enabled: options?.enabled ?? true,
   });
 }
 

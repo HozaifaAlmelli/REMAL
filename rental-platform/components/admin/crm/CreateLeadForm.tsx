@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -11,7 +12,7 @@ import { Combobox } from "@/components/ui/Combobox";
 import { BOOKING_SOURCE_LABELS } from "@/lib/constants/booking-sources";
 import { useInternalUnitsList } from "@/lib/hooks/useUnits";
 import { useAvailabilityCheck } from "@/lib/hooks/usePublic";
-import { formatDateForApi } from "@/lib/utils/format";
+import { formatDateForApi, sanitizePhoneInput } from "@/lib/utils/format";
 import { AlertTriangle } from "lucide-react";
 import type { CreateCrmLeadRequest } from "@/lib/types/crm.types";
 
@@ -24,14 +25,21 @@ const BOOKING_SOURCE_OPTIONS = Object.entries(BOOKING_SOURCE_LABELS).map(
 
 const createLeadSchema = z.object({
   contactName: z.string().min(1, "Please enter the contact name"),
-  contactPhone: z.string().min(1, "Please enter the phone number"),
+  contactPhone: z
+    .string()
+    .min(1, "Please enter the phone number")
+    .regex(
+      /^\+?\d{10,15}$/,
+      "Invalid phone configuration. Provide 10-15 digits with an optional leading '+' format."
+    ),
   contactEmail: z.string().email("Enter a valid email address").optional().or(z.literal("")),
   targetUnitId: z.string().optional(),
   desiredCheckInDate: z.date().optional(),
   desiredCheckOutDate: z.date().optional(),
   guestCount: z
-    .union([z.number().int().min(1, "Guest count must be at least 1"), z.nan()])
-    .optional(),
+    .number({ invalid_type_error: "Please enter the guest count" })
+    .int("Guest count must be a whole number")
+    .min(1, "Guest count must be at least 1"),
   source: z.enum(["website", "direct", "whatsapp", "phone", "admin"]),
   notes: z.string().optional(),
 });
@@ -58,6 +66,7 @@ export function CreateLeadForm({
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(createLeadSchema),
+    mode: "onChange",
     defaultValues: {
       contactName: "",
       contactPhone: "",
@@ -69,10 +78,8 @@ export function CreateLeadForm({
     },
   });
 
-  const { data: unitsData, isLoading: isLoadingUnits } = useInternalUnitsList({
-    pageSize: 500,
-  });
   const targetUnitId = watch("targetUnitId");
+  const guestCount = watch("guestCount");
   const desiredCheckInDate = watch("desiredCheckInDate");
   const desiredCheckOutDate = watch("desiredCheckOutDate");
   const desiredStart = desiredCheckInDate
@@ -81,6 +88,27 @@ export function CreateLeadForm({
   const desiredEnd = desiredCheckOutDate
     ? formatDateForApi(desiredCheckOutDate)
     : null;
+  const nights =
+    desiredStart && desiredEnd
+      ? Math.round(
+          (new Date(desiredEnd).getTime() -
+            new Date(desiredStart).getTime()) /
+            86_400_000
+        )
+      : 0;
+  const hasValidRange = Boolean(desiredStart && desiredEnd && nights >= 1);
+  const hasInvalidCompleteRange = Boolean(
+    desiredStart && desiredEnd && nights < 1
+  );
+  const { data: unitsData, isLoading: isLoadingUnits } =
+    useInternalUnitsList(
+      {
+        pageSize: 500,
+        availableFrom: desiredStart ?? undefined,
+        availableTo: desiredEnd ?? undefined,
+      },
+      { enabled: hasValidRange }
+    );
   const { data: availability, isLoading: isCheckingAvailability } =
     useAvailabilityCheck(targetUnitId || "", desiredStart, desiredEnd);
   const hasDateConflict = availability?.isAvailable === false;
@@ -88,34 +116,58 @@ export function CreateLeadForm({
     value: u.id,
     label: u.name,
   }));
+  const selectedUnit = (unitsData?.items ?? []).find(
+    (unit) => unit.id === targetUnitId
+  );
+  const hasGuestCapacityConflict = Boolean(
+    selectedUnit && guestCount && guestCount > selectedUnit.maxGuests
+  );
+  const unitCapacityText = selectedUnit
+    ? `${selectedUnit.name} accepts up to ${selectedUnit.maxGuests} ${
+        selectedUnit.maxGuests === 1 ? "guest" : "guests"
+      }.`
+    : undefined;
+  const guestCapacityError = hasGuestCapacityConflict
+    ? `${unitCapacityText} Reduce the guest count or choose another unit.`
+    : undefined;
+  const phoneReg = register("contactPhone");
+
+  useEffect(() => {
+    if (!targetUnitId) return;
+
+    if (!hasValidRange) {
+      setValue("targetUnitId", undefined);
+      return;
+    }
+
+    if (
+      !isLoadingUnits &&
+      !(unitsData?.items ?? []).some((unit) => unit.id === targetUnitId)
+    ) {
+      setValue("targetUnitId", undefined);
+    }
+  }, [
+    hasValidRange,
+    isLoadingUnits,
+    setValue,
+    targetUnitId,
+    unitsData?.items,
+  ]);
 
   const handleFormSubmit = (values: FormValues) => {
     // Only parse valid numbers
-    const validGuestCount =
-      values.guestCount !== undefined && !Number.isNaN(values.guestCount)
-        ? values.guestCount
-        : undefined;
-
     const payload: CreateCrmLeadRequest = {
       contactName: values.contactName.trim(),
       contactPhone: values.contactPhone.trim(),
       contactEmail: values.contactEmail?.trim() || undefined,
       targetUnitId: values.targetUnitId || undefined,
       desiredCheckInDate: values.desiredCheckInDate
-        ? [
-          values.desiredCheckInDate.getFullYear(),
-          String(values.desiredCheckInDate.getMonth() + 1).padStart(2, "0"),
-          String(values.desiredCheckInDate.getDate()).padStart(2, "0"),
-        ].join("-")
+        ? formatDateForApi(values.desiredCheckInDate)
         : undefined,
       desiredCheckOutDate: values.desiredCheckOutDate
-        ? [
-          values.desiredCheckOutDate.getFullYear(),
-          String(values.desiredCheckOutDate.getMonth() + 1).padStart(2, "0"),
-          String(values.desiredCheckOutDate.getDate()).padStart(2, "0"),
-        ].join("-")
+        ? formatDateForApi(values.desiredCheckOutDate)
         : undefined,
-      guestCount: validGuestCount,
+      guestCount: values.guestCount,
       source: values.source,
       notes: values.notes?.trim() || undefined,
     };
@@ -124,6 +176,77 @@ export function CreateLeadForm({
 
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
+      <DateRangePicker
+        label="Desired dates"
+        value={{
+          from: desiredCheckInDate || null,
+          to: desiredCheckOutDate || null,
+        }}
+        onChange={(range) => {
+          setValue("desiredCheckInDate", range.from || undefined);
+          setValue("desiredCheckOutDate", range.to || undefined);
+        }}
+      />
+
+      {hasInvalidCompleteRange && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p className="font-medium">
+            Check-out date must be at least 1 night after check-in.
+          </p>
+        </div>
+      )}
+
+      <div className="w-full">
+        <label className="mb-1.5 block text-sm font-medium text-neutral-700">
+          Target unit
+        </label>
+        <Controller
+          name="targetUnitId"
+          control={control}
+          render={({ field }) => (
+            <Combobox
+              options={unitOptions}
+              value={field.value || null}
+              onChange={(val) => field.onChange(val || undefined)}
+              placeholder={
+                !hasValidRange
+                  ? "Select desired date range to view available units"
+                  : isLoadingUnits
+                    ? "Loading available units…"
+                    : "Search available units"
+              }
+              disabled={
+                isLoading ||
+                !hasValidRange ||
+                isLoadingUnits ||
+                unitOptions.length === 0
+              }
+            />
+          )}
+        />
+        {hasValidRange && !isLoadingUnits && unitOptions.length === 0 && (
+          <p className="mt-1 text-xs text-neutral-500">
+            No units available for this date frame. Try adjusting your dates.
+          </p>
+        )}
+      </div>
+
+      {hasDateConflict && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p className="font-medium">Selected dates are unavailable.</p>
+            <p className="mt-0.5">
+              {availability?.reason || "BookingConflict"}
+              {availability?.blockedDates?.length
+                ? `: ${availability.blockedDates.join(", ")}`
+                : ""}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         <Input
           label="Contact name"
@@ -135,7 +258,11 @@ export function CreateLeadForm({
         <Input
           label="Phone number"
           type="tel"
-          {...register("contactPhone")}
+          {...phoneReg}
+          onChange={(event) => {
+            event.target.value = sanitizePhoneInput(event.target.value);
+            phoneReg.onChange(event);
+          }}
           error={errors.contactPhone?.message}
           required
           disabled={isLoading}
@@ -166,62 +293,47 @@ export function CreateLeadForm({
             />
           )}
         />
-        <Input
-          label="Guest count"
-          type="number"
-          {...register("guestCount", { valueAsNumber: true })}
-          error={errors.guestCount?.message}
-          disabled={isLoading}
-        />
-      </div>
-
-      <div className="w-full">
-        <label className="mb-1.5 block text-sm font-medium text-neutral-700">
-          Target unit (optional)
-        </label>
         <Controller
-          name="targetUnitId"
+          name="guestCount"
           control={control}
           render={({ field }) => (
-            <Combobox
-              options={unitOptions}
-              value={field.value || null}
-              onChange={(val) => field.onChange(val || undefined)}
-              placeholder={
-                isLoadingUnits ? "Loading units..." : "Search unit name"
+            <Input
+              label="Guest count"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={selectedUnit?.maxGuests}
+              step={1}
+              required
+              name={field.name}
+              ref={field.ref}
+              value={field.value ?? ""}
+              onBlur={field.onBlur}
+              onKeyDown={(event) => {
+                if (["-", "+", "e", "E", "."].includes(event.key)) {
+                  event.preventDefault();
+                }
+              }}
+              onChange={(event) => {
+                if (event.target.value === "") {
+                  field.onChange(undefined);
+                  return;
+                }
+
+                const parsed = Number(event.target.value);
+                if (!Number.isFinite(parsed)) return;
+
+                field.onChange(Math.max(1, Math.trunc(parsed)));
+              }}
+              error={errors.guestCount?.message ?? guestCapacityError}
+              helperText={
+                unitCapacityText ?? "Select a unit to see its guest capacity."
               }
-              disabled={isLoading || isLoadingUnits}
+              disabled={isLoading}
             />
           )}
         />
       </div>
-
-      <DateRangePicker
-        label="Desired dates (optional)"
-        value={{
-          from: watch("desiredCheckInDate") || null,
-          to: watch("desiredCheckOutDate") || null,
-        }}
-        onChange={(range) => {
-          setValue("desiredCheckInDate", range.from || undefined);
-          setValue("desiredCheckOutDate", range.to || undefined);
-        }}
-      />
-
-      {hasDateConflict && (
-        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <div>
-            <p className="font-medium">Selected dates are unavailable.</p>
-            <p className="mt-0.5">
-              {availability?.reason || "BookingConflict"}
-              {availability?.blockedDates?.length
-                ? `: ${availability.blockedDates.join(", ")}`
-                : ""}
-            </p>
-          </div>
-        </div>
-      )}
 
       <div className="w-full">
         <label className="mb-1.5 block text-sm font-medium text-neutral-700">
@@ -247,7 +359,14 @@ export function CreateLeadForm({
         <Button
           type="submit"
           isLoading={isLoading || isCheckingAvailability}
-          disabled={hasDateConflict}
+          disabled={
+            hasDateConflict ||
+            !hasValidRange ||
+            !targetUnitId ||
+            !guestCount ||
+            hasGuestCapacityConflict ||
+            isLoadingUnits
+          }
         >
           Create lead
         </Button>

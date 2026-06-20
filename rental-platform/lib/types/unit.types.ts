@@ -46,6 +46,8 @@ export interface UnitListFilters {
   unitType?: UnitType;
   isActive?: boolean;
   search?: string;
+  availableFrom?: string; // YYYY-MM-DD
+  availableTo?: string; // YYYY-MM-DD
 }
 
 export interface CreateUnitRequest {

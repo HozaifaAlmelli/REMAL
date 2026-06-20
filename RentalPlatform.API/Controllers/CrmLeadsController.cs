@@ -64,7 +64,12 @@ public class CrmLeadsController : ControllerBase
             request.Notes
         );
 
-        return Ok(ApiResponse<CrmLeadDetailsResponse>.CreateSuccess(MapToDetailsResponse(lead), "Lead created successfully."));
+        return CreatedAtAction(
+            nameof(GetInternalLeadById),
+            new { id = lead.Id },
+            ApiResponse<CrmLeadDetailsResponse>.CreateSuccess(
+                MapToDetailsResponse(lead),
+                "Lead created successfully."));
     }
 
     // 2. GET /api/internal/crm/leads - Internal List

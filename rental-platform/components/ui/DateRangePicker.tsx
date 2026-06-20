@@ -91,7 +91,11 @@ export function DateRangePicker({
             defaultMonth={value.from ?? value.to ?? maxDate ?? undefined}
             onSelect={(range) => {
               onChange({ from: range?.from ?? null, to: range?.to ?? null })
-              if (range?.from && range?.to) {
+              if (
+                range?.from &&
+                range?.to &&
+                range.from.getTime() !== range.to.getTime()
+              ) {
                 setOpen(false)
               }
             }}

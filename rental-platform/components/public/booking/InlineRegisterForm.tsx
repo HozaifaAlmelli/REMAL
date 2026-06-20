@@ -15,6 +15,7 @@ import { authService } from "@/lib/api/services/auth.service";
 import { useAuthStore } from "@/lib/stores/auth.store";
 import toast from "react-hot-toast";
 import { Eye, EyeOff } from "lucide-react";
+import { sanitizePhoneInput } from "@/lib/utils/format";
 
 interface InlineRegisterFormProps {
   onSuccess: (data: {
@@ -98,6 +99,8 @@ export function InlineRegisterForm({ onSuccess }: InlineRegisterFormProps) {
     }
   };
 
+  const phoneReg = register("phone");
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
       {/* Name */}
@@ -115,7 +118,11 @@ export function InlineRegisterForm({ onSuccess }: InlineRegisterFormProps) {
         type="tel"
         error={errors.phone?.message}
         helperText="Egyptian phone number"
-        {...register("phone")}
+        {...phoneReg}
+        onChange={(event) => {
+          event.target.value = sanitizePhoneInput(event.target.value);
+          phoneReg.onChange(event);
+        }}
       />
 
       {/* Email (optional) */}

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { authService } from "@/lib/api/services/auth.service";
 import { useAuthStore } from "@/lib/stores/auth.store";
 import { Eye, EyeOff } from "lucide-react";
+import { sanitizePhoneInput } from "@/lib/utils/format";
 
 interface InlineLoginFormProps {
   onSuccess: (data: {
@@ -72,6 +73,8 @@ export function InlineLoginForm({ onSuccess }: InlineLoginFormProps) {
     }
   };
 
+  const phoneReg = register("phone");
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
       {/* Phone */}
@@ -81,7 +84,11 @@ export function InlineLoginForm({ onSuccess }: InlineLoginFormProps) {
         type="tel"
         error={errors.phone?.message}
         helperText="The phone number you registered with"
-        {...register("phone")}
+        {...phoneReg}
+        onChange={(event) => {
+          event.target.value = sanitizePhoneInput(event.target.value);
+          phoneReg.onChange(event);
+        }}
       />
 
       {/* Password */}

@@ -20,8 +20,8 @@ public class PublicCreateCrmLeadRequestValidator : AbstractValidator<PublicCreat
         RuleFor(x => x.ContactPhone)
             .NotEmpty()
             .MaximumLength(30)
-            .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
-            .WithMessage("ContactPhone is required.");
+            .Matches(@"^\+?\d{10,15}$")
+            .WithMessage("Invalid phone configuration. Provide 10-15 digits with an optional leading '+' format.");
 
         RuleFor(x => x.Source)
             .NotEmpty()
@@ -55,8 +55,8 @@ public class InternalCreateCrmLeadRequestValidator : AbstractValidator<InternalC
         RuleFor(x => x.ContactPhone)
             .NotEmpty()
             .MaximumLength(30)
-            .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
-            .WithMessage("ContactPhone is required.");
+            .Matches(@"^\+?\d{10,15}$")
+            .WithMessage("Invalid phone configuration. Provide 10-15 digits with an optional leading '+' format.");
 
         RuleFor(x => x.Source)
             .NotEmpty()
@@ -90,8 +90,8 @@ public class UpdateCrmLeadRequestValidator : AbstractValidator<UpdateCrmLeadRequ
         RuleFor(x => x.ContactPhone)
             .NotEmpty()
             .MaximumLength(30)
-            .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
-            .WithMessage("ContactPhone is required.");
+            .Matches(@"^\+?\d{10,15}$")
+            .WithMessage("Invalid phone configuration. Provide 10-15 digits with an optional leading '+' format.");
 
         RuleFor(x => x.Source)
             .NotEmpty()

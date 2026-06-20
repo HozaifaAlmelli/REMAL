@@ -9,6 +9,12 @@ export function formatCurrency(amount: number | null | undefined): string {
   })} EGP`;
 }
 
+// Keep only digits and a single optional leading '+'.
+export function sanitizePhoneInput(value: string): string {
+  const plus = value.trimStart().startsWith("+") ? "+" : "";
+  return plus + value.replace(/\D/g, "");
+}
+
 export function formatDateForApi(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");

@@ -120,7 +120,12 @@ public class CrmLeadService : ICrmLeadService
         ValidateDesiredStay(desiredCheckInDate, desiredCheckOutDate, guestCount);
         var normalizedSource = ValidateAndNormalizeSource(source);
 
-        await ValidateOptionalReferencesAsync(clientId, targetUnitId, assignedAdminUserId, cancellationToken);
+        await ValidateOptionalReferencesAsync(
+            clientId,
+            targetUnitId,
+            assignedAdminUserId,
+            guestCount,
+            cancellationToken);
         await EnsureDesiredDatesAvailableAsync(targetUnitId, desiredCheckInDate, desiredCheckOutDate, cancellationToken);
         await EnsureNoDuplicateOpenLeadAsync(
             clientId,
@@ -179,7 +184,12 @@ public class CrmLeadService : ICrmLeadService
         ValidateDesiredStay(desiredCheckInDate, desiredCheckOutDate, guestCount);
         var normalizedSource = ValidateAndNormalizeSource(source);
 
-        await ValidateOptionalReferencesAsync(clientId, targetUnitId, assignedAdminUserId, cancellationToken);
+        await ValidateOptionalReferencesAsync(
+            clientId,
+            targetUnitId,
+            assignedAdminUserId,
+            guestCount,
+            cancellationToken);
         await EnsureDesiredDatesAvailableAsync(targetUnitId, desiredCheckInDate, desiredCheckOutDate, cancellationToken);
 
         lead.ClientId = clientId;
@@ -350,6 +360,7 @@ public class CrmLeadService : ICrmLeadService
         Guid? clientId,
         Guid? targetUnitId,
         Guid? assignedAdminUserId,
+        int? guestCount,
         CancellationToken cancellationToken)
     {
         if (clientId.HasValue)
@@ -362,10 +373,25 @@ public class CrmLeadService : ICrmLeadService
 
         if (targetUnitId.HasValue)
         {
-            var unitExists = await _unitOfWork.Units.ExistsAsync(
-                u => u.Id == targetUnitId.Value && u.IsActive && u.DeletedAt == null, cancellationToken);
-            if (!unitExists)
+            var unit = await _unitOfWork.Units.Query()
+                .AsNoTracking()
+                .Where(u =>
+                    u.Id == targetUnitId.Value &&
+                    u.IsActive &&
+                    u.DeletedAt == null)
+                .Select(u => new { u.Name, u.MaxGuests })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (unit == null)
                 throw new NotFoundException($"Active unit with ID {targetUnitId.Value} not found");
+
+            if (guestCount.HasValue && guestCount.Value > unit.MaxGuests)
+            {
+                var guestLabel = unit.MaxGuests == 1 ? "guest" : "guests";
+                throw new BusinessValidationException(
+                    $"{unit.Name} accepts up to {unit.MaxGuests} {guestLabel}. " +
+                    "Reduce the guest count or choose another unit.");
+            }
         }
 
         if (assignedAdminUserId.HasValue)

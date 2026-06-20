@@ -9,6 +9,7 @@ using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Models;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Models;
 
 namespace RentalPlatform.Business.Services;
@@ -117,6 +118,8 @@ public class UnitService : IUnitService
         string? unitType = null,
         bool? isActive = null,
         string? search = null,
+        DateOnly? availableFrom = null,
+        DateOnly? availableTo = null,
         CancellationToken cancellationToken = default)
     {
         page = Math.Max(page, 1);
@@ -165,6 +168,36 @@ public class UnitService : IUnitService
                 (u.Description != null && u.Description.ToLower().Contains(normalizedSearch)) ||
                 (u.Area != null && u.Area.Name.ToLower().Contains(normalizedSearch)) ||
                 (u.Owner != null && u.Owner.Name.ToLower().Contains(normalizedSearch)));
+        }
+
+        // Availability filter: exclude units with an overlapping holding booking or
+        // maintenance block. Predicate semantics mirror UnitAvailabilityService
+        // (bookings = half-open [checkIn, checkOut); blocks = inclusive [start, end]).
+        if (availableFrom.HasValue && availableTo.HasValue)
+        {
+            if (availableFrom.Value >= availableTo.Value)
+                throw new BusinessValidationException("availableTo must be after availableFrom.");
+
+            var holding = BookingStatusTransitions.HoldingStatuses;
+
+            var bookedUnitIds = await _unitOfWork.Bookings.Query()
+                .Where(b => holding.Contains(b.BookingStatus)
+                         && availableFrom.Value < b.CheckOutDate
+                         && availableTo.Value > b.CheckInDate)
+                .Select(b => b.UnitId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            var blockedUnitIds = await _unitOfWork.DateBlocks.Query()
+                .Where(db => availableFrom.Value <= db.EndDate
+                          && availableTo.Value >= db.StartDate)
+                .Select(db => db.UnitId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            var unavailable = bookedUnitIds.Concat(blockedUnitIds).Distinct().ToList();
+            if (unavailable.Count > 0)
+                query = query.Where(u => !unavailable.Contains(u.Id));
         }
 
         var total = await query.CountAsync(cancellationToken);

@@ -79,7 +79,9 @@ public class UnitsController : ControllerBase
         [FromQuery] Guid? areaId = null,
         [FromQuery] string? unitType = null,
         [FromQuery] bool? isActive = null,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] DateOnly? availableFrom = null,
+        [FromQuery] DateOnly? availableTo = null)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -92,7 +94,9 @@ public class UnitsController : ControllerBase
             areaId,
             unitType,
             isActive,
-            search);
+            search,
+            availableFrom,
+            availableTo);
 
         int total = result.Total;
         int totalPages = (int)Math.Ceiling(total / (double)pageSize);
