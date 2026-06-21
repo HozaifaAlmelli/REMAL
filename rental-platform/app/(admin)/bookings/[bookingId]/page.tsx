@@ -22,6 +22,7 @@ import { ROUTES } from "@/lib/constants/routes";
 import { ApiError } from "@/lib/api/api-error";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
+import { formatCurrency, getNights } from "@/lib/utils/format";
 
 export default function BookingDetailPage() {
   const { bookingId } = useParams();
@@ -85,6 +86,9 @@ export default function BookingDetailPage() {
 
   if (!booking) return null;
 
+  const nights = getNights(booking.checkInDate, booking.checkOutDate);
+  const pricePerNight = nights > 0 ? booking.baseAmount / nights : null;
+
   return (
     <div className="space-y-6">
       <BookingHeader booking={booking} />
@@ -125,10 +129,16 @@ export default function BookingDetailPage() {
               {new Date(booking.checkOutDate).toLocaleDateString()}
             </span>
           </div>
+          <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
+            <span className="font-medium text-neutral-600">Price / night</span>
+            <span className="tabular-nums font-semibold text-neutral-800">
+              {formatCurrency(pricePerNight)}
+            </span>
+          </div>
           <div className="flex items-center justify-between">
             <span className="font-medium text-neutral-600">Booking total</span>
-            <span className="text-lg font-bold text-primary-600">
-              {booking.finalAmount?.toLocaleString() || "0"} EGP
+            <span className="tabular-nums text-lg font-bold text-primary-600">
+              {formatCurrency(booking.finalAmount)}
             </span>
           </div>
         </div>

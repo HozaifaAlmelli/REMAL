@@ -39,6 +39,14 @@ export function OwnerDetailHeader({
             Phone:{" "}
             <span className="font-medium text-neutral-700">{owner.phone}</span>
           </span>
+          {owner.emergencyPhone && (
+            <span>
+              Emergency:{" "}
+              <span className="font-medium text-neutral-700">
+                {owner.emergencyPhone}
+              </span>
+            </span>
+          )}
           {owner.email && (
             <span>
               Email:{" "}

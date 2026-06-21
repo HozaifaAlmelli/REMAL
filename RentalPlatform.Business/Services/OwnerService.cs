@@ -38,14 +38,17 @@ public class OwnerService : IOwnerService
         return await _unitOfWork.Owners.GetByIdAsync(id, cancellationToken);
     }
 
-    public async Task<Owner> CreateAsync(string name, string phone, string? email, decimal commissionRate, string? notes, string status, string plainTextPassword, CancellationToken cancellationToken = default)
+    public async Task<Owner> CreateAsync(string name, string phone, string emergencyPhone, string? email, string? detailedAddress, decimal commissionRate, string? notes, string status, string plainTextPassword, CancellationToken cancellationToken = default)
     {
         var trimmedName = name?.Trim();
         var trimmedPhone = phone?.Trim();
+        var trimmedEmergencyPhone = emergencyPhone?.Trim();
         var trimmedEmail = email?.Trim();
+        var trimmedDetailedAddress = detailedAddress?.Trim();
 
         if (string.IsNullOrWhiteSpace(trimmedName)) throw new BusinessValidationException("Name is required.");
         if (string.IsNullOrWhiteSpace(trimmedPhone)) throw new BusinessValidationException("Phone is required.");
+        if (string.IsNullOrWhiteSpace(trimmedEmergencyPhone)) throw new BusinessValidationException("Emergency phone is required.");
         if (string.IsNullOrWhiteSpace(plainTextPassword)) throw new BusinessValidationException("Password cannot be empty.");
 
         if (commissionRate < 0 || commissionRate > 100)
@@ -72,7 +75,9 @@ public class OwnerService : IOwnerService
             Id = Guid.NewGuid(),
             Name = trimmedName,
             Phone = trimmedPhone,
+            EmergencyPhone = trimmedEmergencyPhone,
             Email = string.IsNullOrWhiteSpace(trimmedEmail) ? null : trimmedEmail,
+            DetailedAddress = string.IsNullOrWhiteSpace(trimmedDetailedAddress) ? null : trimmedDetailedAddress,
             CommissionRate = commissionRate,
             Notes = notes,
             Status = status,
@@ -85,14 +90,17 @@ public class OwnerService : IOwnerService
         return owner;
     }
 
-    public async Task<Owner> UpdateAsync(Guid id, string name, string phone, string? email, decimal commissionRate, string? notes, string status, CancellationToken cancellationToken = default)
+    public async Task<Owner> UpdateAsync(Guid id, string name, string phone, string emergencyPhone, string? email, string? detailedAddress, decimal commissionRate, string? notes, string status, CancellationToken cancellationToken = default)
     {
         var trimmedName = name?.Trim();
         var trimmedPhone = phone?.Trim();
+        var trimmedEmergencyPhone = emergencyPhone?.Trim();
         var trimmedEmail = email?.Trim();
+        var trimmedDetailedAddress = detailedAddress?.Trim();
 
         if (string.IsNullOrWhiteSpace(trimmedName)) throw new BusinessValidationException("Name is required.");
         if (string.IsNullOrWhiteSpace(trimmedPhone)) throw new BusinessValidationException("Phone is required.");
+        if (string.IsNullOrWhiteSpace(trimmedEmergencyPhone)) throw new BusinessValidationException("Emergency phone is required.");
 
         if (commissionRate < 0 || commissionRate > 100)
         {
@@ -118,7 +126,9 @@ public class OwnerService : IOwnerService
 
         owner.Name = trimmedName;
         owner.Phone = trimmedPhone;
+        owner.EmergencyPhone = trimmedEmergencyPhone;
         owner.Email = string.IsNullOrWhiteSpace(trimmedEmail) ? null : trimmedEmail;
+        owner.DetailedAddress = string.IsNullOrWhiteSpace(trimmedDetailedAddress) ? null : trimmedDetailedAddress;
         owner.CommissionRate = commissionRate;
         owner.Notes = notes;
         owner.Status = status;

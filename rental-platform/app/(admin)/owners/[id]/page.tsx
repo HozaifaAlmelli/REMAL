@@ -194,6 +194,18 @@ export default function OwnerDetailPage({ params }: OwnerDetailPageProps) {
                 <OwnerUnitsList />
               </div>
 
+              {/* Detailed address Section */}
+              {owner.detailedAddress && (
+                <div className="mb-6 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+                  <h2 className="mb-4 text-sm font-semibold text-neutral-700">
+                    Detailed address
+                  </h2>
+                  <p className="whitespace-pre-line text-sm leading-relaxed text-neutral-700">
+                    {owner.detailedAddress}
+                  </p>
+                </div>
+              )}
+
               {/* Notes Section */}
               {owner.notes && (
                 <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">

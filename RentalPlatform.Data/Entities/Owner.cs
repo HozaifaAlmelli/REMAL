@@ -7,7 +7,9 @@ public class Owner
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
+    public string EmergencyPhone { get; set; } = string.Empty;
     public string? Email { get; set; }
+    public string? DetailedAddress { get; set; }
     public decimal CommissionRate { get; set; }
     public string? Notes { get; set; }
     public string Status { get; set; } = string.Empty;

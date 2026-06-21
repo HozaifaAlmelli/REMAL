@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
+import { sanitizePhoneInput } from "@/lib/utils/format";
 import { useCreateOwner, useUpdateOwner } from "@/lib/hooks/useOwners";
 import { ROUTES } from "@/lib/constants/routes";
 import { ApiError } from "@/lib/api/api-error";
@@ -18,10 +19,26 @@ import type {
   CreateOwnerRequest,
 } from "@/lib/types/owner.types";
 
+const PHONE_REGEX = /^\+?\d{10,15}$/;
+
 const ownerFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  phone: z.string().min(1, "Phone is required"),
+  phone: z
+    .string()
+    .min(1, "Phone is required")
+    .regex(
+      PHONE_REGEX,
+      "Invalid phone configuration. Provide 10-15 digits with an optional leading '+' format."
+    ),
+  emergencyPhone: z
+    .string()
+    .min(1, "Emergency phone is required")
+    .regex(
+      PHONE_REGEX,
+      "Invalid emergency phone configuration. Provide 10-15 digits with an optional leading '+' format."
+    ),
   email: z.string().email().optional().or(z.literal("")),
+  detailedAddress: z.string().optional(),
   password: z.string().optional(),
   commissionRate: z
     .number()
@@ -57,10 +74,13 @@ export function OwnerForm({
     setValue,
   } = useForm<OwnerFormValues>({
     resolver: zodResolver(ownerFormSchema),
+    mode: "onChange",
     defaultValues: {
       name: defaultValues?.name ?? "",
       phone: defaultValues?.phone ?? "",
+      emergencyPhone: defaultValues?.emergencyPhone ?? "",
       email: defaultValues?.email ?? "",
+      detailedAddress: defaultValues?.detailedAddress ?? "",
       password: "",
       commissionRate: defaultValues?.commissionRate ?? 0,
       status: defaultValues?.status ?? "active",
@@ -68,13 +88,18 @@ export function OwnerForm({
     },
   });
 
+  const phoneReg = register("phone");
+  const emergencyPhoneReg = register("emergencyPhone");
+
   const onSubmit = async (data: OwnerFormValues) => {
     try {
       // Prepare request body
       const requestBody: {
         name: string;
         phone: string;
+        emergencyPhone: string;
         email?: string;
+        detailedAddress?: string;
         password?: string;
         commissionRate: number;
         status: "active" | "inactive";
@@ -82,6 +107,7 @@ export function OwnerForm({
       } = {
         name: data.name,
         phone: data.phone,
+        emergencyPhone: data.emergencyPhone,
         commissionRate: data.commissionRate,
         status: data.status,
       };
@@ -97,6 +123,11 @@ export function OwnerForm({
       // Only include email if it's not empty
       if (data.email && data.email.trim() !== "") {
         requestBody.email = data.email.trim();
+      }
+
+      // Only include detailed address if it's not empty
+      if (data.detailedAddress && data.detailedAddress.trim() !== "") {
+        requestBody.detailedAddress = data.detailedAddress.trim();
       }
 
       // Only include notes if it's not empty
@@ -151,10 +182,30 @@ export function OwnerForm({
 
           <Input
             label="Phone"
-            {...register("phone")}
+            type="tel"
+            {...phoneReg}
+            onChange={(event) => {
+              event.target.value = sanitizePhoneInput(event.target.value);
+              phoneReg.onChange(event);
+            }}
             error={errors.phone?.message}
+            required
             disabled={isLoading}
-            placeholder="e.g. +1234567890"
+            placeholder="e.g. +201062327721"
+          />
+
+          <Input
+            label="Emergency phone"
+            type="tel"
+            {...emergencyPhoneReg}
+            onChange={(event) => {
+              event.target.value = sanitizePhoneInput(event.target.value);
+              emergencyPhoneReg.onChange(event);
+            }}
+            error={errors.emergencyPhone?.message}
+            required
+            disabled={isLoading}
+            placeholder="e.g. +201112223334"
           />
 
           <Input
@@ -200,6 +251,15 @@ export function OwnerForm({
             onChange={(value) =>
               setValue("status", value as "active" | "inactive")
             }
+          />
+
+          <Textarea
+            label="Detailed address (Optional)"
+            {...register("detailedAddress")}
+            error={errors.detailedAddress?.message}
+            disabled={isLoading}
+            placeholder="Street, building, floor, city, landmarks…"
+            rows={3}
           />
 
           <Textarea

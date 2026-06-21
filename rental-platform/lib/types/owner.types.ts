@@ -8,7 +8,9 @@ export interface OwnerFormValues {
   id?: string;
   name: string;
   phone: string;
+  emergencyPhone: string;
   email?: string;
+  detailedAddress?: string;
   password?: string;
   commissionRate: number;
   status: OwnerStatus;
@@ -31,7 +33,9 @@ export interface OwnerDetailsResponse {
   id: string;
   name: string;
   phone: string;
+  emergencyPhone: string;
   email: string | null;
+  detailedAddress: string | null;
   commissionRate: number;
   status: OwnerStatus;
   notes: string | null;
@@ -50,7 +54,9 @@ export interface OwnerListFilters {
 export interface CreateOwnerRequest {
   name: string;
   phone: string;
+  emergencyPhone: string;
   email?: string;
+  detailedAddress?: string;
   password: string;
   commissionRate: number; // percentage: send 20.00 for 20%
   status: OwnerStatus;
@@ -60,7 +66,9 @@ export interface CreateOwnerRequest {
 export interface UpdateOwnerRequest {
   name: string;
   phone: string;
+  emergencyPhone: string;
   email?: string;
+  detailedAddress?: string;
   commissionRate: number;
   status: OwnerStatus;
   notes?: string;
