@@ -42,17 +42,24 @@ function OwnersPageContent() {
   const page = Number(searchParams.get("page")) || DEFAULT_PAGE;
   const pageSize = Number(searchParams.get("pageSize")) || DEFAULT_PAGE_SIZE;
   const includeInactive = searchParams.get("includeInactive") === "true";
+  const search = searchParams.get("search") || undefined;
 
   const filters: OwnerListFilters = React.useMemo(
     () => ({
       includeInactive,
+      search,
       page,
       pageSize,
     }),
-    [includeInactive, page, pageSize]
+    [includeInactive, page, pageSize, search]
   );
 
-  const { data: paginatedOwners, isLoading, isError } = useOwners(filters);
+  const {
+    data: paginatedOwners,
+    isLoading,
+    isFetching,
+    isError,
+  } = useOwners(filters);
   const { mutateAsync: updateStatus } = useUpdateOwnerStatus();
 
   // Status toggle confirmation
@@ -70,15 +77,22 @@ function OwnersPageContent() {
 
   const handleFilterChange = (newFilters: OwnerListFilters) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (newFilters.includeInactive !== undefined) {
-      params.set("includeInactive", String(newFilters.includeInactive));
+    params.set("page", String(newFilters.page ?? DEFAULT_PAGE));
+    params.set("pageSize", String(newFilters.pageSize ?? pageSize));
+
+    if (newFilters.includeInactive) {
+      params.set("includeInactive", "true");
     } else {
       params.delete("includeInactive");
     }
-    if (newFilters.page) params.set("page", String(newFilters.page));
-    if (newFilters.pageSize)
-      params.set("pageSize", String(newFilters.pageSize));
-    router.push(`${pathname}?${params.toString()}`);
+
+    if (newFilters.search) {
+      params.set("search", newFilters.search);
+    } else {
+      params.delete("search");
+    }
+
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
   const handleToggleStatusRequest = (owner: {
@@ -120,10 +134,17 @@ function OwnersPageContent() {
     );
   }
 
-  // Handle total empty state correctly: no items across DB at all.
-  // Because no filters are used except pagination, page 1 empty means everything empty
+  const hasFilters = Boolean(includeInactive || search);
   const noOwnersAtAll =
-    !isLoading && paginatedOwners?.pagination?.totalCount === 0 && page === 1;
+    !isLoading &&
+    paginatedOwners?.pagination?.totalCount === 0 &&
+    page === 1 &&
+    !hasFilters;
+  const noOwnersFound =
+    !isLoading &&
+    paginatedOwners?.pagination?.totalCount === 0 &&
+    page === 1 &&
+    hasFilters;
 
   return (
     <div className="space-y-6">
@@ -149,7 +170,7 @@ function OwnersPageContent() {
       <OwnerFilters
         filters={filters}
         onChange={handleFilterChange}
-        isLoading={isLoading}
+        isFetching={isFetching}
       />
 
       {isLoading ? (
@@ -166,6 +187,12 @@ function OwnersPageContent() {
               </Button>
             ) : undefined
           }
+        />
+      ) : noOwnersFound ? (
+        <EmptyState
+          icon={<Building2 className="h-10 w-10 text-neutral-400" />}
+          title="No matching owners"
+          description="No owner records match these filters. Clear the search or include inactive owners."
         />
       ) : (
         <OwnerTable

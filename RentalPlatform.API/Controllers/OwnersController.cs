@@ -31,9 +31,10 @@ public class OwnersController : ControllerBase
     public async Task<ActionResult<ApiResponse<IReadOnlyList<OwnerListItemResponse>>>> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] bool includeInactive = true)
+        [FromQuery] bool includeInactive = true,
+        [FromQuery] string? search = null)
     {
-        var owners = await _ownerService.GetAllAsync(includeInactive);
+        var owners = await _ownerService.GetAllAsync(includeInactive, search);
         
         var totalCount = owners.Count;
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);

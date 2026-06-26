@@ -56,7 +56,9 @@ public class NotificationRecipientsController : ControllerBase
         }
         else if (string.Equals(subjectType, "Owner", StringComparison.OrdinalIgnoreCase))
         {
-            var owners = await _ownerService.GetAllAsync(false, cancellationToken);
+            var owners = await _ownerService.GetAllAsync(
+                includeInactive: false,
+                cancellationToken: cancellationToken);
             recipients = owners
                 .Where(owner => owner.Status == "active")
                 .Select(owner => new NotificationRecipientResponse(

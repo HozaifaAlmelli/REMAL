@@ -46,6 +46,7 @@ export interface OwnerDetailsResponse {
 // ── Owner Filters ──
 export interface OwnerListFilters {
   includeInactive?: boolean;
+  search?: string;
   page?: number;
   pageSize?: number;
 }

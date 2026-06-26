@@ -21,13 +21,26 @@ public class OwnerService : IOwnerService
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<IReadOnlyList<Owner>> GetAllAsync(bool includeInactive = true, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Owner>> GetAllAsync(bool includeInactive = true, string? search = null, CancellationToken cancellationToken = default)
     {
         var query = _unitOfWork.Owners.Query();
 
         if (!includeInactive)
         {
             query = query.Where(o => o.Status == "active");
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var normalizedSearch = search.Trim().ToLower();
+            var normalizedPhoneSearch = NormalizePhoneSearch(search);
+
+            query = query.Where(o =>
+                o.Name.ToLower().Contains(normalizedSearch) ||
+                (normalizedPhoneSearch != string.Empty &&
+                    (o.Phone.Replace("+", string.Empty).Contains(normalizedPhoneSearch) ||
+                     o.EmergencyPhone.Replace("+", string.Empty).Contains(normalizedPhoneSearch))) ||
+                (o.Email != null && o.Email.ToLower().Contains(normalizedSearch)));
         }
 
         return await query.ToListAsync(cancellationToken);
@@ -146,5 +159,10 @@ public class OwnerService : IOwnerService
 
         _unitOfWork.Owners.Delete(owner);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    private static string NormalizePhoneSearch(string value)
+    {
+        return value.Trim().Replace("+", string.Empty);
     }
 }
