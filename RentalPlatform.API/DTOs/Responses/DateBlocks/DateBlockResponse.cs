@@ -10,6 +10,11 @@ public record DateBlockResponse
     public DateOnly EndDate { get; init; }
     public string? Reason { get; init; }
     public string? Notes { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public bool RequiresAdminSignoff { get; init; }
+    public Guid? ConflictingLeadId { get; init; }
+    public Guid? ConflictingBookingId { get; init; }
+    public DateTime? ResolvedAt { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 }

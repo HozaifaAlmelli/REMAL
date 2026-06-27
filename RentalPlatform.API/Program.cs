@@ -271,6 +271,7 @@ builder.Services.AddScoped<IUnitImageService, UnitImageService>();
 builder.Services.AddScoped<IUnitAmenityService, UnitAmenityService>();
 builder.Services.AddScoped<ISeasonalPricingService, SeasonalPricingService>();
 builder.Services.AddScoped<IDateBlockService, DateBlockService>();
+builder.Services.AddScoped<IDateBlockApprovalService, DateBlockApprovalService>();
 builder.Services.AddScoped<IUnitAvailabilityService, UnitAvailabilityService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IBookingLifecycleService, BookingLifecycleService>();

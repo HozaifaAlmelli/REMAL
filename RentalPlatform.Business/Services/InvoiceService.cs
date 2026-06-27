@@ -10,6 +10,7 @@ using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Models;
 
 namespace RentalPlatform.Business.Services;
@@ -65,6 +66,11 @@ public class InvoiceService : IInvoiceService
         var booking = await _unitOfWork.Bookings.GetByIdAsync(bookingId, cancellationToken);
         if (booking == null)
             throw new NotFoundException($"Booking with ID {bookingId} not found");
+
+        if (!BookingStatusTransitions.IsFinanceEligible(booking.BookingStatus))
+            throw new ConflictException(
+                $"Cannot create an invoice for booking {bookingId}: its status is '{booking.BookingStatus}'. " +
+                "Invoices can only be created for active bookings (Booked, Confirmed, CheckIn, Completed, or LeftEarly).");
 
         IDbContextTransaction? ownedTransaction = null;
         if (!_unitOfWork.HasActiveTransaction)

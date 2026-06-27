@@ -8,3 +8,4 @@ export * from "./useClients";
 export * from "./usePayments";
 export * from "./usePayouts";
 export * from "./useAdminUsers";
+export * from "./useDateBlockApprovals";

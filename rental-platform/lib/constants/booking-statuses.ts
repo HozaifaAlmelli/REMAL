@@ -100,6 +100,22 @@ export const CRM_VALID_TRANSITIONS: Record<CrmLeadStatus, CrmLeadStatus[]> = {
   LeftEarly: [],
 };
 
+// Booking statuses for which invoices and payments may be created. Mirrors the
+// backend's BookingStatusTransitions.FinanceEligibleStatuses: a financial relationship
+// only exists once a booking is real, so pre-booking leads (Prospecting/Relevant/NoAnswer)
+// and dead records (NotRelevant/Cancelled) are excluded.
+export const FINANCE_ELIGIBLE_STATUSES: BookingStatus[] = [
+  "Booked",
+  "Confirmed",
+  "CheckIn",
+  "Completed",
+  "LeftEarly",
+];
+
+export function isFinanceEligibleStatus(status?: BookingStatus | null): boolean {
+  return status != null && FINANCE_ELIGIBLE_STATUSES.includes(status);
+}
+
 export const BOOKING_VALID_TRANSITIONS: Record<BookingStatus, BookingStatus[]> =
   {
     Prospecting: ["Relevant", "NoAnswer", "NotRelevant"],

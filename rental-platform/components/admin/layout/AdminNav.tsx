@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Users,
   Calendar,
+  ClipboardCheck,
   Wallet,
   Home,
   Building2,
@@ -50,6 +51,12 @@ const NAV_GROUPS: NavGroup[] = [
         icon: BarChart3,
         href: ROUTES.admin.analytics,
         requiredPermission: "canViewReports",
+      },
+      {
+        label: "Approvals",
+        icon: ClipboardCheck,
+        href: ROUTES.admin.approvals,
+        requiredPermission: "canApproveBlocks",
       },
       {
         label: "Leads pipeline",

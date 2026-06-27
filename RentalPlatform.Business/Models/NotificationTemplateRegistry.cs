@@ -45,6 +45,30 @@ public static class NotificationTemplateRegistry
                 DefaultBody = "Booking {bookingShortId} for {clientName} in {unitName} was auto-completed after checkout on {checkOutDate}. Outstanding balance: {outstandingAmount} EGP.",
                 AllowedChannels = new[] { "InApp" }
             }
+        },
+        {
+            "OWNER_BLOCK_APPROVAL_REQUEST", new NotificationTemplateDefinition
+            {
+                DefaultTitle = "Owner date-block request needs review",
+                DefaultBody = "{unitName} was requested as unavailable from {startDate} to {endDate}. It overlaps {conflictCount} active pipeline record(s).",
+                AllowedChannels = new[] { "InApp" }
+            }
+        },
+        {
+            "OWNER_BLOCK_APPROVED", new NotificationTemplateDefinition
+            {
+                DefaultTitle = "Date-block request approved",
+                DefaultBody = "Your unavailable dates for {unitName} from {startDate} to {endDate} were approved.",
+                AllowedChannels = new[] { "Email", "InApp" }
+            }
+        },
+        {
+            "OWNER_BLOCK_REJECTED", new NotificationTemplateDefinition
+            {
+                DefaultTitle = "Date-block request rejected",
+                DefaultBody = "Your unavailable dates for {unitName} from {startDate} to {endDate} were rejected and the dates are available again.",
+                AllowedChannels = new[] { "Email", "InApp" }
+            }
         }
     };
 

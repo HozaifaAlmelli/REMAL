@@ -15,13 +15,23 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatCurrency, formatDate } from "@/lib/utils/format";
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
+import {
+  isFinanceEligibleStatus,
+  type BookingStatus,
+} from "@/lib/constants/booking-statuses";
 import { CreditCard, Link } from "lucide-react";
 
 interface BookingPaymentsProps {
   bookingId: string;
+  bookingStatus?: BookingStatus;
+  remainingAmount?: number | null;
 }
 
-export function BookingPayments({ bookingId }: BookingPaymentsProps) {
+export function BookingPayments({
+  bookingId,
+  bookingStatus,
+  remainingAmount,
+}: BookingPaymentsProps) {
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [failedPaymentId, setFailedPaymentId] = useState<string | null>(null);
   const [cancelPaymentId, setCancelPaymentId] = useState<string | null>(null);
@@ -32,7 +42,8 @@ export function BookingPayments({ bookingId }: BookingPaymentsProps) {
   // gate on the matching capability only, so other roles never see actions
   // (or trigger fetches) that are guaranteed to 403.
   const { canViewFinance, canManageFinance } = usePermissions();
-  const canRecordPayment = canManageFinance;
+  const financeEligible = isFinanceEligibleStatus(bookingStatus);
+  const canRecordPayment = canManageFinance && financeEligible;
 
   const { data: payments, isLoading } = useBookingPayments(bookingId, {
     enabled: canViewFinance,
@@ -85,6 +96,15 @@ export function BookingPayments({ bookingId }: BookingPaymentsProps) {
           )}
         </div>
       </div>
+
+      {canManageFinance && !financeEligible && (
+        <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-600">
+          Payments cannot be recorded while this booking is{" "}
+          <span className="font-semibold">{bookingStatus}</span>. Only active
+          bookings (Booked, Confirmed, Check-in, Completed, or Left early) can be
+          charged.
+        </div>
+      )}
 
       {hasUnlinkedPaidPayments && (
         <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3 text-xs text-yellow-700">
@@ -171,6 +191,7 @@ export function BookingPayments({ bookingId }: BookingPaymentsProps) {
         isOpen={showRecordModal}
         onClose={() => setShowRecordModal(false)}
         bookingId={bookingId}
+        remainingAmount={remainingAmount ?? undefined}
       />
 
       {/* Mark Failed Dialog */}

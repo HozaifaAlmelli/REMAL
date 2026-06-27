@@ -72,6 +72,37 @@ export function useOwnerUnitAvailability(unitId: string, month: Date) {
   });
 }
 
+export function useOwnerUnitDateBlocks(unitId: string) {
+  return useQuery({
+    queryKey: queryKeys.ownerPortal.units.dateBlocks(unitId),
+    queryFn: () => ownerPortalService.getOwnerUnitDateBlocks(unitId),
+    enabled: !!unitId,
+    staleTime: 0,
+  });
+}
+
+export function useOwnerDateBlockPreflight(
+  unitId: string,
+  startDate: string | null,
+  endDate: string | null,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: queryKeys.ownerPortal.units.dateBlockPreflight(
+      unitId,
+      startDate,
+      endDate
+    ),
+    queryFn: () =>
+      ownerPortalService.preflightDateBlock(unitId, {
+        startDate: startDate!,
+        endDate: endDate!,
+      }),
+    enabled: Boolean(enabled && unitId && startDate && endDate),
+    staleTime: 0,
+  });
+}
+
 export function useCreateOwnerDateBlock(unitId: string) {
   const queryClient = useQueryClient();
 
@@ -83,7 +114,36 @@ export function useCreateOwnerDateBlock(unitId: string) {
         queryKey: ["ownerPortal", "unitAvailability", unitId],
       });
       queryClient.invalidateQueries({
+        queryKey: queryKeys.ownerPortal.units.dateBlocks(unitId),
+      });
+      queryClient.invalidateQueries({
         queryKey: queryKeys.ownerPortal.units.detail(unitId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["units", unitId, "availability"],
+      });
+    },
+  });
+}
+
+export function useDeleteOwnerDateBlock(unitId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (blockId: string) =>
+      ownerPortalService.deleteDateBlock(unitId, blockId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["ownerPortal", "unitAvailability", unitId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.ownerPortal.units.dateBlocks(unitId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.ownerPortal.units.detail(unitId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["units", unitId, "availability"],
       });
     },
   });

@@ -308,6 +308,7 @@ export function useCreatePayment() {
         queryKey: queryKeys.bookings.detail(variables.bookingId),
       });
     },
+    onError: handleMutationError,
   });
 }
 
@@ -339,6 +340,7 @@ export function useMarkPaymentPaid(bookingId: string) {
         }),
       ]);
     },
+    onError: handleMutationError,
   });
 }
 
@@ -445,6 +447,7 @@ export function useCreateInvoiceDraft(bookingId: string) {
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.invoices.all });
     },
+    onError: handleMutationError,
   });
 }
 

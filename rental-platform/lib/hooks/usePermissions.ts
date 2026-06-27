@@ -26,6 +26,7 @@ export interface Permissions {
   canManageAmenities: boolean;
   canManageUnits: boolean;
   canViewReports: boolean;
+  canApproveBlocks: boolean;
 }
 
 export function usePermissions(): Permissions {
@@ -68,6 +69,7 @@ export function usePermissions(): Permissions {
       canManageAmenities: has("amenities:manage"),
       canManageUnits: has("units:manage"),
       canViewReports: has("analytics:read"),
+      canApproveBlocks: has("availability:approve"),
     };
   }, [subjectType, serverPermissions]);
 }

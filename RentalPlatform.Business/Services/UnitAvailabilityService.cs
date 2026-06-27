@@ -33,70 +33,57 @@ public class UnitAvailabilityService : IUnitAvailabilityService
         if (!unit.IsActive)
             throw new BusinessValidationException($"Unit {unitId} is inactive and cannot be checked for availability");
 
-        // Find operational blocks that overlap the requested range
+        // Find operational blocks that overlap the requested range.
+        // Callers treat the range as [startDate, endDate] inclusive (every caller passes
+        // endDate as the last night, e.g. checkOut.AddDays(-1)), so the overlap is inclusive.
         var blocks = await _unitOfWork.DateBlocks.Query()
             .Where(db => db.UnitId == unitId)
+            .Where(db => db.DeletedAt == null)
             .Where(db => startDate <= db.EndDate && endDate >= db.StartDate)
             .ToListAsync(cancellationToken);
 
-        var blockedDates = new HashSet<DateOnly>();
-
-        if (blocks.Any())
-        {
-            // Calculate exactly which dates from the requested range are blocked
-            for (var date = startDate; date <= endDate; date = date.AddDays(1))
-            {
-                if (blocks.Any(db => date >= db.StartDate && date <= db.EndDate))
-                {
-                    blockedDates.Add(date);
-                }
-            }
-        }
-
-        if (blockedDates.Any())
-        {
-            return new UnitAvailabilityResult
-            {
-                UnitId = unitId,
-                StartDate = startDate,
-                EndDate = endDate,
-                IsAvailable = false,
-                Reason = "date_blocked",
-                BlockedDates = blockedDates.OrderBy(d => d).ToList()
-            };
-        }
-
+        // Find holding bookings that overlap the requested range. endDate is the last night
+        // (inclusive), so a booking that checks in on endDate still conflicts -> endDate >= CheckInDate.
+        // CheckOutDate stays exclusive because the check-out day itself is free.
         var holdingStatuses = BookingStatusTransitions.HoldingStatuses;
-        var query = _unitOfWork.Bookings.Query()
+        var bookingQuery = _unitOfWork.Bookings.Query()
             .Where(b => b.UnitId == unitId)
             .Where(b => holdingStatuses.Contains(b.BookingStatus))
-            .Where(b => startDate < b.CheckOutDate && endDate > b.CheckInDate)
+            .Where(b => startDate < b.CheckOutDate && endDate >= b.CheckInDate)
             .Where(b => b.Client.DeletedAt == null && b.Unit.DeletedAt == null);
 
         if (excludeBookingId.HasValue)
         {
-            query = query.Where(b => b.Id != excludeBookingId.Value);
+            bookingQuery = bookingQuery.Where(b => b.Id != excludeBookingId.Value);
         }
 
-        var overlappingBookings = await query.ToListAsync(cancellationToken);
+        var overlappingBookings = await bookingQuery.ToListAsync(cancellationToken);
 
-        if (overlappingBookings.Any())
+        // Mark every requested day that is occupied by EITHER a date block OR a booking.
+        // A date block found in the same range must not hide an overlapping booking, so both
+        // sources are unioned here rather than returned independently.
+        var blockedDates = new HashSet<DateOnly>();
+        for (var date = startDate; date <= endDate; date = date.AddDays(1))
         {
-            for (var date = startDate; date < endDate; date = date.AddDays(1))
-            {
-                if (overlappingBookings.Any(b => date >= b.CheckInDate && date < b.CheckOutDate))
-                {
-                    blockedDates.Add(date);
-                }
-            }
+            var blockedByDateBlock = blocks.Any(db => date >= db.StartDate && date <= db.EndDate);
+            var blockedByBooking = overlappingBookings.Any(b => date >= b.CheckInDate && date < b.CheckOutDate);
 
+            if (blockedByDateBlock || blockedByBooking)
+            {
+                blockedDates.Add(date);
+            }
+        }
+
+        if (blockedDates.Count > 0)
+        {
             return new UnitAvailabilityResult
             {
                 UnitId = unitId,
                 StartDate = startDate,
                 EndDate = endDate,
                 IsAvailable = false,
-                Reason = "date_booked",
+                // Preserve prior reason precedence: a date block, when present, wins over a booking.
+                Reason = blocks.Count > 0 ? "date_blocked" : "date_booked",
                 BlockedDates = blockedDates.OrderBy(d => d).ToList()
             };
         }

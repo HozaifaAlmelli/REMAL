@@ -185,6 +185,11 @@
       [...queryKeys.notifications.all, "owner", "preferences"] as const,
   },
 
+  dateBlockApprovals: {
+    all: ["dateBlockApprovals"] as const,
+    list: () => ["dateBlockApprovals", "list"] as const,
+  },
+
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ OWNER PORTAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   ownerPortal: {
     all: ["owner-portal"] as const,

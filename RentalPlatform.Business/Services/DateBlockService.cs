@@ -9,6 +9,7 @@ using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Constants;
+using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.Business.Services;
 
@@ -25,8 +26,23 @@ public class DateBlockService : IDateBlockService
     {
         return await _unitOfWork.DateBlocks.Query()
             .Where(db => db.UnitId == unitId)
+            .Where(db => db.DeletedAt == null)
             .OrderBy(db => db.StartDate)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DateBlock>> GetOwnerBlocksByUnitIdAsync(
+        Guid ownerId,
+        Guid unitId,
+        CancellationToken cancellationToken = default)
+    {
+        var ownsUnit = await _unitOfWork.Units.ExistsAsync(
+            u => u.Id == unitId && u.OwnerId == ownerId && u.DeletedAt == null,
+            cancellationToken);
+        if (!ownsUnit)
+            throw new NotFoundException($"Unit {unitId} was not found for this owner.");
+
+        return await GetByUnitIdAsync(unitId, cancellationToken);
     }
 
     public async Task<DateBlock> CreateAsync(
@@ -46,6 +62,7 @@ public class DateBlockService : IDateBlockService
 
         var hasOverlap = await _unitOfWork.DateBlocks.Query()
             .Where(db => db.UnitId == unitId)
+            .Where(db => db.DeletedAt == null)
             .AnyAsync(db => startDate <= db.EndDate && endDate >= db.StartDate, cancellationToken);
 
         if (hasOverlap)
@@ -59,7 +76,9 @@ public class DateBlockService : IDateBlockService
             StartDate = startDate,
             EndDate = endDate,
             Reason = reason?.Trim(),
-            Notes = notes?.Trim()
+            Notes = notes?.Trim(),
+            Status = DateBlockStatus.Approved,
+            RequiresAdminSignoff = false
         };
 
         await _unitOfWork.DateBlocks.AddAsync(block, cancellationToken);
@@ -103,6 +122,7 @@ public class DateBlockService : IDateBlockService
 
         var hasOverlap = await _unitOfWork.DateBlocks.Query()
             .Where(db => db.UnitId == block.UnitId && db.Id != id)
+            .Where(db => db.DeletedAt == null)
             .AnyAsync(db => startDate <= db.EndDate && endDate >= db.StartDate, cancellationToken);
 
         if (hasOverlap)

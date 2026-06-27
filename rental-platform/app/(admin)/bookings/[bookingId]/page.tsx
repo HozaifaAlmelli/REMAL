@@ -181,13 +181,18 @@ export default function BookingDetailPage() {
 
       {/* Payments */}
       <div className="rounded-lg border border-neutral-200 bg-white p-4">
-        <BookingPayments bookingId={booking.id} />
+        <BookingPayments
+          bookingId={booking.id}
+          bookingStatus={booking.bookingStatus}
+          remainingAmount={snapshot?.remainingAmount ?? null}
+        />
       </div>
 
       {/* Invoice */}
       <div className="rounded-lg border border-neutral-200 bg-white p-4">
         <BookingInvoice
           bookingId={booking.id}
+          bookingStatus={booking.bookingStatus}
           invoiceId={snapshot?.invoiceId || null}
         />
       </div>

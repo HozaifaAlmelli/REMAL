@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { PAYMENT_METHOD_OPTIONS } from "@/lib/constants/payment-methods";
+import { formatCurrency } from "@/lib/utils/format";
 import { recordPaymentSchema } from "./schemas";
 import type { CreatePaymentRequest } from "@/lib/types/booking.types";
 
@@ -21,6 +22,9 @@ interface RecordPaymentModalProps {
   // payment is optional — used by the confirm flow where a deposit is not mandatory.
   onSkip?: () => void;
   skipLabel?: string;
+  // Remaining balance owed on the booking. When provided, the modal shows the
+  // remaining and blocks amounts that clearly exceed it (the backend is authoritative).
+  remainingAmount?: number;
 }
 
 export function RecordPaymentModal({
@@ -33,6 +37,7 @@ export function RecordPaymentModal({
   onSuccess,
   onSkip,
   skipLabel = "Skip",
+  remainingAmount,
 }: RecordPaymentModalProps) {
   const createMutation = useCreatePayment();
   const markPaidMutation = useMarkPaymentPaid(bookingId);
@@ -42,6 +47,7 @@ export function RecordPaymentModal({
     register,
     handleSubmit,
     control,
+    watch,
     formState: { errors },
     reset,
   } = useForm<CreatePaymentRequest>({
@@ -91,9 +97,27 @@ export function RecordPaymentModal({
     );
   };
 
+  const enteredAmount = watch("amount");
+  const hasRemaining =
+    typeof remainingAmount === "number" && Number.isFinite(remainingAmount);
+  const exceedsRemaining =
+    hasRemaining &&
+    typeof enteredAmount === "number" &&
+    Number.isFinite(enteredAmount) &&
+    enteredAmount > (remainingAmount as number);
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} size="md">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-4">
+        {hasRemaining && (
+          <div className="flex items-center justify-between rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">
+            <span className="text-neutral-600">Remaining balance</span>
+            <span className="tabular-nums font-semibold text-neutral-900">
+              {formatCurrency(remainingAmount as number)}
+            </span>
+          </div>
+        )}
+
         <Input
           label="Payment amount (EGP)"
           type="number"
@@ -103,6 +127,14 @@ export function RecordPaymentModal({
           disabled={isSubmitting}
           required
         />
+
+        {exceedsRemaining && (
+          <p className="text-sm text-error">
+            This amount exceeds the remaining balance of{" "}
+            {formatCurrency(remainingAmount as number)}. Overpayments are not
+            allowed.
+          </p>
+        )}
 
         <Controller
           name="paymentMethod"
@@ -155,7 +187,11 @@ export function RecordPaymentModal({
               {skipLabel}
             </Button>
           )}
-          <Button type="submit" isLoading={isSubmitting}>
+          <Button
+            type="submit"
+            isLoading={isSubmitting}
+            disabled={exceedsRemaining}
+          >
             {submitLabel}
           </Button>
         </div>

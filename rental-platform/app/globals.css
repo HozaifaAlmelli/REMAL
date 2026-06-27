@@ -424,3 +424,146 @@
     opacity: 0.85;
   }
 }
+
+/* ============================================================
+   Shared calendar skin — react-day-picker v9, portal-wide.
+   One calendar language across the operational portals: the owner
+   availability calendar, and every DateRangePicker (admin date
+   blocks, seasonal pricing, CRM leads, quick booking, filters,
+   analytics). Neutral-pro surface; terracotta is the only accent
+   and marks solely the active selection. Occupied nights wear the
+   system's soft status fills (modifier classes set per-calendar,
+   used today by the owner availability view). Logical props → RTL.
+   ============================================================ */
+.cal-skin {
+  display: flex;
+  justify-content: center;
+  --rdp-accent-color: var(--color-primary-500);
+  --rdp-accent-background-color: var(--color-primary-50);
+  --rdp-day-width: 40px;
+  --rdp-day-height: 40px;
+  --rdp-day_button-width: 36px;
+  --rdp-day_button-height: 36px;
+  --rdp-day_button-border-radius: 9px;
+  --rdp-outside-opacity: 0.4;
+  --rdp-today-color: var(--color-primary-600);
+}
+.cal-skin .rdp-root {
+  margin: 0;
+  font-family: var(--font-ui), system-ui, sans-serif;
+}
+/* Multi-month pickers (DateRangePicker uses two) breathe with a gap. */
+.cal-skin .rdp-months {
+  gap: 20px;
+}
+.cal-skin .rdp-month_caption {
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--color-neutral-900);
+  height: 38px;
+  padding-inline-start: 4px;
+}
+.cal-skin .rdp-nav {
+  height: 38px;
+  gap: 2px;
+}
+.cal-skin .rdp-button_previous,
+.cal-skin .rdp-button_next {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--color-neutral-500);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.cal-skin .rdp-button_previous:hover,
+.cal-skin .rdp-button_next:hover {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
+}
+.cal-skin .rdp-chevron {
+  fill: currentColor;
+}
+.cal-skin .rdp-weekday {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-neutral-400);
+  padding-bottom: 6px;
+}
+.cal-skin .rdp-day {
+  font-variant-numeric: tabular-nums;
+}
+.cal-skin .rdp-day_button {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-neutral-700);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.cal-skin .rdp-day_button:hover:not([disabled]) {
+  background: var(--color-primary-50);
+  border-color: var(--color-primary-200);
+  color: var(--color-primary-700);
+}
+.cal-skin .rdp-day_button:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+}
+.cal-skin .rdp-today:not(.rdp-selected) .rdp-day_button {
+  color: var(--color-primary-600);
+  font-weight: 700;
+}
+
+/* Active selection — terracotta spotlight.
+   Prefixed with .rdp-root so it out-specifies the :hover rule above and the
+   chosen range stays solid even while the pointer rests on an endpoint. */
+.cal-skin .rdp-root .rdp-range_start .rdp-day_button,
+.cal-skin .rdp-root .rdp-range_end .rdp-day_button,
+.cal-skin .rdp-root .rdp-selected .rdp-day_button {
+  background: var(--color-primary-500);
+  color: #fff;
+  border-color: var(--color-primary-500);
+  font-weight: 650;
+}
+.cal-skin .rdp-root .rdp-range_middle .rdp-day_button {
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+  border-color: transparent;
+}
+
+/* Occupied nights — disabled, painted with system status fills */
+.cal-skin .rdp-disabled .rdp-day_button {
+  opacity: 1;
+  cursor: not-allowed;
+}
+.cal-skin .cal-booked .rdp-day_button {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+.cal-skin .cal-owner .rdp-day_button {
+  background: var(--color-neutral-200);
+  color: var(--color-neutral-700);
+}
+.cal-skin .cal-pending .rdp-day_button {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 5px,
+    rgba(180, 83, 9, 0.13) 5px 10px
+  );
+}
+/* Past / unavailable with no booking meaning — quietly muted */
+.cal-skin
+  .rdp-disabled:not(.cal-booked):not(.cal-owner):not(.cal-pending)
+  .rdp-day_button {
+  color: var(--color-neutral-300);
+  background: transparent;
+}

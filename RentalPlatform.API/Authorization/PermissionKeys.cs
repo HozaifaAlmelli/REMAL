@@ -1,3 +1,5 @@
+using RentalPlatform.Shared.Constants;
+
 namespace RentalPlatform.API.Authorization;
 
 public sealed record PermissionDescriptor(
@@ -28,6 +30,7 @@ public static class PermissionKeys
     public const string AmenitiesManage = "amenities:manage";
     public const string AnalyticsRead = "analytics:read";
     public const string SettingsAdmin = "settings:admin";
+    public const string AvailabilityApprove = RbacPermissionKeys.AvailabilityApprove;
 
     public static readonly IReadOnlyList<PermissionDescriptor> Descriptors =
         new PermissionDescriptor[]
@@ -51,7 +54,8 @@ public static class PermissionKeys
             new(ProjectsManage, "Configuration", "Manage projects", "Create and maintain resort projects."),
             new(AmenitiesManage, "Configuration", "Manage amenities", "Create and maintain the amenity catalog."),
             new(AnalyticsRead, "Analytics", "View analytics", "View booking and finance reports."),
-            new(SettingsAdmin, "Security", "Manage access", "Manage admin users, roles, and permission overrides.")
+            new(SettingsAdmin, "Security", "Manage access", "Manage admin users, roles, and permission overrides."),
+            new(AvailabilityApprove, "Availability", "Approve owner date-block requests", "Review and resolve owner date-block requests that conflict with active pipeline records.")
         };
 
     public static readonly IReadOnlyList<string> All =

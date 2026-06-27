@@ -30,3 +30,26 @@ public class UpdateDateBlockRequestValidator : AbstractValidator<UpdateDateBlock
             .WithMessage("Reason cannot be only whitespace if provided.");
     }
 }
+
+public class PreflightDateBlockRequestValidator : AbstractValidator<PreflightDateBlockRequest>
+{
+    public PreflightDateBlockRequestValidator()
+    {
+        RuleFor(x => x.StartDate)
+            .LessThanOrEqualTo(x => x.EndDate)
+            .WithMessage("StartDate must be less than or equal to EndDate.");
+    }
+}
+
+public class ResolveDateBlockRequestValidator : AbstractValidator<ResolveDateBlockRequest>
+{
+    private static readonly string[] AllowedDecisions = { "approved", "rejected" };
+
+    public ResolveDateBlockRequestValidator()
+    {
+        RuleFor(x => x.Decision)
+            .NotEmpty()
+            .Must(value => AllowedDecisions.Contains(value.Trim().ToLowerInvariant()))
+            .WithMessage("Decision must be either 'approved' or 'rejected'.");
+    }
+}

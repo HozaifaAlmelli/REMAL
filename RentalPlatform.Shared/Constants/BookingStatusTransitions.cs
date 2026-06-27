@@ -37,4 +37,22 @@ public static class BookingStatusTransitions
     }
 
     public static readonly BookingStatus[] HoldingStatuses = { BookingStatus.Booked, BookingStatus.Confirmed, BookingStatus.CheckIn };
+
+    // Booking statuses for which financial documents (invoices) and payments may be created.
+    // A financial relationship only exists once a booking is real: it excludes pre-booking
+    // CRM leads (Prospecting/Relevant/NoAnswer) and dead records (NotRelevant/Cancelled).
+    // Completed/LeftEarly stay eligible so post-stay balances can still be settled.
+    public static readonly BookingStatus[] FinanceEligibleStatuses =
+    {
+        BookingStatus.Booked,
+        BookingStatus.Confirmed,
+        BookingStatus.CheckIn,
+        BookingStatus.Completed,
+        BookingStatus.LeftEarly,
+    };
+
+    public static bool IsFinanceEligible(BookingStatus status)
+    {
+        return Array.IndexOf(FinanceEligibleStatuses, status) >= 0;
+    }
 }

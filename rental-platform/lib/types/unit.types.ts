@@ -112,6 +112,11 @@ export interface ReplaceUnitAmenitiesRequest {
 }
 
 export type DateBlockReason = "Maintenance" | "OwnerUse" | "Other";
+export type DateBlockStatus = "approved" | "pending_approval" | "rejected";
+export type DateBlockPreflightOutcome =
+  | "clear"
+  | "requires_approval"
+  | "hard_blocked";
 
 export interface DateBlockResponse {
   id: string;
@@ -120,6 +125,11 @@ export interface DateBlockResponse {
   endDate: string;
   reason: DateBlockReason;
   notes: string | null;
+  status: DateBlockStatus;
+  requiresAdminSignoff: boolean;
+  conflictingLeadId: string | null;
+  conflictingBookingId: string | null;
+  resolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -135,6 +145,42 @@ export interface UpdateDateBlockRequest {
   startDate?: string;
   endDate?: string;
   reason?: string;
+  notes?: string;
+}
+
+export interface DateBlockPreflightRequest {
+  startDate: string;
+  endDate: string;
+}
+
+export interface DateBlockPreflightResult {
+  outcome: DateBlockPreflightOutcome;
+  conflictType: string | null;
+  conflictDates: string[];
+}
+
+export interface DateBlockApprovalItem {
+  id: string;
+  unitId: string;
+  unitName: string;
+  ownerId: string;
+  ownerName: string;
+  startDate: string;
+  endDate: string;
+  reason: DateBlockReason | null;
+  notes: string | null;
+  conflictingLeadId: string | null;
+  conflictingLeadStartDate: string | null;
+  conflictingLeadEndDate: string | null;
+  conflictingBookingId: string | null;
+  conflictingBookingCheckInDate: string | null;
+  conflictingBookingCheckOutDate: string | null;
+  conflictCount: number;
+  createdAt: string;
+}
+
+export interface ResolveDateBlockRequest {
+  decision: "approved" | "rejected";
   notes?: string;
 }
 

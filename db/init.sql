@@ -165,5 +165,8 @@
 \echo '=== Running migration 0054: rename areas domain to projects ==='
 \i /docker-entrypoint-initdb.d/migrations/0054_rename_areas_to_projects.sql
 
+\echo '=== Running migration 0055: date block approvals ==='
+\i /docker-entrypoint-initdb.d/migrations/0055_date_block_approvals.sql
+
 \echo '=== All migrations completed successfully ==='
 

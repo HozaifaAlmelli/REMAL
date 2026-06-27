@@ -18,6 +18,7 @@ export const ROUTES = {
     root: "/admin",
     dashboard: "/admin/dashboard",
     analytics: "/admin/analytics",
+    approvals: "/admin/approvals",
     projects: "/admin/projects",
     units: {
       list: "/admin/units",

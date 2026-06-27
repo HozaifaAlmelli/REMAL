@@ -100,6 +100,8 @@ export const endpoints = {
     create: (unitId: string) => `/api/internal/units/${unitId}/date-blocks`,
     update: (id: string) => `/api/internal/date-blocks/${id}`,
     delete: (id: string) => `/api/internal/date-blocks/${id}`,
+    approvals: "/api/internal/date-blocks/approvals",
+    resolve: (id: string) => `/api/internal/date-blocks/${id}/resolve`,
   },
 
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ BOOKINGS (INTERNAL) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -341,6 +343,12 @@ export const endpoints = {
       list: "/api/owner/units",
       detail: (unitId: string) => `/api/owner/units/${unitId}`,
       dateBlocks: (unitId: string) => `/api/owner/units/${unitId}/date-blocks`,
+      dateBlocksList: (unitId: string) =>
+        `/api/owner/units/${unitId}/date-blocks`,
+      dateBlocksPreflight: (unitId: string) =>
+        `/api/owner/units/${unitId}/date-blocks/preflight`,
+      dateBlockDelete: (unitId: string, blockId: string) =>
+        `/api/owner/units/${unitId}/date-blocks/${blockId}`,
     },
     bookings: {
       list: "/api/owner/bookings",

@@ -4,10 +4,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Constants;
 
 namespace RentalPlatform.Business.Services;
 
@@ -85,9 +87,14 @@ public class PaymentService : IPaymentService
         string? notes,
         CancellationToken cancellationToken = default)
     {
-        var bookingExists = await _unitOfWork.Bookings.ExistsAsync(b => b.Id == bookingId, cancellationToken);
-        if (!bookingExists)
+        var booking = await _unitOfWork.Bookings.GetByIdAsync(bookingId, cancellationToken);
+        if (booking == null)
             throw new NotFoundException($"Booking with ID {bookingId} not found");
+
+        if (!BookingStatusTransitions.IsFinanceEligible(booking.BookingStatus))
+            throw new ConflictException(
+                $"Cannot record a payment for booking {bookingId}: its status is '{booking.BookingStatus}'. " +
+                "Payments can only be recorded for active bookings (Booked, Confirmed, CheckIn, Completed, or LeftEarly).");
 
         if (invoiceId.HasValue)
         {
@@ -108,24 +115,86 @@ public class PaymentService : IPaymentService
         if (amount <= 0)
             throw new BusinessValidationException("Payment amount must be greater than zero");
 
-        var payment = new Payment
+        IDbContextTransaction? ownedTransaction = null;
+        if (!_unitOfWork.HasActiveTransaction)
+            ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
+        try
         {
-            Id = Guid.NewGuid(),
-            BookingId = bookingId,
-            InvoiceId = invoiceId,
-            PaymentStatus = "pending",
-            PaymentMethod = normalizedMethod,
-            Amount = amount,
-            ReferenceNumber = referenceNumber?.Trim(),
-            Notes = notes?.Trim(),
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
+            // Serialize concurrent payment writes for the same booking so the overpayment
+            // check below sees a consistent committed total (no check-then-insert race).
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                $"payment-booking:{bookingId:N}",
+                cancellationToken);
 
-        await _unitOfWork.Payments.AddAsync(payment, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await EnsureNoOverpaymentAsync(bookingId, booking.FinalAmount, amount, cancellationToken);
 
-        return payment;
+            var payment = new Payment
+            {
+                Id = Guid.NewGuid(),
+                BookingId = bookingId,
+                InvoiceId = invoiceId,
+                PaymentStatus = "pending",
+                PaymentMethod = normalizedMethod,
+                Amount = amount,
+                ReferenceNumber = referenceNumber?.Trim(),
+                Notes = notes?.Trim(),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _unitOfWork.Payments.AddAsync(payment, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+
+            return payment;
+        }
+        catch
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
+        }
+    }
+
+    // Prevents the committed total (money already received OR in-flight pending) from
+    // exceeding the amount owed. Amount owed = the active invoice total when one exists,
+    // otherwise the booking's final amount. Equal-to-owed is allowed (full settlement).
+    private async Task EnsureNoOverpaymentAsync(
+        Guid bookingId,
+        decimal bookingFinalAmount,
+        decimal newAmount,
+        CancellationToken cancellationToken)
+    {
+        var activeInvoice = await _unitOfWork.Invoices.Query()
+            .Where(i => i.BookingId == bookingId
+                && i.InvoiceStatus != "cancelled"
+                && i.InvoiceStatus != "superseded")
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var amountOwed = activeInvoice?.TotalAmount ?? bookingFinalAmount;
+
+        var committedTotal = await _unitOfWork.Payments.Query()
+            .Where(p => p.BookingId == bookingId
+                && (p.PaymentStatus == "paid" || p.PaymentStatus == "pending"))
+            .SumAsync(p => p.Amount, cancellationToken);
+
+        if (committedTotal + newAmount > amountOwed)
+        {
+            var remaining = amountOwed - committedTotal;
+            if (remaining < 0) remaining = 0m;
+            throw new ConflictException(
+                $"This payment of {newAmount:F2} exceeds the remaining balance for booking {bookingId}. " +
+                $"Amount owed: {amountOwed:F2}, already recorded (paid + pending): {committedTotal:F2}, remaining: {remaining:F2}. " +
+                "Overpayments are not allowed.");
+        }
     }
 
     public async Task<Payment> MarkPaidAsync(
@@ -180,19 +249,32 @@ public class PaymentService : IPaymentService
 
         var projectedPaidTotal = currentPaidTotal + payment.Amount;
 
-        // Get the active invoice total for this booking
+        // Get the active invoice total for this booking. When no active invoice exists
+        // yet (e.g. a deposit recorded before confirmation), fall back to the booking's
+        // final amount so the overpayment guard still applies.
         var bookingInvoice = await _unitOfWork.Invoices.Query()
-            .Where(i => i.BookingId == payment.BookingId 
-                && i.InvoiceStatus != "cancelled" 
+            .Where(i => i.BookingId == payment.BookingId
+                && i.InvoiceStatus != "cancelled"
                 && i.InvoiceStatus != "superseded")
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (bookingInvoice != null && projectedPaidTotal > bookingInvoice.TotalAmount)
+        decimal amountOwed;
+        if (bookingInvoice != null)
         {
-            var overpaymentAmount = projectedPaidTotal - bookingInvoice.TotalAmount;
+            amountOwed = bookingInvoice.TotalAmount;
+        }
+        else
+        {
+            var booking = await _unitOfWork.Bookings.GetByIdAsync(payment.BookingId, cancellationToken);
+            amountOwed = booking?.FinalAmount ?? 0m;
+        }
+
+        if (projectedPaidTotal > amountOwed)
+        {
+            var overpaymentAmount = projectedPaidTotal - amountOwed;
             throw new ConflictException(
                 $"Payment {id} cannot be marked as paid: this would result in an overpayment of {overpaymentAmount:F2}. " +
-                $"Invoice total: {bookingInvoice.TotalAmount:F2}, Current paid: {currentPaidTotal:F2}, This payment: {payment.Amount:F2}. " +
+                $"Amount owed: {amountOwed:F2}, Current paid: {currentPaidTotal:F2}, This payment: {payment.Amount:F2}. " +
                 $"Overpayments are not allowed.");
         }
 

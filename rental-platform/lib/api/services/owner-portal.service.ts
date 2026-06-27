@@ -25,6 +25,8 @@ import type {
 } from "@/lib/types/owner-portal.types";
 import type {
   CreateDateBlockRequest,
+  DateBlockPreflightRequest,
+  DateBlockPreflightResult,
   DateBlockResponse,
   OperationalAvailabilityResponse,
 } from "@/lib/types/unit.types";
@@ -91,6 +93,19 @@ export const ownerPortalService = {
     data: CreateDateBlockRequest
   ): Promise<DateBlockResponse> =>
     api.post(endpoints.ownerPortal.units.dateBlocks(unitId), data),
+
+  preflightDateBlock: (
+    unitId: string,
+    data: DateBlockPreflightRequest
+  ): Promise<DateBlockPreflightResult> =>
+    api.post(endpoints.ownerPortal.units.dateBlocksPreflight(unitId), data),
+
+  getOwnerUnitDateBlocks: (unitId: string): Promise<DateBlockResponse[]> =>
+    api.get(endpoints.ownerPortal.units.dateBlocksList(unitId)),
+
+  // Re-open dates the owner previously closed (or withdraw a pending request).
+  deleteDateBlock: (unitId: string, blockId: string): Promise<void> =>
+    api.delete(endpoints.ownerPortal.units.dateBlockDelete(unitId, blockId)),
 
   // ── Bookings ──
   getBookings: (

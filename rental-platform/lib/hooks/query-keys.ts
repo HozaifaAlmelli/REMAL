@@ -90,6 +90,21 @@ export const queryKeys = {
         ["ownerPortal", "units", "list", filters] as const,
       detail: (unitId: string) =>
         ["ownerPortal", "units", "detail", unitId] as const,
+      dateBlocks: (unitId: string) =>
+        ["ownerPortal", "units", "dateBlocks", unitId] as const,
+      dateBlockPreflight: (
+        unitId: string,
+        startDate: string | null,
+        endDate: string | null
+      ) =>
+        [
+          "ownerPortal",
+          "units",
+          "dateBlockPreflight",
+          unitId,
+          startDate,
+          endDate,
+        ] as const,
     },
     unitAvailability: (unitId: string, startDate: string, endDate: string) =>
       ["ownerPortal", "unitAvailability", unitId, startDate, endDate] as const,
@@ -109,5 +124,9 @@ export const queryKeys = {
     reviews: {
       all: ["ownerPortal", "reviews"] as const,
     },
+  },
+  dateBlockApprovals: {
+    all: ["dateBlockApprovals"] as const,
+    list: () => ["dateBlockApprovals", "list"] as const,
   },
 };

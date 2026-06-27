@@ -21,14 +21,23 @@ import { formatCurrency, formatDate } from "@/lib/utils/format";
 import { toastError } from "@/lib/utils/toast";
 import { FileText, Plus } from "lucide-react";
 import { INVOICE_STATUS_LABELS } from "@/lib/constants/invoice-statuses";
+import {
+  isFinanceEligibleStatus,
+  type BookingStatus,
+} from "@/lib/constants/booking-statuses";
 import type { InvoiceStatus } from "@/lib/types/booking.types";
 
 interface BookingInvoiceProps {
   bookingId: string;
   invoiceId: string | null;
+  bookingStatus?: BookingStatus;
 }
 
-export function BookingInvoice({ bookingId, invoiceId }: BookingInvoiceProps) {
+export function BookingInvoice({
+  bookingId,
+  invoiceId,
+  bookingStatus,
+}: BookingInvoiceProps) {
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showInvoiceActionDialog, setShowInvoiceActionDialog] = useState(false);
@@ -184,6 +193,7 @@ export function BookingInvoice({ bookingId, invoiceId }: BookingInvoiceProps) {
   }
 
   if (!invoiceId) {
+    const financeEligible = isFinanceEligibleStatus(bookingStatus);
     return (
       <div className="space-y-4">
         <EmptyState
@@ -191,7 +201,15 @@ export function BookingInvoice({ bookingId, invoiceId }: BookingInvoiceProps) {
           title="Invoice not issued"
           description="Create a draft invoice before issuing billing for this booking."
         />
-        {canManageFinance && (
+        {canManageFinance && !financeEligible && (
+          <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-center text-xs text-neutral-600">
+            An invoice cannot be created while this booking is{" "}
+            <span className="font-semibold">{bookingStatus}</span>. Only active
+            bookings (Booked, Confirmed, Check-in, Completed, or Left early) can
+            be invoiced.
+          </div>
+        )}
+        {canManageFinance && financeEligible && (
           <div className="space-y-2">
             <div className="flex justify-center">
               <Button
