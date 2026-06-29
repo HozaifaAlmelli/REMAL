@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { DateRangePicker, DateRange } from "@/components/ui/DateRangePicker";
+import { Switch } from "@/components/ui/Switch";
 import { BOOKING_STATUS_LABELS } from "@/lib/constants/booking-statuses";
 import { formatDateForApi, parseDateOnly } from "@/lib/utils/format";
 import type { BookingListFilters, FormalBookingStatus } from "@/lib/types/booking.types";
@@ -85,6 +86,20 @@ export function BookingFilters({ filters, onChange }: BookingFiltersProps) {
             placeholder="Check-in dates"
           />
         </div>
+        <label className="flex min-h-10 items-center gap-3 rounded-[var(--portal-radius-control)] border border-neutral-200 bg-white px-3 text-sm text-neutral-700">
+          <Switch
+            checked={Boolean(filters.agedSoftHoldsOnly)}
+            onCheckedChange={(checked) =>
+              onChange({
+                ...filters,
+                page: 1,
+                agedSoftHoldsOnly: checked || undefined,
+              })
+            }
+            aria-label="Show aged soft holds only"
+          />
+          <span className="font-medium">Aged holds</span>
+        </label>
       </div>
     </div>
   );

@@ -19,18 +19,8 @@ public class DateBlockApprovalService : IDateBlockApprovalService
     private const string ApprovedTemplate = "OWNER_BLOCK_APPROVED";
     private const string RejectedTemplate = "OWNER_BLOCK_REJECTED";
 
-    private static readonly BookingStatus[] HardBookingStatuses =
-    {
-        BookingStatus.Booked,
-        BookingStatus.Confirmed,
-        BookingStatus.CheckIn
-    };
-
-    private static readonly BookingStatus[] SoftBookingStatuses =
-    {
-        BookingStatus.Prospecting,
-        BookingStatus.Relevant
-    };
+    private static readonly BookingStatus[] HardBookingStatuses = BookingStatusTransitions.HoldingStatuses;
+    private static readonly BookingStatus[] SoftBookingStatuses = BookingStatusTransitions.SoftHoldStatuses;
 
     private static readonly LeadStatus[] SoftLeadStatuses =
     {

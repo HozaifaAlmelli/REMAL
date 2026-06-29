@@ -6,12 +6,12 @@ using RentalPlatform.API.Models;
 using RentalPlatform.API.Authorization;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Exceptions;
+using RentalPlatform.Business.Security;
 using RentalPlatform.Data.Entities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Threading.Tasks;
 
 namespace RentalPlatform.API.Controllers;
@@ -33,7 +33,7 @@ public class ClientsController : ControllerBase
         [FromBody] CreateClientRequest request,
         CancellationToken cancellationToken)
     {
-        var tempPassword = GenerateTemporaryPassword();
+        var tempPassword = TemporaryPasswordGenerator.Generate();
         var client = await _clientService.CreateAsync(
             request.Name, request.Phone, request.Email, tempPassword, cancellationToken);
 
@@ -50,27 +50,6 @@ public class ClientsController : ControllerBase
         return Ok(ApiResponse<CreateClientResponse>.CreateSuccess(
             response,
             "Client created successfully."));
-    }
-
-    // Generates a human-friendly but strong one-time password, e.g. "Kxq7-Mp42-Rt9w".
-    // Uses an unambiguous alphabet (no 0/O/1/l/I) so it can be read aloud / copied without confusion.
-    private static string GenerateTemporaryPassword()
-    {
-        const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-        Span<byte> bytes = stackalloc byte[12];
-        RandomNumberGenerator.Fill(bytes);
-
-        var chars = new char[14]; // 3 groups of 4 + 2 hyphens
-        var ci = 0;
-        var bi = 0;
-        for (var group = 0; group < 3; group++)
-        {
-            if (group > 0) chars[ci++] = '-';
-            for (var k = 0; k < 4; k++)
-                chars[ci++] = alphabet[bytes[bi++] % alphabet.Length];
-        }
-
-        return new string(chars);
     }
 
     [HttpGet]

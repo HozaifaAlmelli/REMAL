@@ -11,4 +11,5 @@ public record OperationalAvailabilityResponse
     public bool IsAvailable { get; init; }
     public string? Reason { get; init; }
     public List<DateOnly> BlockedDates { get; init; } = new();
+    public List<DateOnly> HeldDates { get; init; } = new();
 }

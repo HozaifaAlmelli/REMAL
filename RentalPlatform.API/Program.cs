@@ -274,6 +274,7 @@ builder.Services.AddScoped<IDateBlockService, DateBlockService>();
 builder.Services.AddScoped<IDateBlockApprovalService, DateBlockApprovalService>();
 builder.Services.AddScoped<IUnitAvailabilityService, UnitAvailabilityService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<IGuestBookingService, GuestBookingService>();
 builder.Services.AddScoped<IBookingLifecycleService, BookingLifecycleService>();
 builder.Services.AddScoped<ICrmLeadService, CrmLeadService>();
 builder.Services.AddScoped<ICrmNoteService, CrmNoteService>();

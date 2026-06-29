@@ -80,10 +80,15 @@ export function AvailabilityCalendar({
     return map;
   }, [availability]);
 
+  const requestedDates = React.useMemo(() => {
+    return new Set(availability?.heldDates ?? []);
+  }, [availability?.heldDates]);
+
   // Check matching block or pricing for a day
   const getDayStatus = (d: Date) => {
     const dateStr = format(d, "yyyy-MM-dd");
     const isUnavailable = unavailableDates.has(dateStr);
+    const isRequested = requestedDates.has(dateStr);
 
     // Overlays
     const hasPricing = pricing.some(
@@ -92,6 +97,7 @@ export function AvailabilityCalendar({
 
     return {
       isUnavailable,
+      isRequested,
       hasPricing,
       reason: unavailableDates.get(dateStr) || null,
     };
@@ -149,6 +155,9 @@ export function AvailabilityCalendar({
                 "group relative flex min-h-[80px] flex-col items-center justify-start bg-white p-2 text-sm",
                 status.isUnavailable &&
                   "border border-red-200 bg-red-50 !bg-opacity-50 text-red-900",
+                !status.isUnavailable &&
+                  status.isRequested &&
+                  "border border-amber-200 bg-amber-50 text-amber-900",
                 status.hasPricing && "border-2 border-amber-400" // Priority border overlay
               )}
             >
@@ -164,9 +173,18 @@ export function AvailabilityCalendar({
                   {status.reason}
                 </span>
               )}
+              {!status.reason && status.isRequested && (
+                <span className="mt-1 line-clamp-2 px-1 text-[10px] leading-tight text-amber-700">
+                  requested hold
+                </span>
+              )}
               {/* Optional tooltip via group hover */}
               <div className="absolute bottom-full z-10 mb-2 hidden w-32 rounded bg-neutral-900 p-2 text-left text-xs text-white shadow-sm group-hover:block">
-                {status.reason ? `Unavailable: ${status.reason}` : "Available"}
+                {status.reason
+                  ? `Unavailable: ${status.reason}`
+                  : status.isRequested
+                    ? "Requested by a storefront customer"
+                    : "Available"}
                 {status.hasPricing && (
                   <div className="mt-1 text-amber-300">
                     Has Seasonal Pricing
@@ -177,6 +195,28 @@ export function AvailabilityCalendar({
           );
         })}
       </div>
+
+      <div className="flex flex-wrap items-center gap-4 text-xs text-neutral-600">
+        <LegendDot className="bg-white ring-1 ring-neutral-300" label="Available" />
+        <LegendDot className="bg-red-50 ring-1 ring-red-200" label="Blocked or booked" />
+        <LegendDot className="bg-amber-50 ring-1 ring-amber-200" label="Requested hold" />
+        <LegendDot className="bg-white ring-2 ring-amber-400" label="Seasonal pricing" />
+      </div>
     </div>
+  );
+}
+
+function LegendDot({
+  className,
+  label,
+}: {
+  className: string;
+  label: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className={cn("h-3 w-3 rounded-[4px]", className)} />
+      <span>{label}</span>
+    </span>
   );
 }

@@ -30,6 +30,7 @@ function BookingsListContent() {
     checkInFrom: searchParams.get("checkInFrom") || undefined,
     checkInTo: searchParams.get("checkInTo") || undefined,
     search: searchParams.get("search") || undefined,
+    agedSoftHoldsOnly: searchParams.get("agedSoftHoldsOnly") === "true" || undefined,
     page: Number(searchParams.get("page")) || 1,
     pageSize: 20,
   }), [searchParams]);
@@ -43,6 +44,7 @@ function BookingsListContent() {
     if (newFilters.checkInFrom) params.set("checkInFrom", newFilters.checkInFrom);
     if (newFilters.checkInTo) params.set("checkInTo", newFilters.checkInTo);
     if (newFilters.search) params.set("search", newFilters.search);
+    if (newFilters.agedSoftHoldsOnly) params.set("agedSoftHoldsOnly", "true");
     if (newFilters.page && newFilters.page > 1) params.set("page", String(newFilters.page));
     
     router.push(`${ROUTES.admin.bookings.list}?${params.toString()}`);

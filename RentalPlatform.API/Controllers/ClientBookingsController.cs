@@ -5,12 +5,17 @@ using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using RentalPlatform.API.DTOs.Requests.Bookings;
+using RentalPlatform.API.DTOs.Responses.Auth;
 using RentalPlatform.API.DTOs.Responses.Bookings;
 using RentalPlatform.API.Models;
+using RentalPlatform.API.Options;
+using RentalPlatform.API.Services;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
+using RentalPlatform.Business.Models;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Enums;
 
@@ -22,19 +27,31 @@ namespace RentalPlatform.API.Controllers;
 public class ClientBookingsController : ControllerBase
 {
     private readonly IBookingService _bookingService;
+    private readonly IGuestBookingService _guestBookingService;
     private readonly ICrmLeadService _crmLeadService;
     private readonly IUnitAvailabilityService _availabilityService;
+    private readonly ITokenService _tokenService;
+    private readonly IWebHostEnvironment _environment;
+    private readonly JwtOptions _jwtOptions;
     private readonly ILogger<ClientBookingsController> _logger;
 
     public ClientBookingsController(
-        IBookingService bookingService, 
+        IBookingService bookingService,
+        IGuestBookingService guestBookingService,
         ICrmLeadService crmLeadService,
         IUnitAvailabilityService availabilityService,
+        ITokenService tokenService,
+        IWebHostEnvironment environment,
+        Microsoft.Extensions.Options.IOptions<JwtOptions> jwtOptions,
         ILogger<ClientBookingsController> logger)
     {
         _bookingService = bookingService;
+        _guestBookingService = guestBookingService;
         _crmLeadService = crmLeadService;
         _availabilityService = availabilityService;
+        _tokenService = tokenService;
+        _environment = environment;
+        _jwtOptions = jwtOptions.Value;
         _logger = logger;
     }
 
@@ -108,10 +125,38 @@ public class ClientBookingsController : ControllerBase
             assignedAdminUserId: null,
             internalNotes: null,
             requirePortfolioVisibility: true,
+            rejectSoftHoldOverlaps: true,
             cancellationToken);
 
         return Ok(ApiResponse<BookingDetailsResponse>.CreateSuccess(
             MapToDetailsResponse(booking),
+            "Booking request submitted."));
+    }
+
+    [HttpPost("guest")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<GuestBookingResponse>>> CreateGuestBooking(
+        [FromBody] CreateGuestBookingRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _guestBookingService.CreateAsync(
+            request.FirstName,
+            request.LastName,
+            request.Phone,
+            request.UnitId,
+            request.CheckInDate,
+            request.CheckOutDate,
+            request.GuestCount,
+            cancellationToken);
+
+        var response = new GuestBookingResponse
+        {
+            Booking = MapToDetailsResponse(result.Booking),
+            Auth = GenerateClientAuthResponse(result.Client)
+        };
+
+        return Ok(ApiResponse<GuestBookingResponse>.CreateSuccess(
+            response,
             "Booking request submitted."));
     }
 
@@ -143,6 +188,50 @@ public class ClientBookingsController : ControllerBase
             throw new UnauthorizedBusinessException("Current client ID not found in claims.");
 
         return clientId;
+    }
+
+    private AuthResponse GenerateClientAuthResponse(Client client)
+    {
+        var subject = new AuthenticatedSubject
+        {
+            UserId = client.Id,
+            SubjectType = "Client",
+            Identifier = client.Phone,
+            Name = client.Name,
+            AdminRole = null,
+            ClientUpdatedAt = client.UpdatedAt
+        };
+
+        var accessToken = _tokenService.GenerateAccessToken(subject);
+        var refreshToken = _tokenService.GenerateRefreshToken(subject);
+        SetRefreshTokenCookie(refreshToken);
+
+        return new AuthResponse(
+            AccessToken: accessToken,
+            ExpiresInSeconds: _jwtOptions.AccessTokenExpirationMinutes * 60,
+            SubjectType: subject.SubjectType,
+            AdminRole: null,
+            RoleName: null,
+            User: new AuthenticatedUserResponse(
+                UserId: client.Id,
+                Identifier: client.Phone,
+                SubjectType: subject.SubjectType,
+                AdminRole: null,
+                Name: client.Name),
+            Permissions: Array.Empty<string>());
+    }
+
+    private void SetRefreshTokenCookie(string refreshToken)
+    {
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = !_environment.IsDevelopment(),
+            SameSite = SameSiteMode.Strict,
+            Expires = DateTime.UtcNow.AddDays(7)
+        };
+
+        Response.Cookies.Append("refresh_token", refreshToken, cookieOptions);
     }
 
     private static BookingListItemResponse MapToListItemResponse(Booking booking)

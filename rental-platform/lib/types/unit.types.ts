@@ -226,6 +226,7 @@ export interface OperationalAvailabilityResponse {
   isAvailable: boolean;
   reason: string;
   blockedDates: string[];
+  heldDates: string[];
 }
 
 export interface UnitPricingResponse {

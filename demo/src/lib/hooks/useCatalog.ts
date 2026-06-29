@@ -163,23 +163,49 @@ export function useAvailability(
       setState({ data: null, isLoading: false, error: null });
       return;
     }
+
     let active = true;
-    setState({ data: null, isLoading: true, error: null });
-    availabilityService
-      .check(unitId, startDate, endDate)
-      .then((data) => {
-        if (active) setState({ data, isLoading: false, error: null });
-      })
-      .catch((e: unknown) => {
-        if (active)
+    let hasLoaded = false;
+
+    const loadAvailability = () => {
+      if (!hasLoaded) {
+        setState({ data: null, isLoading: true, error: null });
+      }
+
+      availabilityService
+        .check(unitId, startDate, endDate)
+        .then((data) => {
+          if (!active) return;
+          hasLoaded = true;
+          setState({ data, isLoading: false, error: null });
+        })
+        .catch((e: unknown) => {
+          if (!active) return;
+          hasLoaded = true;
           setState({
             data: null,
             isLoading: false,
             error: e instanceof Error ? e.message : ERR,
           });
-      });
+        });
+    };
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        loadAvailability();
+      }
+    };
+
+    loadAvailability();
+    const intervalId = window.setInterval(loadAvailability, 60_000);
+    window.addEventListener("focus", loadAvailability);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
     return () => {
       active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", loadAvailability);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [unitId, startDate, endDate]);
 

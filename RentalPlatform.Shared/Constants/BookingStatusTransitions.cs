@@ -38,6 +38,22 @@ public static class BookingStatusTransitions
 
     public static readonly BookingStatus[] HoldingStatuses = { BookingStatus.Booked, BookingStatus.Confirmed, BookingStatus.CheckIn };
 
+    // Soft holds occupy storefront dates while the sales team qualifies demand.
+    // They are deliberately separate from HoldingStatuses because firm holds carry
+    // finance and operational semantics in other services.
+    public static readonly BookingStatus[] SoftHoldStatuses = { BookingStatus.Prospecting, BookingStatus.Relevant };
+
+    public static readonly BookingStatus[] ActiveAvailabilityHoldStatuses =
+    {
+        BookingStatus.Prospecting,
+        BookingStatus.Relevant,
+        BookingStatus.Booked,
+        BookingStatus.Confirmed,
+        BookingStatus.CheckIn
+    };
+
+    public const int AgedSoftHoldThresholdDays = 2;
+
     // Booking statuses for which financial documents (invoices) and payments may be created.
     // A financial relationship only exists once a booking is real: it excludes pre-booking
     // CRM leads (Prospecting/Relevant/NoAnswer) and dead records (NotRelevant/Cancelled).

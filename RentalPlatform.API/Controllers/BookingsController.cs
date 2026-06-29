@@ -11,6 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.API.Controllers;
@@ -37,6 +38,7 @@ public class BookingsController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] DateOnly? checkInFrom = null,
         [FromQuery] DateOnly? checkInTo = null,
+        [FromQuery] bool agedSoftHoldsOnly = false,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
@@ -49,7 +51,8 @@ public class BookingsController : ControllerBase
             checkInFrom,
             checkInTo,
             page,
-            pageSize);
+            pageSize,
+            agedSoftHoldsOnly);
 
         int totalPages = (int)Math.Ceiling(result.Total / (double)pageSize);
         if (totalPages == 0) totalPages = 1;
@@ -167,7 +170,9 @@ public class BookingsController : ControllerBase
             BaseAmount = booking.BaseAmount,
             FinalAmount = booking.FinalAmount,
             Source = booking.Source,
-            CreatedAt = booking.CreatedAt
+            CreatedAt = booking.CreatedAt,
+            IsAgedSoftHold = IsAgedSoftHold(booking),
+            SoftHoldAgeDays = GetSoftHoldAgeDays(booking)
         };
     }
 
@@ -193,8 +198,24 @@ public class BookingsController : ControllerBase
             Source = booking.Source,
             InternalNotes = booking.InternalNotes,
             CreatedAt = booking.CreatedAt,
-            UpdatedAt = booking.UpdatedAt
+            UpdatedAt = booking.UpdatedAt,
+            IsAgedSoftHold = IsAgedSoftHold(booking),
+            SoftHoldAgeDays = GetSoftHoldAgeDays(booking)
         };
+    }
+
+    private static bool IsAgedSoftHold(Booking booking)
+    {
+        return BookingStatusTransitions.SoftHoldStatuses.Contains(booking.BookingStatus)
+            && booking.CreatedAt <= DateTime.UtcNow.AddDays(-BookingStatusTransitions.AgedSoftHoldThresholdDays);
+    }
+
+    private static int? GetSoftHoldAgeDays(Booking booking)
+    {
+        if (!BookingStatusTransitions.SoftHoldStatuses.Contains(booking.BookingStatus))
+            return null;
+
+        return Math.Max(0, (int)Math.Floor((DateTime.UtcNow - booking.CreatedAt).TotalDays));
     }
 
     private static BookingStatusHistoryResponse MapToHistoryResponse(BookingStatusHistory history)

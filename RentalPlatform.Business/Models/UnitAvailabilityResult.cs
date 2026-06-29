@@ -11,4 +11,5 @@ public class UnitAvailabilityResult
     public bool IsAvailable { get; set; }
     public string? Reason { get; set; }
     public IReadOnlyList<DateOnly> BlockedDates { get; set; } = Array.Empty<DateOnly>();
+    public IReadOnlyList<DateOnly> HeldDates { get; set; } = Array.Empty<DateOnly>();
 }

@@ -113,11 +113,17 @@ export function OwnerAvailabilityCalendar({
   const createBlock = useCreateOwnerDateBlock(unitId);
   const deleteBlock = useDeleteOwnerDateBlock(unitId);
 
-  // Every occupied night the availability endpoint reports (bookings + owner
-  // blocks + pending holds). These can't be picked as a new block.
+  // Firm occupied nights the availability endpoint reports (bookings + owner
+  // blocks + pending blocks). These can't be picked as a new block.
   const occupiedDays = useMemo(
     () => (data?.blockedDates ?? []).map(parseDateOnly),
     [data?.blockedDates]
+  );
+  // Soft storefront requests are shown but remain selectable. The preflight
+  // endpoint will return requires_approval so owners can request an override.
+  const requestedDays = useMemo(
+    () => (data?.heldDates ?? []).map(parseDateOnly),
+    [data?.heldDates]
   );
   const approvedOwnerDays = useMemo(
     () => getOwnerBlockDates(ownerBlocks, "approved"),
@@ -281,11 +287,13 @@ export function OwnerAvailabilityCalendar({
                 booked: bookedDays,
                 ownerApproved: approvedOwnerDays,
                 ownerPending: pendingOwnerDays,
+                requested: requestedDays,
               }}
               modifiersClassNames={{
                 booked: "cal-booked",
                 ownerApproved: "cal-owner",
                 ownerPending: "cal-pending",
+                requested: "cal-requested",
               }}
             />
           </div>
@@ -295,6 +303,7 @@ export function OwnerAvailabilityCalendar({
         <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-neutral-100 pt-4">
           <LegendDot className="border border-neutral-300 bg-white" label="Available" />
           <LegendDot className="bg-error-bg" label="Booked" />
+          <LegendDot className="border border-warning/40 bg-warning-bg" label="Requested" />
           <LegendDot className="bg-neutral-200" label="Your block" />
           <LegendDot
             className="bg-warning-bg"

@@ -615,9 +615,14 @@
     rgba(180, 83, 9, 0.13) 5px 10px
   );
 }
+.cal-skin .cal-requested .rdp-day_button {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border-color: rgba(180, 83, 9, 0.35);
+}
 /* Past / unavailable with no booking meaning — quietly muted */
 .cal-skin
-  .rdp-disabled:not(.cal-booked):not(.cal-owner):not(.cal-pending)
+  .rdp-disabled:not(.cal-booked):not(.cal-owner):not(.cal-pending):not(.cal-requested)
   .rdp-day_button {
   color: var(--color-neutral-300);
   background: transparent;

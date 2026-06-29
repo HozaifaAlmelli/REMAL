@@ -18,13 +18,51 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { platformAuthUrl } from "@/lib/auth/platform";
+import { tokenStore } from "@/lib/auth/token-store";
 import { useUnit, useUnitImages } from "@/lib/hooks/useCatalog";
-import { bookingsService } from "@/lib/api/services";
+import { availabilityService, bookingsService } from "@/lib/api/services";
 import { ApiError } from "@/lib/api/api-error";
 import { getCoverImageUrl } from "@/lib/utils/image";
-import { formatCurrency, getNights, parseDateOnly } from "@/lib/utils/format";
+import {
+  formatCurrency,
+  formatDateForApi,
+  getNights,
+  parseDateOnly,
+} from "@/lib/utils/format";
 
 const PLATFORM_URL = (process.env.NEXT_PUBLIC_PLATFORM_URL ?? "").replace(/\/+$/, "");
+const PHONE_PATTERN = /^\+?\d{10,15}$/;
+
+type GuestContactForm = {
+  firstName: string;
+  lastName: string;
+  phone: string;
+};
+
+type GuestContactErrors = Partial<Record<keyof GuestContactForm, string>>;
+
+function getLastNightDate(checkOut: string): string {
+  const lastNight = parseDateOnly(checkOut);
+  lastNight.setDate(lastNight.getDate() - 1);
+  return formatDateForApi(lastNight);
+}
+
+function buildNightDateStrings(checkIn: string, checkOut: string): string[] {
+  const dates: string[] = [];
+  const current = parseDateOnly(checkIn);
+  const endExclusive = parseDateOnly(checkOut);
+
+  while (current < endExclusive) {
+    dates.push(formatDateForApi(current));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
+}
+
+function normalizePhoneInput(phone: string): string {
+  return phone.trim().replace(/[\s()-]/g, "");
+}
 
 function CheckoutContent() {
   const searchParams = useSearchParams();
@@ -40,32 +78,111 @@ function CheckoutContent() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [guestContact, setGuestContact] = useState<GuestContactForm>({
+    firstName: "",
+    lastName: "",
+    phone: "",
+  });
+  const [guestErrors, setGuestErrors] = useState<GuestContactErrors>({});
 
   const hasDates = Boolean(checkIn && checkOut);
+  const guestCount = Number(guests) || 1;
   const nights =
     checkIn && checkOut
       ? getNights(parseDateOnly(checkIn), parseDateOnly(checkOut))
       : 0;
   const basePrice = unit?.basePricePerNight ?? 0;
   const subtotal = nights * basePrice;
+  const hasGuestCapacityConflict = Boolean(unit && guestCount > unit.maxGuests);
 
   const fmt = (value: string | null) =>
     value ? format(parseDateOnly(value), "d MMM yyyy", { locale: ar }) : "—";
+
+  const updateGuestContact = (field: keyof GuestContactForm, value: string) => {
+    setGuestContact((current) => ({ ...current, [field]: value }));
+    setGuestErrors((current) => ({ ...current, [field]: undefined }));
+  };
+
+  const validateGuestContact = (): GuestContactForm | null => {
+    const firstName = guestContact.firstName.trim();
+    const lastName = guestContact.lastName.trim();
+    const phone = normalizePhoneInput(guestContact.phone);
+    const nextErrors: GuestContactErrors = {};
+
+    if (!firstName) nextErrors.firstName = "اكتب الاسم الأول";
+    if (!lastName) nextErrors.lastName = "اكتب اسم العائلة";
+    if (!PHONE_PATTERN.test(phone)) {
+      nextErrors.phone = "اكتب رقم هاتف صحيح من 10 إلى 15 رقم";
+    }
+
+    setGuestErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return null;
+
+    return { firstName, lastName, phone };
+  };
 
   const submitBooking = async () => {
     if (isSubmitting || !unitId || !checkIn || !checkOut) return;
     setIsSubmitting(true);
     try {
-      await bookingsService.createOwn({
+      if (nights <= 0) {
+        toast.error("اختر تاريخ وصول ومغادرة صحيحين قبل إرسال الطلب.");
+        return;
+      }
+
+      if (hasGuestCapacityConflict) {
+        toast.error(`هذه الوحدة تقبل حتى ${unit?.maxGuests} أفراد فقط.`);
+        return;
+      }
+
+      const guestIdentity = isAuthenticated ? null : validateGuestContact();
+      if (!isAuthenticated && !guestIdentity) return;
+
+      const latestAvailability = await availabilityService.check(
+        unitId,
+        checkIn,
+        getLastNightDate(checkOut)
+      );
+      const unavailableDates = new Set([
+        ...(latestAvailability.blockedDates ?? []),
+        ...(latestAvailability.heldDates ?? []),
+      ]);
+      const hasUnavailableNight = buildNightDateStrings(checkIn, checkOut).some(
+        (date) => unavailableDates.has(date)
+      );
+
+      if (!latestAvailability.isAvailable || hasUnavailableNight) {
+        toast.error("هذه التواريخ لم تعد متاحة. اختر تواريخ أخرى من صفحة الوحدة.");
+        return;
+      }
+
+      const bookingPayload = {
         unitId,
         checkInDate: checkIn,
         checkOutDate: checkOut,
-        guestCount: Number(guests) || 1,
-      });
+        guestCount,
+      };
+
+      if (isAuthenticated) {
+        await bookingsService.createOwn(bookingPayload);
+      } else if (guestIdentity) {
+        const response = await bookingsService.createGuest({
+          ...bookingPayload,
+          ...guestIdentity,
+        });
+        tokenStore.setSession(response.auth.accessToken, response.auth.user);
+      }
+
       setIsSuccess(true);
     } catch (err) {
       const message =
-        err instanceof ApiError
+        err instanceof ApiError &&
+        err.status === 409 &&
+        err.message.toLowerCase().includes("account already exists")
+          ? "هذا الرقم لديه حساب بالفعل. سجّل الدخول لتأكيد الحجز."
+          : err instanceof ApiError && err.status === 409
+          ? "هذه التواريخ تم طلبها أو حجزها للتو. اختر تواريخ أخرى."
+          : err instanceof ApiError
           ? err.message
           : "تعذر إتمام الحجز. حاول مرة أخرى.";
       toast.error(message);
@@ -75,10 +192,6 @@ function CheckoutContent() {
   };
 
   const handlePrimary = () => {
-    if (!isAuthenticated) {
-      window.location.assign(platformAuthUrl("login", window.location.href));
-      return;
-    }
     void submitBooking();
   };
 
@@ -164,11 +277,109 @@ function CheckoutContent() {
                   </div>
                   <div>
                     <div className="text-xs font-black text-gray-400 uppercase mb-2">عدد الضيوف</div>
-                    <div className="text-lg font-bold text-brand-950 tabular-nums">{guests}</div>
+                    <div className="text-lg font-bold text-brand-950 tabular-nums">{guestCount}</div>
                   </div>
                 </div>
               )}
+
+              {hasGuestCapacityConflict && (
+                <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">
+                  هذه الوحدة تقبل حتى {unit.maxGuests} أفراد فقط. عدّل عدد الضيوف من صفحة الوحدة.
+                </div>
+              )}
             </div>
+
+            {isReady && !isAuthenticated && (
+              <div className="bg-white p-8 rounded-[2rem] shadow-[0_4px_24px_rgba(0,0,0,0.02)] border border-gray-100">
+                <div className="mb-6">
+                  <h2 className="text-2xl font-black text-brand-950 mb-2">بيانات التواصل</h2>
+                  <p className="text-gray-500 leading-relaxed font-medium">
+                    نحتاج الاسم ورقم الهاتف فقط لإرسال طلبك ومتابعته مع فريق الحجوزات.
+                  </p>
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-black text-brand-950">
+                      الاسم الأول
+                    </span>
+                    <input
+                      value={guestContact.firstName}
+                      onChange={(event) =>
+                        updateGuestContact("firstName", event.target.value)
+                      }
+                      autoComplete="given-name"
+                      aria-invalid={Boolean(guestErrors.firstName)}
+                      className="h-12 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 text-brand-950 outline-none transition-colors focus:border-brand-500 focus:bg-white"
+                    />
+                    {guestErrors.firstName && (
+                      <span className="mt-2 block text-xs font-bold text-red-600">
+                        {guestErrors.firstName}
+                      </span>
+                    )}
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-black text-brand-950">
+                      اسم العائلة
+                    </span>
+                    <input
+                      value={guestContact.lastName}
+                      onChange={(event) =>
+                        updateGuestContact("lastName", event.target.value)
+                      }
+                      autoComplete="family-name"
+                      aria-invalid={Boolean(guestErrors.lastName)}
+                      className="h-12 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 text-brand-950 outline-none transition-colors focus:border-brand-500 focus:bg-white"
+                    />
+                    {guestErrors.lastName && (
+                      <span className="mt-2 block text-xs font-bold text-red-600">
+                        {guestErrors.lastName}
+                      </span>
+                    )}
+                  </label>
+
+                  <label className="block sm:col-span-2">
+                    <span className="mb-2 block text-sm font-black text-brand-950">
+                      رقم الهاتف
+                    </span>
+                    <input
+                      value={guestContact.phone}
+                      onChange={(event) =>
+                        updateGuestContact("phone", event.target.value)
+                      }
+                      inputMode="tel"
+                      autoComplete="tel"
+                      dir="ltr"
+                      placeholder="01000000000"
+                      aria-invalid={Boolean(guestErrors.phone)}
+                      className="h-12 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 text-left text-brand-950 outline-none transition-colors focus:border-brand-500 focus:bg-white"
+                    />
+                    {guestErrors.phone && (
+                      <span className="mt-2 block text-xs font-bold text-red-600">
+                        {guestErrors.phone}
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                <div className="mt-5 flex flex-col gap-3 rounded-2xl bg-brand-50 p-4 text-sm font-bold text-brand-950 sm:flex-row sm:items-center sm:justify-between">
+                  <span>لديك حساب بالفعل؟</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.location.assign(
+                        platformAuthUrl("login", window.location.href)
+                      )
+                    }
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-brand-100 bg-white px-4 py-2 text-brand-950 transition-colors hover:border-brand-300"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    تسجيل الدخول
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="bg-white p-8 rounded-[2rem] shadow-[0_4px_24px_rgba(0,0,0,0.02)] border border-gray-100">
               <h2 className="text-2xl font-black text-brand-950 mb-6 flex items-center gap-3">
@@ -243,7 +454,7 @@ function CheckoutContent() {
                 <button
                   type="button"
                   onClick={handlePrimary}
-                  disabled={!hasDates || isSubmitting || !isReady}
+                  disabled={!hasDates || hasGuestCapacityConflict || isSubmitting || !isReady}
                   className="mt-8 flex w-full items-center justify-center gap-3 rounded-2xl bg-brand-950 py-5 text-lg font-black text-white shadow-lg transition-all enabled:hover:scale-[1.02] disabled:opacity-50"
                 >
                   {isSubmitting ? (
@@ -257,9 +468,7 @@ function CheckoutContent() {
                   ) : isAuthenticated ? (
                     <>تأكيد طلب الحجز</>
                   ) : (
-                    <>
-                      <LogIn className="w-5 h-5" /> سجّل الدخول لتأكيد الحجز
-                    </>
+                    <>إرسال طلب الحجز</>
                   )}
                 </button>
               )}

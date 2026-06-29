@@ -178,6 +178,7 @@ export interface AvailabilityCheckResponse {
   isAvailable: boolean;
   reason: string; // "DateBlocked" | "BookingConflict" | null
   blockedDates: string[]; // FLAT STRING ARRAY per P04 — e.g., ["2026-06-03"]
+  heldDates: string[];
   // NO conflictingBookings per P04
   // NO applicablePricing per P04
 }

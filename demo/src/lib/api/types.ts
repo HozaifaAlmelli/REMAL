@@ -88,6 +88,7 @@ export interface OperationalAvailability {
   isAvailable: boolean;
   reason: string | null;
   blockedDates: string[];
+  heldDates: string[];
 }
 
 // ── Auth ──
@@ -130,6 +131,40 @@ export interface CreateBookingPayload {
   checkInDate: string;
   checkOutDate: string;
   guestCount: number;
+}
+
+export interface CreateGuestBookingPayload extends CreateBookingPayload {
+  firstName: string;
+  lastName: string;
+  phone: string;
+}
+
+export interface BookingDetails {
+  id: string;
+  clientId: string;
+  unitId: string;
+  unitName: string | null;
+  ownerId: string;
+  assignedAdminUserId: string | null;
+  assignedAdminUserName: string | null;
+  assignedAdminUserRole: string | null;
+  bookingStatus: string;
+  checkInDate: string;
+  checkOutDate: string;
+  guestCount: number;
+  baseAmount: number;
+  finalAmount: number;
+  source: string;
+  internalNotes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isAgedSoftHold: boolean;
+  softHoldAgeDays: number | null;
+}
+
+export interface GuestBookingResponse {
+  booking: BookingDetails;
+  auth: AuthResponse;
 }
 
 export interface UnitCatalogParams {

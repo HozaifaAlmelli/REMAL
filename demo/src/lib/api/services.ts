@@ -1,7 +1,9 @@
 import { http } from "./client";
 import type {
   CreateBookingPayload,
+  CreateGuestBookingPayload,
   CreateLeadPayload,
+  GuestBookingResponse,
   OperationalAvailability,
   Paginated,
   Project,
@@ -49,4 +51,9 @@ export const bookingsService = {
   // Requires a Client session (Authorization: Bearer ...).
   createOwn: (payload: CreateBookingPayload): Promise<unknown> =>
     http.post<unknown>("/api/client/bookings", payload),
+
+  createGuest: (payload: CreateGuestBookingPayload): Promise<GuestBookingResponse> =>
+    http.post<GuestBookingResponse>("/api/client/bookings/guest", payload, {
+      auth: false,
+    }),
 };

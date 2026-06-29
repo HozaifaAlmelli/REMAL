@@ -59,6 +59,7 @@ export interface BookingListFilters {
   checkInFrom?: string;
   checkInTo?: string;
   search?: string;
+  agedSoftHoldsOnly?: boolean;
 }
 
 export interface CreateBookingRequest {
@@ -109,6 +110,8 @@ export interface BookingListItemResponse {
   finalAmount: number;
   source: string;
   createdAt: string;
+  isAgedSoftHold: boolean;
+  softHoldAgeDays: number | null;
 }
 
 export interface BookingDetailsResponse {
@@ -130,6 +133,8 @@ export interface BookingDetailsResponse {
   internalNotes: string | null;
   createdAt: string;
   updatedAt: string;
+  isAgedSoftHold: boolean;
+  softHoldAgeDays: number | null;
 }
 
 export interface ConfirmBookingRequest {

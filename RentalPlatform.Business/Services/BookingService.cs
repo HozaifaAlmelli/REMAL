@@ -38,6 +38,7 @@ public class BookingService : IBookingService
         DateOnly? checkInTo = null,
         int page = 1,
         int pageSize = 20,
+        bool agedSoftHoldsOnly = false,
         CancellationToken cancellationToken = default)
     {
         IQueryable<Booking> query = _unitOfWork.Bookings.Query()
@@ -97,6 +98,15 @@ public class BookingService : IBookingService
         if (checkInTo.HasValue)
             query = query.Where(b => b.CheckInDate <= checkInTo.Value);
 
+        if (agedSoftHoldsOnly)
+        {
+            var softHoldStatuses = BookingStatusTransitions.SoftHoldStatuses;
+            var cutoff = DateTime.UtcNow.AddDays(-BookingStatusTransitions.AgedSoftHoldThresholdDays);
+            query = query
+                .Where(b => softHoldStatuses.Contains(b.BookingStatus))
+                .Where(b => b.CreatedAt <= cutoff);
+        }
+
         var total = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(b => b.CreatedAt)
@@ -128,6 +138,7 @@ public class BookingService : IBookingService
         string? internalNotes,
         BookingStatus? initialStatus = null,
         bool requirePortfolioVisibility = false,
+        bool rejectSoftHoldOverlaps = false,
         CancellationToken cancellationToken = default)
     {
         // --- Input validation ---
@@ -175,6 +186,16 @@ public class BookingService : IBookingService
         if (!availability.IsAvailable)
             throw new ConflictException(
                 $"Unit {unitId} is not operationally available for the requested dates: {availability.Reason}");
+
+        if (rejectSoftHoldOverlaps)
+        {
+            await EnsureNoActiveAvailabilityHoldOverlap(
+                unitId,
+                checkInDate,
+                checkOutDate,
+                excludeBookingId: null,
+                cancellationToken);
+        }
 
         // --- Confirmed booking overlap check ---
         await EnsureNoConfirmedOverlap(unitId, checkInDate, checkOutDate, excludeBookingId: null, cancellationToken);
@@ -236,36 +257,12 @@ public class BookingService : IBookingService
         Guid? assignedAdminUserId,
         string? internalNotes,
         bool requirePortfolioVisibility = false,
+        bool rejectSoftHoldOverlaps = false,
         CancellationToken cancellationToken = default)
     {
-        await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
-        try
+        if (_unitOfWork.HasActiveTransaction)
         {
-            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
-                $"booking-unit:{unitId:N}",
-                cancellationToken);
-
-            var duplicateCutoff = DateTime.UtcNow.Subtract(RecentDuplicateWindow);
-            var recentDuplicate = await _unitOfWork.Bookings.Query()
-                .Include(b => b.Unit)
-                .Include(b => b.Client)
-                .Include(b => b.AssignedAdminUser)
-                    .ThenInclude(admin => admin!.RoleTemplate)
-                .Where(b => b.ClientId == clientId)
-                .Where(b => b.UnitId == unitId)
-                .Where(b => b.CheckInDate == checkInDate && b.CheckOutDate == checkOutDate)
-                .Where(b => b.BookingStatus == BookingStatus.Prospecting)
-                .Where(b => b.CreatedAt >= duplicateCutoff)
-                .OrderByDescending(b => b.CreatedAt)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (recentDuplicate != null)
-            {
-                await transaction.CommitAsync(cancellationToken);
-                return recentDuplicate;
-            }
-
-            var booking = await CreateAsync(
+            return await CreateQuickInCurrentTransactionAsync(
                 clientId,
                 unitId,
                 checkInDate,
@@ -274,8 +271,25 @@ public class BookingService : IBookingService
                 source,
                 assignedAdminUserId,
                 internalNotes,
-                BookingStatus.Prospecting,
                 requirePortfolioVisibility,
+                rejectSoftHoldOverlaps,
+                cancellationToken);
+        }
+
+        await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var booking = await CreateQuickInCurrentTransactionAsync(
+                clientId,
+                unitId,
+                checkInDate,
+                checkOutDate,
+                guestCount,
+                source,
+                assignedAdminUserId,
+                internalNotes,
+                requirePortfolioVisibility,
+                rejectSoftHoldOverlaps,
                 cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -286,6 +300,57 @@ public class BookingService : IBookingService
             await transaction.RollbackAsync(cancellationToken);
             throw;
         }
+    }
+
+    private async Task<Booking> CreateQuickInCurrentTransactionAsync(
+        Guid clientId,
+        Guid unitId,
+        DateOnly checkInDate,
+        DateOnly checkOutDate,
+        int guestCount,
+        string source,
+        Guid? assignedAdminUserId,
+        string? internalNotes,
+        bool requirePortfolioVisibility,
+        bool rejectSoftHoldOverlaps,
+        CancellationToken cancellationToken)
+    {
+        await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+            $"booking-unit:{unitId:N}",
+            cancellationToken);
+
+        var duplicateCutoff = DateTime.UtcNow.Subtract(RecentDuplicateWindow);
+        var recentDuplicate = await _unitOfWork.Bookings.Query()
+            .Include(b => b.Unit)
+            .Include(b => b.Client)
+            .Include(b => b.AssignedAdminUser)
+                .ThenInclude(admin => admin!.RoleTemplate)
+            .Where(b => b.ClientId == clientId)
+            .Where(b => b.UnitId == unitId)
+            .Where(b => b.CheckInDate == checkInDate && b.CheckOutDate == checkOutDate)
+            .Where(b => b.BookingStatus == BookingStatus.Prospecting)
+            .Where(b => b.CreatedAt >= duplicateCutoff)
+            .OrderByDescending(b => b.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (recentDuplicate != null)
+        {
+            return recentDuplicate;
+        }
+
+        return await CreateAsync(
+            clientId,
+            unitId,
+            checkInDate,
+            checkOutDate,
+            guestCount,
+            source,
+            assignedAdminUserId,
+            internalNotes,
+            BookingStatus.Prospecting,
+            requirePortfolioVisibility,
+            rejectSoftHoldOverlaps,
+            cancellationToken);
     }
 
     public async Task<Booking> UpdatePendingAsync(
@@ -427,5 +492,31 @@ public class BookingService : IBookingService
         if (hasOverlap)
             throw new ConflictException(
                 $"The requested dates overlap with an existing booking on unit {unitId}");
+    }
+
+    private async Task EnsureNoActiveAvailabilityHoldOverlap(
+        Guid unitId,
+        DateOnly checkInDate,
+        DateOnly checkOutDate,
+        Guid? excludeBookingId,
+        CancellationToken cancellationToken)
+    {
+        var activeHoldStatuses = BookingStatusTransitions.ActiveAvailabilityHoldStatuses;
+        var query = _unitOfWork.Bookings.Query()
+            .Where(b => b.UnitId == unitId)
+            .Where(b => activeHoldStatuses.Contains(b.BookingStatus))
+            .Where(b => checkInDate < b.CheckOutDate && checkOutDate > b.CheckInDate)
+            .Where(b => b.Client.DeletedAt == null && b.Unit.DeletedAt == null);
+
+        if (excludeBookingId.HasValue)
+        {
+            query = query.Where(b => b.Id != excludeBookingId.Value);
+        }
+
+        if (await query.AnyAsync(cancellationToken))
+        {
+            throw new ConflictException(
+                "Those dates were just requested or booked. Please pick different dates.");
+        }
     }
 }

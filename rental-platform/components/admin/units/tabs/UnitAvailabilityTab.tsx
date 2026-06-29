@@ -46,6 +46,10 @@ export function UnitAvailabilityTab({ unitId }: UnitAvailabilityTabProps) {
           <span>Unavailable / Blocked</span>
         </div>
         <div className="flex items-center gap-2">
+          <div className="h-4 w-4 rounded border border-amber-200 bg-amber-50"></div>
+          <span>Requested hold</span>
+        </div>
+        <div className="flex items-center gap-2">
           <div className="h-4 w-4 rounded border-2 border-amber-400 bg-white"></div>
           <span>Seasonal Pricing</span>
         </div>

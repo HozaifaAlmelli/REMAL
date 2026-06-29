@@ -81,7 +81,8 @@ public class UnitAvailabilityController : ControllerBase
             EndDate = result.EndDate,
             IsAvailable = result.IsAvailable,
             Reason = result.Reason,
-            BlockedDates = result.BlockedDates.ToList()
+            BlockedDates = result.BlockedDates.ToList(),
+            HeldDates = result.HeldDates.ToList()
         };
     }
 

@@ -42,9 +42,9 @@ public class UnitAvailabilityService : IUnitAvailabilityService
             .Where(db => startDate <= db.EndDate && endDate >= db.StartDate)
             .ToListAsync(cancellationToken);
 
-        // Find holding bookings that overlap the requested range. endDate is the last night
-        // (inclusive), so a booking that checks in on endDate still conflicts -> endDate >= CheckInDate.
-        // CheckOutDate stays exclusive because the check-out day itself is free.
+        // Find firm holding bookings that overlap the requested range. endDate is the last
+        // night (inclusive), so a booking that checks in on endDate still conflicts ->
+        // endDate >= CheckInDate. CheckOutDate stays exclusive because the check-out day is free.
         var holdingStatuses = BookingStatusTransitions.HoldingStatuses;
         var bookingQuery = _unitOfWork.Bookings.Query()
             .Where(b => b.UnitId == unitId)
@@ -59,18 +59,39 @@ public class UnitAvailabilityService : IUnitAvailabilityService
 
         var overlappingBookings = await bookingQuery.ToListAsync(cancellationToken);
 
+        var softHoldStatuses = BookingStatusTransitions.SoftHoldStatuses;
+        var softHoldQuery = _unitOfWork.Bookings.Query()
+            .Where(b => b.UnitId == unitId)
+            .Where(b => softHoldStatuses.Contains(b.BookingStatus))
+            .Where(b => startDate < b.CheckOutDate && endDate >= b.CheckInDate)
+            .Where(b => b.Client.DeletedAt == null && b.Unit.DeletedAt == null);
+
+        if (excludeBookingId.HasValue)
+        {
+            softHoldQuery = softHoldQuery.Where(b => b.Id != excludeBookingId.Value);
+        }
+
+        var overlappingSoftHolds = await softHoldQuery.ToListAsync(cancellationToken);
+
         // Mark every requested day that is occupied by EITHER a date block OR a booking.
         // A date block found in the same range must not hide an overlapping booking, so both
         // sources are unioned here rather than returned independently.
         var blockedDates = new HashSet<DateOnly>();
+        var heldDates = new HashSet<DateOnly>();
         for (var date = startDate; date <= endDate; date = date.AddDays(1))
         {
             var blockedByDateBlock = blocks.Any(db => date >= db.StartDate && date <= db.EndDate);
             var blockedByBooking = overlappingBookings.Any(b => date >= b.CheckInDate && date < b.CheckOutDate);
+            var heldBySoftBooking = overlappingSoftHolds.Any(b => date >= b.CheckInDate && date < b.CheckOutDate);
 
             if (blockedByDateBlock || blockedByBooking)
             {
                 blockedDates.Add(date);
+            }
+
+            if (heldBySoftBooking)
+            {
+                heldDates.Add(date);
             }
         }
 
@@ -84,7 +105,8 @@ public class UnitAvailabilityService : IUnitAvailabilityService
                 IsAvailable = false,
                 // Preserve prior reason precedence: a date block, when present, wins over a booking.
                 Reason = blocks.Count > 0 ? "date_blocked" : "date_booked",
-                BlockedDates = blockedDates.OrderBy(d => d).ToList()
+                BlockedDates = blockedDates.OrderBy(d => d).ToList(),
+                HeldDates = heldDates.OrderBy(d => d).ToList()
             };
         }
 
@@ -95,7 +117,8 @@ public class UnitAvailabilityService : IUnitAvailabilityService
             EndDate = endDate,
             IsAvailable = true,
             Reason = null,
-            BlockedDates = Array.Empty<DateOnly>()
+            BlockedDates = Array.Empty<DateOnly>(),
+            HeldDates = heldDates.OrderBy(d => d).ToList()
         };
     }
 

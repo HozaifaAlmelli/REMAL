@@ -109,7 +109,16 @@ export function BookingTable({
     {
       accessorKey: "bookingStatus",
       header: "Status",
-      cell: ({ row }) => <StatusBadge status={row.original.bookingStatus} />,
+      cell: ({ row }) => (
+        <div className="space-y-1">
+          <StatusBadge status={row.original.bookingStatus} />
+          {row.original.isAgedSoftHold && (
+            <span className="inline-flex items-center rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-medium text-warning ring-1 ring-inset ring-warning/30">
+              Held {row.original.softHoldAgeDays ?? "2+"}d
+            </span>
+          )}
+        </div>
+      ),
     },
     {
       accessorKey: "assignedAdminUserId",

@@ -54,12 +54,39 @@ export function UnitBookingWidget({ unitId, unitName, basePrice, maxGuests }: Pr
     () => (availability?.blockedDates ?? []).map(parseDateOnly),
     [availability]
   );
+  const heldDays = useMemo(
+    () => (availability?.heldDates ?? []).map(parseDateOnly),
+    [availability]
+  );
+  const unavailableDays = useMemo(
+    () => [...blockedDays, ...heldDays],
+    [blockedDays, heldDays]
+  );
+  const unavailableDayKeys = useMemo(
+    () => new Set(unavailableDays.map(formatDateForApi)),
+    [unavailableDays]
+  );
 
   const checkIn = range?.from ?? null;
   const checkOut = range?.to ?? null;
   const nights = getNights(checkIn, checkOut);
   const subtotal = nights * basePrice;
-  const canBook = Boolean(checkIn && checkOut && nights > 0);
+  const selectedRangeHasUnavailableNight = useMemo(() => {
+    if (!checkIn || !checkOut) return false;
+
+    const current = new Date(checkIn);
+    while (current < checkOut) {
+      if (unavailableDayKeys.has(formatDateForApi(current))) {
+        return true;
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    return false;
+  }, [checkIn, checkOut, unavailableDayKeys]);
+  const canBook = Boolean(
+    checkIn && checkOut && nights > 0 && !selectedRangeHasUnavailableNight
+  );
 
   const goToCheckout = () => {
     if (!checkIn || !checkOut || !canBook) return;
@@ -158,7 +185,11 @@ export function UnitBookingWidget({ unitId, unitName, basePrice, maxGuests }: Pr
           disabled={!canBook}
           className="w-full rounded-2xl py-8 text-xl bg-brand-950 hover:bg-brand-800 text-white font-black transition-all shadow-lg enabled:hover:scale-[1.02]"
         >
-          {canBook ? 'تابع الحجز' : 'اختر التواريخ'}
+          {selectedRangeHasUnavailableNight
+            ? 'هذه التواريخ غير متاحة'
+            : canBook
+              ? 'تابع الحجز'
+              : 'اختر التواريخ'}
         </Button>
 
         <p className="text-xs text-center text-gray-500 mt-6 mb-2 font-medium">
@@ -245,12 +276,29 @@ export function UnitBookingWidget({ unitId, unitName, basePrice, maxGuests }: Pr
                   startMonth={today}
                   endMonth={windowEnd}
                   excludeDisabled
-                  disabled={[{ before: today }, { after: windowEnd }, ...blockedDays]}
+                  disabled={[{ before: today }, { after: windowEnd }, ...unavailableDays]}
+                  modifiers={{
+                    blocked: blockedDays,
+                    held: heldDays,
+                  }}
                   modifiersClassNames={{
+                    blocked: 'bg-red-50 text-red-800 line-through opacity-100',
+                    held: 'bg-amber-50 text-amber-900 line-through opacity-100',
                     selected: 'bg-brand-950 text-white',
                     range_middle: 'bg-brand-100 text-brand-950',
                   }}
                 />
+              </div>
+
+              <div className="mt-3 flex flex-wrap justify-center gap-4 border-t border-gray-100 pt-3 text-[11px] font-bold text-gray-500">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-3 w-3 rounded bg-red-50 ring-1 ring-red-200" />
+                  محجوز
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-3 w-3 rounded bg-amber-50 ring-1 ring-amber-200" />
+                  مطلوب حالياً
+                </span>
               </div>
 
               <div className="mt-4 flex items-center justify-between">
