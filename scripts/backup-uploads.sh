@@ -5,16 +5,18 @@ set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-/opt/kaza/backups/uploads}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
-# Compose project is `name: kaza-prod`, volume `uploads_data` -> docker volume kaza-prod_uploads_data
-VOLUME="${UPLOADS_VOLUME:-kaza-prod_uploads_data}"
+# Uploads live on a VPS-local bind mount (host path), not a named volume.
+# Default matches UPLOADS_HOST_PATH in .env.example / docker-compose.prod.yml.
+UPLOADS_SRC="${UPLOADS_HOST_PATH:-/opt/kaza/uploads}"
 
 mkdir -p "$BACKUP_DIR"
 TS="$(date +%F_%H-%M)"
 OUT="kaza_uploads_${TS}.tar.gz"
 
-# Read the volume through a throwaway alpine container.
+# Read the uploads path through a throwaway alpine container (reads as root, so it is
+# unaffected by host-side ownership of files written by the API container).
 docker run --rm \
-  -v "${VOLUME}:/data:ro" \
+  -v "${UPLOADS_SRC}:/data:ro" \
   -v "${BACKUP_DIR}:/backup" \
   alpine:3.20 \
   tar czf "/backup/${OUT}" -C /data .

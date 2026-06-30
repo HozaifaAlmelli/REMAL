@@ -49,7 +49,7 @@ ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw enable   # rest
 curl -fsSL https://get.docker.com | sh && usermod -aG docker deploy
 apt-get install -y git
 # Directory tree (env + releases + backups live OUTSIDE git):
-mkdir -p /opt/kaza/{app,env,releases,backups/postgres,backups/uploads,logs}
+mkdir -p /opt/kaza/{app,env,releases,uploads,backups/postgres,backups/uploads,logs}
 chown -R deploy:deploy /opt/kaza
 ```
 
@@ -123,15 +123,17 @@ exist and keep credentials out of the database seed.
 ## Prod-like smoke test
 
 **(Blocker B3 — run on a throwaway/local host, NEVER the live VPS.)** See the checklist in
-`tickets-production-deployment.md` (API in Production, portal images render via the `/uploads`
-proxy, Postgres not publicly reachable, data/uploads persist across restart, `/swagger` → 404,
+`tickets-production-deployment.md` (API in Production, portal images render via
+`https://<API_DOMAIN>/uploads/...`, Postgres not publicly reachable, data/uploads persist across restart, `/swagger` → 404,
 backups non-empty + restore tested, deployed SHA recorded, no secrets in logs).
 
 ## Notes / gotchas
 
-- **Portal images (Blocker B2):** `NEXT_PUBLIC_STORAGE_URL` is empty so image URLs are relative
-  `/uploads/...`, proxied to the API by Nginx on each frontend domain. If portal images fail in
-  the smoke test, STOP and approve the one-line `next.config.mjs` fix (env-driven `remotePatterns`).
+- **Portal images:** unit images are served from the API domain at `https://<API_DOMAIN>/uploads/...`.
+  Nginx serves `/uploads/` as static files from the VPS-local uploads mount
+  (`${UPLOADS_HOST_PATH:-/opt/kaza/uploads}` → `/var/www/uploads`, read-only). Set
+  `NEXT_PUBLIC_STORAGE_URL=https://<API_DOMAIN>` so `next/image` builds absolute URLs allowed by its
+  env-driven `images.remotePatterns` (localhost:5001 stays allowed for local dev).
 - **NEXT_PUBLIC_* are baked at build time** — changing a domain requires rebuilding the frontend images.
 - **Swagger** is blocked at Nginx and also off in Production mode.
 - **Health gate** uses `GET /api/projects` (API up + DB reachable). Add a real `/health` endpoint post-launch.

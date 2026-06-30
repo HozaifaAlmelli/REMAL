@@ -13,7 +13,8 @@ survive losing the VPS.
 
 - **Postgres:** `scripts/backup-postgres.sh` → `pg_dump | gzip` →
   `/opt/kaza/backups/postgres/kaza_postgres_YYYY-MM-DD_HH-mm.sql.gz`. Verifies non-empty + valid gzip.
-- **Uploads:** `scripts/backup-uploads.sh` → tars the `kaza-prod_uploads_data` volume →
+- **Uploads:** `scripts/backup-uploads.sh` → tars the VPS-local uploads path
+  (`UPLOADS_HOST_PATH`, default `/opt/kaza/uploads`) →
   `/opt/kaza/backups/uploads/kaza_uploads_YYYY-MM-DD_HH-mm.tar.gz`.
 
 ## Test a restore (do this before trusting backups)
@@ -33,7 +34,7 @@ CONFIRM=1 ./scripts/restore-postgres.sh <backup.sql.gz> RentalPlatform
 ## Uploads restore
 
 ```bash
-docker run --rm -v kaza-prod_uploads_data:/data -v /opt/kaza/backups/uploads:/backup \
+docker run --rm -v /opt/kaza/uploads:/data -v /opt/kaza/backups/uploads:/backup \
   alpine:3.20 sh -c "cd /data && tar xzf /backup/kaza_uploads_<TS>.tar.gz"
 ```
 

@@ -29,6 +29,17 @@ server {
         return 404;
     }
 
+    # VPS-local uploaded images, served as STATIC files from the read-only mount
+    # (${UPLOADS_HOST_PATH} -> /var/www/uploads). Production image URLs are
+    # https://${API_DOMAIN}/uploads/... — see rental-platform images.remotePatterns.
+    location /uploads/ {
+        root /var/www;
+        try_files $uri =404;
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable" always;
+        access_log off;
+    }
+
     location / {
         set $api_upstream http://api:8080;
         proxy_pass $api_upstream;

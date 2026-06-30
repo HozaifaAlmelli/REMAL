@@ -56,7 +56,9 @@ services:
       Cors__AllowedOrigins__0: ${Cors__AllowedOrigins__0}
       Cors__AllowedOrigins__1: ${Cors__AllowedOrigins__1}
     volumes:
-      - uploads_data:/app/uploads
+      # VPS-local persistent uploads: host ${UPLOADS_HOST_PATH} (/opt/kaza/uploads) mounts to
+      # the container path ${UPLOADS_PATH} (/app/uploads), where the API writes uploaded images.
+      - ${UPLOADS_HOST_PATH:-/opt/kaza/uploads}:${UPLOADS_PATH:-/app/uploads}
     depends_on:
       db:
         condition: service_healthy
@@ -74,7 +76,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: "https://${API_DOMAIN}"
         NEXT_PUBLIC_PLATFORM_URL: "https://${PORTAL_DOMAIN}"
-        NEXT_PUBLIC_STORAGE_URL: "${NEXT_PUBLIC_STORAGE_URL}"   # empty => relative /uploads (B2)
+        NEXT_PUBLIC_STORAGE_URL: "${NEXT_PUBLIC_STORAGE_URL}"   # absolute API origin => images at https://API_DOMAIN/uploads
     image: kaza-demo:prod
     container_name: kaza-prod-demo
     restart: unless-stopped
@@ -88,13 +90,18 @@ services:
       dockerfile: ../infra/docker/portal.Dockerfile
       args:
         NEXT_PUBLIC_API_URL: "https://${API_DOMAIN}"
-        NEXT_PUBLIC_STORAGE_URL: "${NEXT_PUBLIC_STORAGE_URL}"   # empty => relative /uploads (B2)
+        NEXT_PUBLIC_STORAGE_URL: "${NEXT_PUBLIC_STORAGE_URL}"   # absolute API origin => images at https://API_DOMAIN/uploads
         NEXT_PUBLIC_APP_ENV: "production"
         NEXT_PUBLIC_MAPBOX_TOKEN: "${NEXT_PUBLIC_MAPBOX_TOKEN}"
         NEXT_PUBLIC_ALLOWED_RETURN_ORIGINS: "https://${PORTFOLIO_DOMAIN}"
     image: kaza-portal:prod
     container_name: kaza-prod-portal
     restart: unless-stopped
+    environment:
+      # `next start` RE-EVALUATES next.config.mjs at runtime, so the env-driven
+      # images.remotePatterns needs the image host at RUNTIME (not only as a build arg).
+      NEXT_PUBLIC_STORAGE_URL: "${NEXT_PUBLIC_STORAGE_URL}"
+      NEXT_PUBLIC_API_URL: "https://${API_DOMAIN}"
     networks:
       - public
 
@@ -116,14 +123,19 @@ services:
       - ./infra/nginx/templates:/etc/nginx/templates:ro   # *.conf.template -> /etc/nginx/conf.d/*.conf
       - certbot_certs:/etc/letsencrypt:ro
       - certbot_webroot:/var/www/certbot:ro
+      # Same VPS-local uploads path, READ-ONLY, served as static files under /uploads/
+      # on the API domain (see infra/nginx/templates/api.conf.template).
+      - ${UPLOADS_HOST_PATH:-/opt/kaza/uploads}:/var/www/uploads:ro
     depends_on:
       - demo
       - portal
       - api
     networks:
       - public
-    # Reload every 6h so renewed certs are picked up without a full restart.
-    command: ["/bin/sh", "-c", "while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"]
+    # Render the vhost templates (the image only runs /docker-entrypoint.d/* when the
+    # command starts with `nginx`; a /bin/sh command skips envsubst), then reload every
+    # 6h so renewed certs are picked up without a full restart.
+    command: ["/bin/sh", "-c", "/docker-entrypoint.d/20-envsubst-on-templates.sh; while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"]
 
   # ── Certbot (Let's Encrypt issuance + auto-renew via webroot) ──
   certbot:
@@ -138,9 +150,10 @@ services:
 
 volumes:
   postgres_data:
-  uploads_data:
   certbot_certs:
   certbot_webroot:
+  # NOTE: uploads are now a host bind mount (${UPLOADS_HOST_PATH:-/opt/kaza/uploads}),
+  # not a named volume — persistent on the VPS and served read-only by Nginx.
 
 networks:
   public:
