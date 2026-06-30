@@ -122,8 +122,10 @@ services:
       - api
     networks:
       - public
-    # Reload every 6h so renewed certs are picked up without a full restart.
-    command: ["/bin/sh", "-c", "while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"]
+    # Render the vhost templates (the image only runs /docker-entrypoint.d/* when the
+    # command starts with `nginx`; a /bin/sh command skips envsubst), then reload every
+    # 6h so renewed certs are picked up without a full restart.
+    command: ["/bin/sh", "-c", "/docker-entrypoint.d/20-envsubst-on-templates.sh; while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"]
 
   # ── Certbot (Let's Encrypt issuance + auto-renew via webroot) ──
   certbot:
