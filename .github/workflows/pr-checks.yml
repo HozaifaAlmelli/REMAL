@@ -1,0 +1,82 @@
+name: PR Checks
+
+# Build + validate everything on PRs into dev and main. No deployment happens here.
+on:
+  pull_request:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (.NET) build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'   # project targets net10.0 (preview)
+      - name: Restore
+        run: dotnet restore RentalPlatform.slnx
+      - name: Build (Release)
+        run: dotnet build RentalPlatform.slnx -c Release --no-restore
+
+  frontend-demo:
+    name: demo (storefront) build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: demo/package-lock.json
+      - run: npm ci
+      - name: Build
+        # Placeholder NEXT_PUBLIC_* — we only assert the build compiles in CI.
+        env:
+          NEXT_PUBLIC_API_URL: https://api.example.com
+          NEXT_PUBLIC_PLATFORM_URL: https://app.example.com
+          NEXT_PUBLIC_STORAGE_URL: ""
+        run: npm run build
+
+  frontend-portal:
+    name: rental-platform (portals) build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rental-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: rental-platform/package-lock.json
+      - run: npm ci
+      - name: Type-check
+        run: npm run type-check
+      - name: Build
+        env:
+          NEXT_PUBLIC_API_URL: https://api.example.com
+          NEXT_PUBLIC_STORAGE_URL: ""
+          NEXT_PUBLIC_APP_ENV: production
+          NEXT_PUBLIC_MAPBOX_TOKEN: ""
+          NEXT_PUBLIC_ALLOWED_RETURN_ORIGINS: https://kaza.example.com
+        run: npm run build
+
+  compose-validate:
+    name: Validate production compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render placeholder env + validate
+        run: |
+          cp .env.example .env.ci
+          docker compose -f docker-compose.prod.yml --env-file .env.ci config >/dev/null
+          echo "docker-compose.prod.yml is valid."

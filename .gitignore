@@ -69,3 +69,12 @@ test-results/
 *_test.db
 *_test.db-shm
 *_test.db-wal
+
+# ── Production secrets hygiene (deployment ticket — Blocker B1) ──
+# NEVER commit real environment files or secret material. Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem

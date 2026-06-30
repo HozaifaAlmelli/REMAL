@@ -1,0 +1,12 @@
+# BuildKit reads this Dockerfile-scoped ignore for the ./rental-platform context.
+node_modules
+.next
+.git
+.env
+.env.*
+npm-debug.log*
+playwright-report
+test-results
+.playwright-mcp
+Dockerfile*
+.dockerignore
