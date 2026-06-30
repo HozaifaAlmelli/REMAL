@@ -1,0 +1,78 @@
+name: Deploy Production
+
+# Production deploy: push to main, OR manual dispatch. The `production` GitHub
+# Environment gates this with a MANUAL APPROVAL and restricts it to the main branch.
+# Build happens ON the VPS (Option A); no registry. DB migrations are NOT run here.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false   # never interrupt an in-flight production deploy
+
+jobs:
+  deploy:
+    name: SSH deploy to KVM 4
+    runs-on: ubuntu-latest
+    environment: production    # <- manual-approval gate + branch restriction live here
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          envs: DEPLOY_SHA
+          script_stop: true
+          script: |
+            set -euo pipefail
+            export DEPLOY_SHA="${{ github.sha }}"
+
+            cd /opt/kaza/app
+            set -a; source /opt/kaza/env/.env.production; set +a
+            COMPOSE="docker compose -f docker-compose.prod.yml --env-file /opt/kaza/env/.env.production"
+
+            mkdir -p /opt/kaza/releases
+            # Preserve the last-good SHA so we can roll back to a SPECIFIC commit (Blocker B6).
+            if [ -f /opt/kaza/releases/current-sha.txt ]; then
+              cp /opt/kaza/releases/current-sha.txt /opt/kaza/releases/previous-sha.txt
+            fi
+
+            echo "### Fetching + checking out ${DEPLOY_SHA}"
+            git fetch --all --prune
+            git checkout --force "${DEPLOY_SHA}"
+
+            echo "### Building + starting production stack"
+            $COMPOSE build
+            $COMPOSE up -d
+
+            echo "### Post-deploy health checks"
+            sleep 12
+            ok=1
+            curl -fsS    "https://${API_DOMAIN}/api/projects" >/dev/null || ok=0
+            curl -fsS -o /dev/null "https://${PORTFOLIO_DOMAIN}" || ok=0
+            curl -fsS -o /dev/null "https://${PORTAL_DOMAIN}"    || ok=0
+
+            if [ "$ok" = "1" ]; then
+              git rev-parse HEAD > /opt/kaza/releases/current-sha.txt
+              echo "### DEPLOY OK — live SHA: $(cat /opt/kaza/releases/current-sha.txt)"
+            else
+              echo "### HEALTH CHECK FAILED — rolling back to last known good SHA"
+              if [ -f /opt/kaza/releases/previous-sha.txt ]; then
+                PREV="$(cat /opt/kaza/releases/previous-sha.txt)"
+                git checkout --force "$PREV"
+                $COMPOSE build
+                $COMPOSE up -d
+                echo "$PREV" > /opt/kaza/releases/current-sha.txt
+                echo "### ROLLED BACK to ${PREV}"
+              else
+                echo "### No previous SHA recorded — manual intervention required."
+              fi
+              exit 1
+            fi

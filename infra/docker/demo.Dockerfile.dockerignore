@@ -1,0 +1,10 @@
+# BuildKit reads this Dockerfile-scoped ignore (next to the Dockerfile) for the ./demo context.
+# Keeps host build artifacts out of the image so builds are clean and reproducible.
+node_modules
+.next
+.git
+.env
+.env.*
+npm-debug.log*
+Dockerfile*
+.dockerignore
