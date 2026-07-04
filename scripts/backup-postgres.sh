@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Daily PostgreSQL backup for KAZA production. Run via cron on the VPS.
-#   Example cron (03:15 daily):  15 3 * * * /opt/kaza/app/scripts/backup-postgres.sh >> /opt/kaza/logs/backup-postgres.log 2>&1
+#   Example cron (03:15 daily):  15 3 * * * /opt/apps/kaza-booking/scripts/backup-postgres.sh >> /opt/kaza/logs/backup-postgres.log 2>&1
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-/opt/kaza/env/.env.production}"
-COMPOSE_FILE="${COMPOSE_FILE:-/opt/kaza/app/docker-compose.prod.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-/opt/apps/kaza-booking/docker-compose.prod.yml}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/kaza/backups/postgres}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 
