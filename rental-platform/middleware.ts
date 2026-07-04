@@ -1,46 +1,20 @@
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { ROUTES } from "@/lib/constants/routes";
-import { COOKIE_NAMES } from "@/lib/constants/cookies";
 
-const REFRESH_TOKEN_COOKIE = COOKIE_NAMES.refreshToken;
-
-export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  const hasRefreshToken = request.cookies.has(REFRESH_TOKEN_COOKIE);
-
-  // ── Protect admin routes ──
-  if (pathname.startsWith("/admin") && !pathname.startsWith("/auth/")) {
-    if (!hasRefreshToken) {
-      return NextResponse.redirect(
-        new URL(ROUTES.auth.adminLogin, request.url)
-      );
-    }
-  }
-
-  // ── Protect owner routes ──
-  if (pathname.startsWith("/owner") && !pathname.startsWith("/auth/")) {
-    if (!hasRefreshToken) {
-      return NextResponse.redirect(
-        new URL(ROUTES.auth.ownerLogin, request.url)
-      );
-    }
-  }
-
-  // ── Protect client account routes ──
-  if (pathname.startsWith("/account")) {
-    if (!hasRefreshToken) {
-      return NextResponse.redirect(
-        new URL(ROUTES.auth.clientLogin, request.url)
-      );
-    }
-  }
-
-  // ── Redirect logged-in users away from auth pages ──
-  // Edge runtime cannot access Zustand, so we cannot determine subjectType here.
-  // Auth pages handle redirect via useEffect once the access token is in memory.
-  // No redirect here to avoid wrongly sending owners/clients to admin dashboard.
-
+// Route protection is enforced CLIENT-SIDE by the portal shells
+// (AdminShell / OwnerLayout / useClientGuard), which hold the in-memory access
+// token and refresh against the API host.
+//
+// This middleware intentionally does NOT gate on the `refresh_token` cookie.
+// The API sets that cookie host-only on api.kaza-booking.com (no Domain
+// attribute), so the browser never sends it to app.kaza-booking.com. Gating on
+// it here made the Edge middleware always "see no cookie" in production and
+// redirect protected routes to /auth/*/login; the login pages then bounced back
+// to the dashboard (in-memory access token present) -> an infinite post-login
+// redirect loop that froze the tab.
+//
+// Keep this a pass-through unless the refresh cookie is made readable at the app
+// origin (e.g. Domain=.kaza-booking.com). See: post-login freeze fix.
+export function middleware() {
   return NextResponse.next();
 }
 
