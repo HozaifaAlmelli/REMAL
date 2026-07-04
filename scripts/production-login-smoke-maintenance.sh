@@ -163,11 +163,11 @@ if (string.IsNullOrWhiteSpace(password))
 Console.Write(BCrypt.Net.BCrypt.HashPassword(password, 12));
 EOF
 log "Building BCrypt smoke hash helper"
-docker run --rm -v "$HASH_DIR:/src" -w /src "$DOTNET_SDK_IMAGE" dotnet restore
-docker run --rm -v "$HASH_DIR:/src" -w /src "$DOTNET_SDK_IMAGE" dotnet build --no-restore
+docker run --rm -e NUGET_PACKAGES=/src/.nuget/packages -v "$HASH_DIR:/src" -w /src "$DOTNET_SDK_IMAGE" dotnet restore
+docker run --rm -e NUGET_PACKAGES=/src/.nuget/packages -v "$HASH_DIR:/src" -w /src "$DOTNET_SDK_IMAGE" dotnet build --no-restore
 
 hash_password() {
-  printf '%s' "$1" | docker run --rm -i -v "$HASH_DIR:/src" -w /src "$DOTNET_SDK_IMAGE" dotnet run --no-restore --no-build --nologo
+  printf '%s' "$1" | docker run --rm -i -e NUGET_PACKAGES=/src/.nuget/packages -v "$HASH_DIR:/src" -w /src "$DOTNET_SDK_IMAGE" dotnet run --no-restore --no-build --nologo
 }
 
 make_password() {
