@@ -20,6 +20,11 @@ RUN dotnet publish RentalPlatform.API/RentalPlatform.API.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS runtime
 WORKDIR /app
 
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/publish .
 
 EXPOSE 8080
