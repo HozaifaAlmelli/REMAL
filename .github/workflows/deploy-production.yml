@@ -33,6 +33,9 @@ jobs:
           script_stop: true
           script: |
             set -eu
+            if (set -o pipefail) 2>/dev/null; then
+              set -o pipefail
+            fi
 
             DEPLOY_SHA="${{ github.sha }}"
             APP_DIR="/opt/apps/kaza-booking"
