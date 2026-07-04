@@ -157,7 +157,7 @@ using BCrypt.Net;
 var password = Console.In.ReadToEnd().TrimEnd('\r', '\n');
 if (string.IsNullOrWhiteSpace(password))
 {
-    return 2;
+    Environment.Exit(2);
 }
 
 Console.Write(BCrypt.Net.BCrypt.HashPassword(password, 12));
