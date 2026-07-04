@@ -8,6 +8,10 @@ way during the Kaza production bring-up on a **shared live VPS** that also runs
 > These are operational safety playbooks, not generic DevOps advice. They exist to
 > stop a future agent from repeating a specific, already-paid-for mistake.
 
+> 👤 **Human operator?** Start with the Arabic-first, step-by-step operator guide:
+> [`../KAZA_PRODUCTION_WORKBOOK.md`](../KAZA_PRODUCTION_WORKBOOK.md). It tells you *what*
+> to do, *when*, *why*, and *when to stop*, then routes you here for the deep detail.
+
 ---
 
 ## What this library is
