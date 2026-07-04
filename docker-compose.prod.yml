@@ -1,11 +1,11 @@
 # ============================================================================
 # KAZA — PRODUCTION stack (Hostinger KVM 4). Single-VPS, prod-only.
 # ----------------------------------------------------------------------------
-#   docker compose -f docker-compose.prod.yml --env-file /opt/kaza/env/.env.production up -d --build
+#   docker compose -f docker-compose.prod.yml --env-file /opt/kaza/env/.env.production up -d --build api demo portal
 #
 # Rules enforced here:
 #   - Postgres is NOT published to the host (internal network only).
-#   - API + frontends are reachable ONLY through Nginx (no published ports).
+#   - API + frontends are reachable ONLY through the shared edge proxy (no published ports).
 #   - All secrets come from the --env-file; nothing is hardcoded.
 #   - Existing project files are untouched: the API still builds from its own
 #     RentalPlatform.API/Dockerfile; ASPNETCORE_ENVIRONMENT=Production here
@@ -107,6 +107,7 @@ services:
 
   # ── Reverse proxy / TLS termination ──
   nginx:
+    profiles: ["edge"]
     image: nginx:1.27-alpine
     container_name: kaza-prod-nginx
     restart: unless-stopped
@@ -139,6 +140,7 @@ services:
 
   # ── Certbot (Let's Encrypt issuance + auto-renew via webroot) ──
   certbot:
+    profiles: ["edge"]
     image: certbot/certbot:v3.1.0
     container_name: kaza-prod-certbot
     restart: unless-stopped
