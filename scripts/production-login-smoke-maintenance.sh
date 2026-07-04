@@ -43,7 +43,7 @@ compose() {
 }
 
 psql_db() {
-  compose exec -T db psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"
+  compose exec -T db sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh "$@"
 }
 
 check_url() {
@@ -98,9 +98,6 @@ chmod 700 "$LOG_DIR" "$BACKUP_DIR"
 touch "$STATUS_LOG"
 chmod 600 "$STATUS_LOG"
 
-# shellcheck disable=SC1090
-set -a; . "$ENV_FILE"; set +a
-
 log "Starting production login smoke maintenance"
 check_url "https://app.kaza-booking.com"
 check_url "https://api.kaza-booking.com/health"
@@ -119,7 +116,7 @@ git checkout main
 git pull --ff-only origin main
 
 BACKUP_FILE="$BACKUP_DIR/kaza_postgres_${TS}_before_login_smoke.sql.gz"
-compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" | gzip > "$BACKUP_FILE"
+compose exec -T db sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' | gzip > "$BACKUP_FILE"
 if [ ! -s "$BACKUP_FILE" ] || ! gzip -t "$BACKUP_FILE" 2>/dev/null; then
   rm -f "$BACKUP_FILE"
   echo "FATAL: backup missing, empty, or corrupt" >&2
