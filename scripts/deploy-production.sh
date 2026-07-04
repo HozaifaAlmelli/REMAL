@@ -10,8 +10,19 @@ APP_DIR="/opt/apps/kaza-booking"
 ENV_FILE="/opt/kaza/env/.env.production"
 PROJECT="kaza-prod"
 PROXY_NETWORK="proxy-network"
-HEAD_CHECK_FILE="/tmp/kaza-head-check"
-GET_CHECK_FILE="/tmp/kaza-get-check"
+TMP_DIR="${TMPDIR:-/tmp}"
+HEAD_CHECK_FILE="$(mktemp "$TMP_DIR/kaza-head-check.XXXXXX")"
+GET_CHECK_FILE="$(mktemp "$TMP_DIR/kaza-get-check.XXXXXX")"
+SHA_TMP_FILE=""
+
+cleanup() {
+  rm -f "$HEAD_CHECK_FILE" "$GET_CHECK_FILE"
+  if [ -n "$SHA_TMP_FILE" ]; then
+    rm -f "$SHA_TMP_FILE"
+  fi
+}
+
+trap cleanup EXIT INT TERM
 
 if [ -z "$DEPLOY_SHA" ]; then
   echo "FATAL: deploy SHA argument is required"
@@ -31,10 +42,13 @@ check_head() {
   url="$1"
   code="$(curl -sS -o "$HEAD_CHECK_FILE" -w '%{http_code}' -I "$url" --max-time 15)"
   cat "$HEAD_CHECK_FILE"
-  if [ "$code" != "200" ] && [ "$code" != "301" ] && [ "$code" != "302" ]; then
-    echo "FATAL: $url returned HTTP $code"
-    exit 1
-  fi
+  case "$code" in
+    2??|3??) ;;
+    *)
+      echo "FATAL: $url returned HTTP $code"
+      exit 1
+      ;;
+  esac
 }
 
 check_get() {
@@ -127,5 +141,8 @@ else
 fi
 
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-git rev-parse HEAD > /opt/kaza/releases/current-sha.txt
+SHA_TMP_FILE="$(mktemp /opt/kaza/releases/current-sha.XXXXXX)"
+git rev-parse HEAD > "$SHA_TMP_FILE"
+mv "$SHA_TMP_FILE" /opt/kaza/releases/current-sha.txt
+SHA_TMP_FILE=""
 echo "### DEPLOY OK - live SHA: $(cat /opt/kaza/releases/current-sha.txt)"
