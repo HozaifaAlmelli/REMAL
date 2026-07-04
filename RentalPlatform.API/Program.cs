@@ -338,6 +338,9 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapGet("/", () => Results.Ok(new { service = "kaza-booking-api", status = "ok" }));
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "kaza-booking-api" }));
+
 app.MapControllers();
 
 app.Run();
