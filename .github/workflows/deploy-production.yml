@@ -33,60 +33,26 @@ jobs:
           script_stop: true
           script: |
             set -eu
-            if (set -o pipefail) 2>/dev/null; then
-              set -o pipefail
-            fi
 
             DEPLOY_SHA="${{ github.sha }}"
             APP_DIR="/opt/apps/kaza-booking"
             ENV_FILE="/opt/kaza/env/.env.production"
-            PROJECT="kaza-prod"
-            PROXY_NETWORK="proxy-network"
 
-            compose() {
-              docker compose \
-                -p "$PROJECT" \
-                -f "$APP_DIR/docker-compose.prod.yml" \
-                --env-file "$ENV_FILE" \
-                --project-directory "$APP_DIR" \
-                "$@"
-            }
+            if [ ! -d "$APP_DIR" ]; then
+              echo "FATAL: app directory missing: $APP_DIR"
+              exit 1
+            fi
 
-            check_head() {
-              url="$1"
-              code="$(curl -sS -o /tmp/kaza-head-check -w '%{http_code}' -I "$url" --max-time 15)"
-              cat /tmp/kaza-head-check
-              case "$code" in
-                200|301|302) ;;
-                *) echo "FATAL: $url returned HTTP $code"; exit 1 ;;
-              esac
-            }
-
-            check_get() {
-              url="$1"
-              code="$(curl -sS -o /tmp/kaza-get-check -w '%{http_code}' "$url" --max-time 15)"
-              head -40 /tmp/kaza-get-check
-              if [ "$code" != "200" ]; then
-                echo "FATAL: $url returned HTTP $code"
-                exit 1
-              fi
-            }
-
-            test -d "$APP_DIR" || { echo "FATAL: app directory missing: $APP_DIR"; exit 1; }
-            test -s "$ENV_FILE" || { echo "FATAL: env file missing or empty: $ENV_FILE"; exit 1; }
-            docker network inspect "$PROXY_NETWORK" >/dev/null
-            docker inspect novatova-nginx >/dev/null
+            if [ ! -s "$ENV_FILE" ]; then
+              echo "FATAL: env file missing or empty: $ENV_FILE"
+              exit 1
+            fi
 
             cd "$APP_DIR"
             if [ -n "$(git status --porcelain)" ]; then
               echo "FATAL: live repo has local changes"
               git status --short
               exit 1
-            fi
-
-            mkdir -p /opt/kaza/releases
-            if [ -f /opt/kaza/releases/current-sha.txt ]; then
-              cp /opt/kaza/releases/current-sha.txt /opt/kaza/releases/previous-sha.txt
             fi
 
             echo "### Fetching main"
@@ -99,60 +65,4 @@ jobs:
               exit 1
             fi
 
-            echo "### Validating compose config"
-            compose config --quiet
-
-            echo "### Building app services only"
-            compose build api demo portal
-
-            echo "### Ensuring database service is running without recreating unrelated services"
-            compose up -d --no-deps db
-
-            echo "### Deploying app services only"
-            compose up -d --no-deps api demo portal
-
-            echo "### Ensuring Kaza app containers are attached to proxy-network"
-            for c in kaza-prod-api kaza-prod-demo kaza-prod-portal; do
-              if docker ps --format '{{.Names}}' | grep -qx "$c"; then
-                if ! docker inspect -f '{{json .NetworkSettings.Networks}}' "$c" | grep -q "\"$PROXY_NETWORK\""; then
-                  docker network connect "$PROXY_NETWORK" "$c"
-                fi
-              else
-                echo "FATAL: expected container $c is not running"
-                exit 1
-              fi
-            done
-
-            if docker ps --format '{{.Names}}' | grep -Eq '^kaza-prod-(nginx|certbot)$'; then
-              echo "FATAL: Kaza edge container is running unexpectedly"
-              docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E 'kaza-prod-(nginx|certbot)'
-              exit 1
-            fi
-
-            echo "### Testing novatova-nginx config"
-            docker exec novatova-nginx nginx -t
-
-            echo "### Reloading novatova-nginx to refresh static upstream IPs"
-            docker exec novatova-nginx nginx -s reload
-
-            echo "### Post-deploy health checks"
-            sleep 12
-            check_head "https://kaza-booking.com"
-            check_head "https://www.kaza-booking.com"
-            check_head "https://app.kaza-booking.com"
-            check_get "https://api.kaza-booking.com/"
-            check_get "https://api.kaza-booking.com/health"
-            check_get "https://api.kaza-booking.com/api/projects"
-            check_head "https://novatova.com"
-
-            echo "### Checking API logs for libgssapi error"
-            if docker logs --tail=200 kaza-prod-api 2>&1 | grep -iE "libgssapi|gssapi_krb5"; then
-              echo "FATAL: libgssapi error still present"
-              exit 1
-            else
-              echo "OK: no libgssapi error"
-            fi
-
-            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-            git rev-parse HEAD > /opt/kaza/releases/current-sha.txt
-            echo "### DEPLOY OK — live SHA: $(cat /opt/kaza/releases/current-sha.txt)"
+            sh scripts/deploy-production.sh "$DEPLOY_SHA"
