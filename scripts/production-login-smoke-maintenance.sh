@@ -13,6 +13,7 @@ BACKUP_DIR="/root/kaza-db-backups"
 CRED_FILE="$LOG_DIR/${TS}-smoke-credentials.txt"
 STATUS_LOG="$LOG_DIR/${TS}-maintenance-status.txt"
 HASH_DIR=""
+DOTNET_SDK_IMAGE="mcr.microsoft.com/dotnet/sdk:10.0-preview"
 SQL_FILE=""
 ADMIN_BODY=""
 OWNER_BODY=""
@@ -161,11 +162,11 @@ if (string.IsNullOrWhiteSpace(password))
 
 Console.Write(BCrypt.Net.BCrypt.HashPassword(password, 12));
 EOF
-dotnet restore "$HASH_DIR" >/dev/null
-dotnet build "$HASH_DIR" --no-restore >/dev/null
+docker run --rm -v "$HASH_DIR:/src" -w /src "$DOTNET_SDK_IMAGE" dotnet restore >/dev/null
+docker run --rm -v "$HASH_DIR:/src" -w /src "$DOTNET_SDK_IMAGE" dotnet build --no-restore >/dev/null
 
 hash_password() {
-  printf '%s' "$1" | dotnet run --project "$HASH_DIR" --no-restore --no-build --nologo
+  printf '%s' "$1" | docker run --rm -i -v "$HASH_DIR:/src" -w /src "$DOTNET_SDK_IMAGE" dotnet run --no-restore --no-build --nologo
 }
 
 make_password() {
