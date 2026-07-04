@@ -32,8 +32,7 @@ jobs:
           command_timeout: 30m
           script_stop: true
           script: |
-            bash -se <<'REMOTE_SCRIPT'
-            set -Eeuo pipefail
+            set -eu
 
             DEPLOY_SHA="${{ github.sha }}"
             APP_DIR="/opt/apps/kaza-booking"
@@ -154,4 +153,3 @@ jobs:
             docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
             git rev-parse HEAD > /opt/kaza/releases/current-sha.txt
             echo "### DEPLOY OK — live SHA: $(cat /opt/kaza/releases/current-sha.txt)"
-            REMOTE_SCRIPT
