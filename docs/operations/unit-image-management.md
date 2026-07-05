@@ -1,78 +1,81 @@
-# إدارة صور الوحدات — Unit Image Management
+# Unit Image Management
 
-هذا الدليل يشرح طريقة إدارة صور الوحدات من بوابة الإدارة:
+This guide explains how to manage unit images from the admin portal:
 `Admin -> Units -> Unit details -> Images`.
 
-## الإضافة برابط مباشر
+## Add by direct URL
 
-1. ارفع الصورة على أي استضافة عامة أو CDN.
-2. انسخ direct image URL للصورة نفسها، مثل:
+1. Upload the image to any public host or CDN.
+2. Copy the direct image URL of the image itself, e.g.
    `https://cdn.example.com/units/unit-photo.webp`.
-3. افتح تبويب **Images** للوحدة.
-4. اختر **رابط مباشر**.
-5. الصق الرابط في **رابط الصورة المباشر**.
-6. اختر **اجعلها صورة الغلاف** إذا كانت الصورة الرئيسية.
-7. اضغط **إضافة الصورة**.
+3. Open the unit's **Images** tab.
+4. Select **Direct URL**.
+5. Paste the link into **Direct image URL**.
+6. Tick **Set as cover image** if this is the main photo.
+7. Click **Add image**.
 
-النظام يخزن الرابط كـ image reference فقط. لا يتم نسخ الملف إلى الـ VPS في هذا المسار.
+The system stores the URL as an image reference only. The file is NOT copied to the
+VPS in this flow.
 
-## الرفع من الجهاز
+## Upload from device
 
-1. افتح تبويب **Images** للوحدة.
-2. اختر **رفع من الجهاز**.
-3. اختر الصورة أو اسحبها داخل منطقة الرفع.
-4. الأنواع المسموحة: JPG, PNG, WebP, AVIF.
-5. الحد الأقصى: 5MB.
-6. اختر **اجعلها صورة الغلاف** إذا كانت الصورة الرئيسية.
-7. اضغط **رفع وإضافة الصورة**.
+1. Open the unit's **Images** tab.
+2. Select **Upload from device**.
+3. Pick the image or drag it into the drop zone.
+4. Allowed types: JPG, PNG, WebP, AVIF.
+5. Maximum size: 5MB.
+6. Tick **Set as cover image** if this is the main photo.
+7. Click **Upload & add image**.
 
-بعد نجاح الرفع:
+After a successful upload:
 
-- الـ API يحفظ الملف داخل container على `/app/uploads/units/...`.
-- في الإنتاج، هذا المسار bind-mounted من الـ VPS host:
+- The API saves the file inside the container at `/app/uploads/units/...`.
+- In production, that path is bind-mounted from the VPS host:
   `/opt/kaza/uploads`.
-- الـ DB يخزن relative `fileKey` فقط، مثل:
+- The DB stores only the relative `fileKey`, e.g.
   `units/<unitId>/20260705/<guid>.webp`.
-- الرابط العام يكون:
+- The public URL is:
   `https://api.kaza-booking.com/uploads/units/...`.
 
-## الممنوعات
+## What NOT to do
 
-- لا تستخدم `docker cp` كطريقة production لإضافة الصور. مسموح فقط كتشخيص أو طوارئ
-  يدوية مؤقتة، وليس workflow تشغيل.
-- لا تخزن صور production داخل container فقط؛ أي ملف داخل container بدون bind mount
-  يضيع مع rebuild/recreate.
-- لا ترفع صور ضخمة غير مضغوطة.
-- لا تستخدم SVG لصور الوحدات؛ الرفع يقبل صيغ raster فقط.
-- لا تخزن filesystem paths أو base64 داخل قاعدة البيانات.
+- Do NOT use `docker cp` as a production way to add images. It is acceptable only as a
+  temporary manual diagnostic/emergency measure, never as an operating workflow.
+- Do NOT store production images inside the container only; any file inside the
+  container without a bind mount is lost on rebuild/recreate.
+- Do NOT upload huge uncompressed images.
+- Do NOT use SVG for unit images; the upload accepts raster formats only.
+- Do NOT store filesystem paths or base64 data in the database.
 
-## أفضل الممارسات
+## Best practices
 
-- WebP هو الخيار الأفضل غالبًا للحجم والجودة.
-- استهدف أقل من 300KB للصورة عندما يكون ذلك ممكنًا.
-- استخدم أبعاد مناسبة للويب بدل صور كاميرا خام كبيرة.
-- حافظ على صورة cover واحدة واضحة.
-- رتّب الصور بعناية؛ أول صورة تؤثر على الانطباع الأول في storefront.
+- WebP is usually the best choice for size vs. quality.
+- Target under 300KB per image where possible.
+- Use web-appropriate dimensions instead of large raw camera files.
+- Keep exactly one clear cover image.
+- Order images deliberately; the first image drives the first impression on the
+  storefront.
 
-## التشغيل والنسخ الاحتياطي
+## Operations and backup
 
 - VPS host path: `/opt/kaza/uploads`.
 - API container path: `/app/uploads`.
-- public API path: `/uploads/**`.
-- النسخ الاحتياطي إلزامي: يجب أن يدخل `/opt/kaza/uploads` في خطة backup.
-- يجب أخذ backup للـ DB والـ uploads معًا. الـ DB references تصبح بلا قيمة إذا ضاعت
-  الملفات من `/opt/kaza/uploads`.
-- ممنوع حذف مجلد uploads في أي cleanup.
-- متابعة مساحة الديسك الخاصة بـ `/opt/kaza/uploads` متابعة تشغيلية مهمة، لكنها
-  follow-up منفصل عن ميزة الرفع نفسها.
+- Public API path: `/uploads/**`.
+- Backup is mandatory: `/opt/kaza/uploads` must be part of the backup plan.
+- Back up the DB and the uploads together. DB references become worthless if the
+  files are lost from `/opt/kaza/uploads`.
+- Never delete the uploads folder in any cleanup.
+- Monitoring disk usage of `/opt/kaza/uploads` is an important operational concern,
+  but it is a separate follow-up from the upload feature itself.
 
-## ملاحظات deploy
+## Deploy notes
 
-- لا توجد DB migration لهذه الميزة.
-- لا تعدّل `.env.production` لهذه الميزة؛ defaults تغطي مسار الرفع.
-- في shared VPS، لا تشغل Kaza `nginx`/`certbot`.
-- عند النشر بعد الدمج، أعد بناء `api` و`portal` فقط. لا حاجة لإعادة بناء `demo`.
-- إذا كان `novatova-nginx` لا يحتوي `client_max_body_size 6m;` لبلوك
-  `api.kaza-booking.com`، فالصور الأكبر من 1MB قد تفشل بـ 413 قبل الوصول للـ API.
-  أي تعديل حيّ في `novatova-nginx` يحتاج موافقة صريحة، backup للملف، ثم `nginx -t`
-  قبل reload.
+- No DB migration is required for this feature.
+- Do not edit `.env.production` for this feature; the defaults cover the upload path.
+- On the shared VPS, never start Kaza's `nginx`/`certbot`.
+- When deploying after merge, rebuild `api` and `portal` only. No `demo` rebuild is
+  needed.
+- If `novatova-nginx` does not set `client_max_body_size 6m;` for the
+  `api.kaza-booking.com` server block, images larger than 1MB may fail with 413 before
+  reaching the API. Any live edit to `novatova-nginx` requires explicit approval, a
+  backup of the config file, then `nginx -t` before reload.
