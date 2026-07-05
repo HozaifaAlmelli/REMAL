@@ -18,6 +18,7 @@ shared reverse proxy (`novatova-nginx`, ports 80/443). Read the library before a
 - **Library index:** [`docs/ai-deployment-skills/README.md`](../../../docs/ai-deployment-skills/README.md)
   — skills index, shared-VPS facts, order of use, emergency stop rules.
 - **Safe commands:** [`docs/ai-deployment-skills/command-templates.md`](../../../docs/ai-deployment-skills/command-templates.md).
+- **Operator workbook:** [`docs/KAZA_PRODUCTION_WORKBOOK.md`](../../../docs/KAZA_PRODUCTION_WORKBOOK.md).
 - **Root agent rules:** [`AGENTS.md`](../../../AGENTS.md).
 
 Open the specific playbook for your task from the index (deploy, API, portal auth, DB

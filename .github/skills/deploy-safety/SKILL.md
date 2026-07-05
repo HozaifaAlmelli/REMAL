@@ -31,7 +31,9 @@ command can take Novatova down or wipe the Kaza DB. Slow down and use the playbo
 ## Do this first
 
 1. **Read the library index:** [`docs/ai-deployment-skills/README.md`](../../../docs/ai-deployment-skills/README.md).
-   It has the skills index, the shared-VPS facts table, and the order of use.
+   It has the skills index, the shared-VPS facts table, and the order of use. (The
+   human-facing operator guide is
+   [`docs/KAZA_PRODUCTION_WORKBOOK.md`](../../../docs/KAZA_PRODUCTION_WORKBOOK.md).)
 2. **Open the specific skill** for your task from that index (e.g.
    `docker-compose-scoped-deploy.md`, `portal-auth-and-post-login-debug.md`,
    `database-migration-production-safety.md`).

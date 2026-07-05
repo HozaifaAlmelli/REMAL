@@ -12,6 +12,8 @@ doing any production, VPS, or deployment work, use the deployment skills library
 
 ## Before ANY production / VPS / deploy task, read these first
 
+0. [`docs/KAZA_PRODUCTION_WORKBOOK.md`](docs/KAZA_PRODUCTION_WORKBOOK.md) — the operator
+   workbook (production map, golden rules, per-layer workflows, emergency playbooks)
 1. [`docs/ai-deployment-skills/README.md`](docs/ai-deployment-skills/README.md) — index, shared-VPS facts, order of use, emergency stop rules
 2. [`docs/ai-deployment-skills/shared-vps-production-safety.md`](docs/ai-deployment-skills/shared-vps-production-safety.md)
 3. [`docs/ai-deployment-skills/production-inventory-and-discovery.md`](docs/ai-deployment-skills/production-inventory-and-discovery.md)
@@ -21,7 +23,9 @@ doing any production, VPS, or deployment work, use the deployment skills library
 7. [`docs/ai-deployment-skills/final-verification-and-reporting.md`](docs/ai-deployment-skills/final-verification-and-reporting.md)
 
 Keep [`docs/ai-deployment-skills/command-templates.md`](docs/ai-deployment-skills/command-templates.md)
-open for copy-paste-safe, scoped commands.
+open for copy-paste-safe, scoped commands. The full documentation map is
+[`docs/README.md`](docs/README.md); historical incident context is in
+[`docs/incidents/`](docs/incidents/README.md) (history — never current instructions).
 
 ## Kaza / Novatova production — non-negotiable rules
 

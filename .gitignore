@@ -78,3 +78,11 @@ test-results/
 secrets/
 *.key
 *.pem
+
+# ── Ops/temp artifacts (docs cleanup 2026-07) ──
+# Editor backups, scratch files, logs, and DB dumps must never be committed.
+*.bak
+*.tmp
+*.log
+*.dump
+*.sql.gz
