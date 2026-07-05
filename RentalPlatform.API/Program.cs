@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using RentalPlatform.API.Middleware;
+using RentalPlatform.API.Options;
 using RentalPlatform.API.Services;
+using RentalPlatform.API.Services.Images;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Services;
 using RentalPlatform.Data;
@@ -11,6 +13,8 @@ using RentalPlatform.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.StaticFiles;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -110,6 +114,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // JWT Options binding
 builder.Services.Configure<RentalPlatform.API.Options.JwtOptions>(
     builder.Configuration.GetSection(RentalPlatform.API.Options.JwtOptions.SectionName));
+builder.Services.Configure<ImageUploadOptions>(
+    builder.Configuration.GetSection(ImageUploadOptions.SectionName));
 
 var jwtOptions = builder.Configuration.GetSection(RentalPlatform.API.Options.JwtOptions.SectionName)
     .Get<RentalPlatform.API.Options.JwtOptions>() ?? new RentalPlatform.API.Options.JwtOptions();
@@ -268,6 +274,7 @@ builder.Services.AddScoped<IPermissionResolver, PermissionResolver>();
 builder.Services.AddScoped<IRbacAdminService, RbacAdminService>();
 builder.Services.AddScoped<IUnitService, UnitService>();
 builder.Services.AddScoped<IUnitImageService, UnitImageService>();
+builder.Services.AddScoped<IUnitImageUploadService, UnitImageUploadService>();
 builder.Services.AddScoped<IUnitAmenityService, UnitAmenityService>();
 builder.Services.AddScoped<ISeasonalPricingService, SeasonalPricingService>();
 builder.Services.AddScoped<IDateBlockService, DateBlockService>();
@@ -327,12 +334,18 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
-var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "uploads");
+var imageUploadOptions = app.Services.GetRequiredService<IOptions<ImageUploadOptions>>().Value;
+var uploadsPath = Path.GetFullPath(string.IsNullOrWhiteSpace(imageUploadOptions.RootPath)
+    ? Path.Combine(app.Environment.ContentRootPath, "uploads")
+    : imageUploadOptions.RootPath);
 Directory.CreateDirectory(uploadsPath);
+var uploadsContentTypeProvider = new FileExtensionContentTypeProvider();
+uploadsContentTypeProvider.Mappings[".avif"] = "image/avif";
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(uploadsPath),
-    RequestPath = "/uploads"
+    RequestPath = "/uploads",
+    ContentTypeProvider = uploadsContentTypeProvider
 });
 
 app.UseAuthentication();
