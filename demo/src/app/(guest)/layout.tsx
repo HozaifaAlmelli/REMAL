@@ -92,7 +92,7 @@ export default function GuestLayout({
                 </li>
                 <li>
                   <Link
-                    href="/projects"
+                    href="/search"
                     className="hover:text-white transition-colors duration-300 flex items-center gap-2 group"
                   >
                     <ArrowLeft
@@ -104,7 +104,7 @@ export default function GuestLayout({
                 </li>
                 <li>
                   <Link
-                    href="/about"
+                    href="/#how-it-works"
                     className="hover:text-white transition-colors duration-300 flex items-center gap-2 group"
                   >
                     <ArrowLeft
@@ -116,7 +116,7 @@ export default function GuestLayout({
                 </li>
                 <li>
                   <Link
-                    href="/contact"
+                    href="/#qualify"
                     className="hover:text-white transition-colors duration-300 flex items-center gap-2 group"
                   >
                     <ArrowLeft
