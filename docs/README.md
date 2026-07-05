@@ -7,6 +7,7 @@ Start here. This page routes you to the right doc for what you're doing.
 | **Change anything in production** (deploy, hotfix, debug live) | [`KAZA_PRODUCTION_WORKBOOK.md`](KAZA_PRODUCTION_WORKBOOK.md) — the human operator workbook (Arabic-first). **Always first.** |
 | **Operate as an AI agent on production/VPS** | [`ai-deployment-skills/README.md`](ai-deployment-skills/README.md) — 15 deep playbooks + [command templates](ai-deployment-skills/command-templates.md). Root rules: [`../AGENTS.md`](../AGENTS.md). |
 | **Find an operations procedure** (rollback, DB backup/restore, verification, smoke) | [`operations/README.md`](operations/README.md) |
+| **Manage unit images** (public URLs, device uploads, persistent VPS uploads) | [`operations/unit-image-management.md`](operations/unit-image-management.md) |
 | **Understand what broke during production bring-up** | [`incidents/README.md`](incidents/README.md) — historical, not instructions |
 | **Look up an old/retired doc** | [`archive/README.md`](archive/README.md) — audit only, never current guidance |
 | **See the whole docs tree explained** | [`DOCS_STRUCTURE.md`](DOCS_STRUCTURE.md) |

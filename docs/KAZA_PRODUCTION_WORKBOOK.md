@@ -333,6 +333,8 @@ docker exec novatova-nginx nginx -t
   - **التطبيق الخاطئ يُعرض** (يظهر demo بدل portal).
   - **تجمّد بعد تسجيل الدخول (post-login freeze)**.
   - **حلقات إعادة توجيه (route/dashboard loops)**.
+  - **إدارة صور الوحدات** (رابط مباشر أو رفع من الجهاز) — راجع
+    [دليل إدارة صور الوحدات](operations/unit-image-management.md).
 
 **خطوات التشخيص:**
 1. افحص الـ middleware (طبقة الحماية في الواجهة).

@@ -4,6 +4,7 @@ using RentalPlatform.API.DTOs.Requests.UnitImages;
 using RentalPlatform.API.DTOs.Responses.UnitImages;
 using RentalPlatform.API.Models;
 using RentalPlatform.API.Authorization;
+using RentalPlatform.API.Services.Images;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data.Entities;
 using System;
@@ -17,11 +18,16 @@ namespace RentalPlatform.API.Controllers;
 public class UnitImagesController : ControllerBase
 {
     private readonly IUnitImageService _unitImageService;
+    private readonly IUnitImageUploadService _unitImageUploadService;
     private readonly IUnitService _unitService;
 
-    public UnitImagesController(IUnitImageService unitImageService, IUnitService unitService)
+    public UnitImagesController(
+        IUnitImageService unitImageService,
+        IUnitImageUploadService unitImageUploadService,
+        IUnitService unitService)
     {
         _unitImageService = unitImageService;
+        _unitImageUploadService = unitImageUploadService;
         _unitService = unitService;
     }
 
@@ -62,7 +68,29 @@ public class UnitImagesController : ControllerBase
         return Ok(ApiResponse<UnitImageResponse>.CreateSuccess(MapToResponse(image), "Image added successfully."));
     }
 
-    // 3. PUT /api/internal/units/{unitId}/images/reorder (Internal)
+    // 3. POST /api/internal/units/{unitId}/images/upload (Internal, multipart)
+    [HttpPost("api/internal/units/{unitId}/images/upload")]
+    [Authorize(Policy = PermissionKeys.UnitsManage)]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 6 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<UnitImageResponse>>> UploadImage(
+        Guid unitId,
+        [FromForm] UploadUnitImageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var image = await _unitImageUploadService.UploadAsync(
+            unitId,
+            request.File,
+            request.IsCover,
+            request.DisplayOrder,
+            cancellationToken);
+
+        return Ok(ApiResponse<UnitImageResponse>.CreateSuccess(
+            MapToResponse(image),
+            "Image uploaded successfully."));
+    }
+
+    // 4. PUT /api/internal/units/{unitId}/images/reorder (Internal)
     [HttpPut("api/internal/units/{unitId}/images/reorder")]
     [Authorize(Policy = PermissionKeys.UnitsManage)]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<UnitImageResponse>>>> ReorderImages(Guid unitId, ReorderUnitImagesRequest request)
@@ -76,7 +104,7 @@ public class UnitImagesController : ControllerBase
         return Ok(ApiResponse<IReadOnlyList<UnitImageResponse>>.CreateSuccess(response, "Images reordered successfully."));
     }
 
-    // 4. PATCH /api/internal/units/{unitId}/images/{imageId}/cover (Internal)
+    // 5. PATCH /api/internal/units/{unitId}/images/{imageId}/cover (Internal)
     [HttpPatch("api/internal/units/{unitId}/images/{imageId}/cover")]
     [Authorize(Policy = PermissionKeys.UnitsManage)]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<UnitImageResponse>>>> SetCoverImage(Guid unitId, Guid imageId)
@@ -89,7 +117,7 @@ public class UnitImagesController : ControllerBase
         return Ok(ApiResponse<IReadOnlyList<UnitImageResponse>>.CreateSuccess(response, "Cover image updated successfully."));
     }
 
-    // 5. DELETE /api/internal/units/{unitId}/images/{imageId} (Internal)
+    // 6. DELETE /api/internal/units/{unitId}/images/{imageId} (Internal)
     [HttpDelete("api/internal/units/{unitId}/images/{imageId}")]
     [Authorize(Policy = PermissionKeys.UnitsManage)]
     public async Task<ActionResult<ApiResponse>> RemoveImage(Guid unitId, Guid imageId)
