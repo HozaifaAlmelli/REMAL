@@ -2,6 +2,15 @@
 
 This README serves as the master compilation of all architectural phases, database migrations, data access layers, business logic boundaries, and API integrations developed for the Rental Platform. It is divided into two primary domains: **Domain 1 (Master Data & Authentication)** and **Domain 2 (Units & Availability)**.
 
+> ## 🚀 Production & Operations — start here
+>
+> Kaza Booking runs on a **shared production VPS** (with Novatova). Before touching
+> production, read:
+>
+> - **[Kaza Production Workbook](docs/KAZA_PRODUCTION_WORKBOOK.md)** — the operator guide
+> - **[Documentation index](docs/README.md)** — map of all docs (operations, incidents, archive)
+> - **[AI Deployment Skills](docs/ai-deployment-skills/README.md)** — deep deployment playbooks (agents start at [`AGENTS.md`](AGENTS.md))
+
 ---
 
 ## Table of Contents
