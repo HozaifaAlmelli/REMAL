@@ -55,6 +55,7 @@ services:
       Jwt__Audience: ${Jwt__Audience}
       Cors__AllowedOrigins__0: ${Cors__AllowedOrigins__0}
       Cors__AllowedOrigins__1: ${Cors__AllowedOrigins__1}
+      Cors__AllowedOrigins__2: ${Cors__AllowedOrigins__2}
     volumes:
       # VPS-local persistent uploads: host ${UPLOADS_HOST_PATH} (/opt/kaza/uploads) mounts to
       # the container path ${UPLOADS_PATH} (/app/uploads), where the API writes uploaded images.
