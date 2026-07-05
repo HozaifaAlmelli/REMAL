@@ -77,6 +77,14 @@ export const unitsService = {
   ): Promise<UnitImageResponse> =>
     api.post(endpoints.internalUnitImages.create(unitId), dataPayload),
 
+  uploadImage: (
+    unitId: string,
+    formData: FormData
+  ): Promise<UnitImageResponse> =>
+    api.post(endpoints.internalUnitImages.upload(unitId), formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+
   reorderImages: (
     unitId: string,
     dataPayload: ReorderUnitImagesRequest

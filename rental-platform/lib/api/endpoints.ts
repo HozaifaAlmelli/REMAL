@@ -72,6 +72,7 @@ export const endpoints = {
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ UNIT IMAGES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   internalUnitImages: {
     create: (unitId: string) => `/api/internal/units/${unitId}/images`,
+    upload: (unitId: string) => `/api/internal/units/${unitId}/images/upload`,
     reorder: (unitId: string) => `/api/internal/units/${unitId}/images/reorder`,
     cover: (unitId: string, imageId: string) =>
       `/api/internal/units/${unitId}/images/${imageId}/cover`,

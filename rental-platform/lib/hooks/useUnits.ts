@@ -228,6 +228,27 @@ export function useAddUnitImage() {
   });
 }
 
+export function useUploadUnitImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      unitId,
+      data,
+    }: {
+      unitId: string;
+      data: FormData;
+    }) => unitsService.uploadImage(unitId, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.units.images(variables.unitId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.units.internalDetail(variables.unitId),
+      });
+    },
+  });
+}
+
 export function useReorderUnitImages() {
   const queryClient = useQueryClient();
   return useMutation({
