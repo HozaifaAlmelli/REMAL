@@ -19,6 +19,7 @@ duplicating content.
 | **Database** (backups, restore, gated migrations) | [database-operations.md](database-operations.md) · [database-migration-production-safety](../ai-deployment-skills/database-migration-production-safety.md) |
 | **SSL / nginx** (shared edge, cert checks, reload discipline) | [Workbook §13](../KAZA_PRODUCTION_WORKBOOK.md) · [ssl-and-nginx-reverse-proxy](../ai-deployment-skills/ssl-and-nginx-reverse-proxy.md) · [proxy-network-reattach-and-nginx-reload](../ai-deployment-skills/proxy-network-reattach-and-nginx-reload.md) |
 | **Smoke testing** (production login smoke, secret hygiene) | [Workbook §12](../KAZA_PRODUCTION_WORKBOOK.md) · [smoke-accounts-and-secret-hygiene](../ai-deployment-skills/smoke-accounts-and-secret-hygiene.md) · `scripts/production-login-smoke-maintenance.sh` (run by `.github/workflows/production-login-smoke-maintenance.yml`) |
+| **Unit image management** (public URL, device upload, uploads backup rule) | [unit-image-management.md](unit-image-management.md) |
 | **Emergency playbooks** (app down, 500/502, SSL, deploy failed, login freeze, …) | [Workbook §17](../KAZA_PRODUCTION_WORKBOOK.md) |
 | **Branching & release flow** | [../branching.md](../branching.md) |
 
