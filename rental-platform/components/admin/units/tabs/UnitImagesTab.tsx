@@ -46,7 +46,7 @@ const directUrlSchema = z.object({
   imageUrl: z
     .string()
     .trim()
-    .min(1, "من فضلك أدخل رابط صورة مباشر.")
+    .min(1, "Please enter a direct image URL.")
     .refine((value) => {
       try {
         const url = new URL(value);
@@ -54,8 +54,8 @@ const directUrlSchema = z.object({
       } catch {
         return false;
       }
-    }, "أدخل رابطًا صحيحًا يبدأ بـ http أو https."),
-  isCover: z.boolean().optional(),
+    }, "Enter a valid URL starting with http or https."),
+  isCover: z.boolean(),
 });
 
 type DirectUrlValues = z.infer<typeof directUrlSchema>;
@@ -136,20 +136,20 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
           displayOrder: nextDisplayOrder,
         },
       });
-      toastSuccess("تمت إضافة الصورة");
+      toastSuccess("Image added");
       reset();
     } catch (error: unknown) {
-      toastError((error as Error)?.message || "تعذر إضافة الصورة");
+      toastError((error as Error)?.message || "Could not add image");
     }
   };
 
   const validateFile = (file: File): string | null => {
     if (!ALLOWED_UPLOAD_TYPES.has(file.type)) {
-      return "نوع الملف غير مدعوم. استخدم JPG أو PNG أو WebP أو AVIF.";
+      return "Unsupported file type. Use JPG, PNG, WebP, or AVIF.";
     }
 
     if (file.size > MAX_UPLOAD_BYTES) {
-      return "حجم الصورة أكبر من الحد المسموح.";
+      return "Image exceeds the maximum allowed size.";
     }
 
     return null;
@@ -173,7 +173,7 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
     event.preventDefault();
 
     if (!selectedFile) {
-      setUploadError("اختر صورة من جهازك أولًا.");
+      setUploadError("Choose an image from your device first.");
       return;
     }
 
@@ -190,7 +190,7 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
 
     try {
       await uploadImage({ unitId, data: formData });
-      toastSuccess("تم رفع الصورة وإضافتها");
+      toastSuccess("Image uploaded and added");
       setSelectedFile(null);
       setUploadIsCover(false);
       setUploadError(null);
@@ -200,8 +200,8 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
     } catch (error: unknown) {
       const message =
         error instanceof ApiError && error.status === 0
-          ? "تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى."
-          : "فشل رفع الصورة. حاول مرة أخرى.";
+          ? "Cannot reach the server. Check your connection and try again."
+          : "Upload failed. Please try again.";
       setUploadError(message);
       toastError(message);
     }
@@ -251,12 +251,12 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
     <div className="space-y-8">
       <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div dir="rtl">
+          <div>
             <h3 className="text-sm font-semibold text-neutral-800">
-              إدارة صور الوحدة
+              Manage unit images
             </h3>
             <p className="mt-1 text-xs text-neutral-500">
-              أضف الصور برابط مباشر أو ارفعها من جهازك.
+              Add images via a direct link or upload them from your device.
             </p>
           </div>
 
@@ -276,10 +276,9 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
                   ? "bg-primary-600 text-white"
                   : "text-neutral-600 hover:bg-neutral-100"
               )}
-              dir="rtl"
             >
               <LinkIcon className="h-4 w-4" />
-              رابط مباشر
+              Direct URL
             </button>
             <button
               type="button"
@@ -292,10 +291,9 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
                   ? "bg-primary-600 text-white"
                   : "text-neutral-600 hover:bg-neutral-100"
               )}
-              dir="rtl"
             >
               <UploadCloud className="h-4 w-4" />
-              رفع من الجهاز
+              Upload from device
             </button>
           </div>
         </div>
@@ -304,14 +302,12 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
           <form
             onSubmit={handleSubmit(handleAddUrl)}
             className="flex flex-col gap-3 lg:flex-row lg:items-start"
-            dir="rtl"
           >
             <div className="flex-1">
               <Input
-                label="رابط الصورة المباشر"
+                label="Direct image URL"
                 placeholder="https://example.com/unit-photo.webp"
-                helperText="استخدم رابط صورة مباشر من CDN أو أي استضافة عامة."
-                dir="ltr"
+                helperText="Use a direct image link from a CDN or any public host."
                 {...register("imageUrl")}
                 error={errors.imageUrl?.message}
                 disabled={isAdding}
@@ -320,7 +316,7 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
                 <div className="mt-2 flex items-start gap-2 rounded-md border border-warning-bg bg-warning-bg px-3 py-2 text-xs text-warning">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
-                    الرابط يبدأ بـ http وقد لا يظهر على الموقع عبر HTTPS.
+                    This link uses http and may not display on the HTTPS site.
                   </span>
                 </div>
               )}
@@ -333,7 +329,7 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
                   disabled={isAdding}
                   className="h-4 w-4 rounded border-neutral-300 text-primary-600"
                 />
-                اجعلها صورة الغلاف
+                Set as cover image
               </label>
               <Button
                 type="submit"
@@ -342,7 +338,7 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
                 size="sm"
                 fullWidth
               >
-                إضافة الصورة
+                Add image
               </Button>
             </div>
           </form>
@@ -350,11 +346,10 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
           <form
             onSubmit={handleUploadSubmit}
             className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]"
-            dir="rtl"
           >
             <div>
               <p className="mb-1.5 text-sm font-medium text-neutral-700">
-                ارفع صورة من جهازك
+                Upload an image from your device
               </p>
               <div
                 onDragOver={(event) => {
@@ -392,10 +387,10 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
                 >
-                  اختيار صورة
+                  Choose image
                 </Button>
                 <p className="mt-3 text-xs text-neutral-500">
-                  الأنواع المسموحة: JPG, PNG, WebP, AVIF — الحد الأقصى 5MB
+                  Allowed types: JPG, PNG, WebP, AVIF — max 5MB
                 </p>
                 {selectedFile && (
                   <p className="mt-2 max-w-full truncate text-sm font-medium text-neutral-800">
@@ -417,7 +412,7 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
                   disabled={isUploading}
                   className="h-4 w-4 rounded border-neutral-300 text-primary-600"
                 />
-                اجعلها صورة الغلاف
+                Set as cover image
               </label>
               <Button
                 type="submit"
@@ -426,7 +421,7 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
                 size="sm"
                 fullWidth
               >
-                {isUploading ? "جارٍ الرفع…" : "رفع وإضافة الصورة"}
+                {isUploading ? "Uploading…" : "Upload & add image"}
               </Button>
             </div>
           </form>
@@ -460,12 +455,9 @@ export function UnitImagesTab({ unitId }: UnitImagesTabProps) {
               >
                 <div className="relative aspect-video w-full">
                   {imageFailed ? (
-                    <div
-                      className="flex h-full w-full flex-col items-center justify-center gap-2 bg-neutral-100 px-3 text-center text-xs font-medium text-neutral-500"
-                      dir="rtl"
-                    >
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-neutral-100 px-3 text-center text-xs font-medium text-neutral-500">
                       <ImageOff className="h-6 w-6 text-neutral-400" />
-                      تعذر تحميل الصورة
+                      Image failed to load
                     </div>
                   ) : (
                     <Image
