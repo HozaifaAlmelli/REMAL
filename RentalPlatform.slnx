@@ -3,4 +3,5 @@
   <Project Path="RentalPlatform.Business/RentalPlatform.Business.csproj" />
   <Project Path="RentalPlatform.Data/RentalPlatform.Data.csproj" />
   <Project Path="RentalPlatform.Shared/RentalPlatform.Shared.csproj" />
+  <Project Path="RentalPlatform.Tests/RentalPlatform.Tests.csproj" />
 </Solution>

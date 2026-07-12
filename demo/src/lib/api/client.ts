@@ -28,6 +28,7 @@ function buildUrl(path: string, params?: Record<string, QueryValue>): string {
 interface RequestOptions {
   body?: unknown;
   params?: Record<string, QueryValue>;
+  cache?: RequestCache;
   /** Attach the Bearer token (default true). */
   auth?: boolean;
   _retried?: boolean;
@@ -93,6 +94,7 @@ async function request<T>(
       method,
       headers,
       credentials: "include",
+      cache: opts.cache,
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     });
   } catch {
@@ -138,17 +140,25 @@ async function request<T>(
 export const http = {
   get: async <T>(
     path: string,
-    params?: Record<string, QueryValue>
+    params?: Record<string, QueryValue>,
+    opts?: { cache?: RequestCache }
   ): Promise<T> => {
-    const envelope = await request<T>("GET", path, { params });
+    const envelope = await request<T>("GET", path, {
+      params,
+      cache: opts?.cache,
+    });
     return envelope.data as T;
   },
 
   getPaginated: async <T>(
     path: string,
-    params?: Record<string, QueryValue>
+    params?: Record<string, QueryValue>,
+    opts?: { cache?: RequestCache }
   ): Promise<Paginated<T>> => {
-    const envelope = await request<T[]>("GET", path, { params });
+    const envelope = await request<T[]>("GET", path, {
+      params,
+      cache: opts?.cache,
+    });
     return {
       items: (envelope.data ?? []) as T[],
       pagination: envelope.pagination,

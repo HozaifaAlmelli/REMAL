@@ -15,10 +15,16 @@ import type {
 
 export const unitsService = {
   list: (params: UnitCatalogParams = {}): Promise<Paginated<UnitListItem>> =>
-    http.getPaginated<UnitListItem>("/api/units", { ...params }),
+    http.getPaginated<UnitListItem>(
+      "/api/units",
+      { ...params },
+      { cache: "no-store" }
+    ),
 
   getById: (id: string): Promise<UnitDetails> =>
-    http.get<UnitDetails>(`/api/units/${id}`),
+    http.get<UnitDetails>(`/api/units/${id}`, undefined, {
+      cache: "no-store",
+    }),
 
   getImages: (id: string): Promise<UnitImage[]> =>
     http.get<UnitImage[]>(`/api/units/${id}/images`),
@@ -26,7 +32,11 @@ export const unitsService = {
 
 export const projectsService = {
   list: (): Promise<Project[]> =>
-    http.get<Project[]>("/api/projects", { includeInactive: false }),
+    http.get<Project[]>(
+      "/api/projects",
+      { includeInactive: false },
+      { cache: "no-store" }
+    ),
 };
 
 export const availabilityService = {
