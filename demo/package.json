@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsx --test src/lib/search/*.test.ts"
+    "test": "tsx --test src/lib/search/*.test.ts src/lib/booking/*.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
