@@ -23,6 +23,14 @@ jobs:
       - name: Build (Release)
         run: dotnet build RentalPlatform.slnx -c Release --no-restore
 
+  api-container:
+    name: API production image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -f RentalPlatform.API/Dockerfile -t kaza-api:pr-check .
+
   frontend-demo:
     name: demo (storefront) build
     runs-on: ubuntu-latest

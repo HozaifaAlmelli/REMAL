@@ -2,14 +2,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
 WORKDIR /src
 
-# Copy solution and project files first (better layer caching)
-COPY RentalPlatform.slnx .
+# Copy project files first (better layer caching)
 COPY RentalPlatform.Shared/RentalPlatform.Shared.csproj RentalPlatform.Shared/
 COPY RentalPlatform.Data/RentalPlatform.Data.csproj RentalPlatform.Data/
 COPY RentalPlatform.Business/RentalPlatform.Business.csproj RentalPlatform.Business/
 COPY RentalPlatform.API/RentalPlatform.API.csproj RentalPlatform.API/
 
-RUN dotnet restore RentalPlatform.slnx
+RUN dotnet restore RentalPlatform.API/RentalPlatform.API.csproj
 
 # Copy everything else and publish
 COPY . .
