@@ -2,6 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
+.kaza-map-marker-shell {
+  width: auto !important;
+  height: auto !important;
+  background: transparent;
+  border: 0;
+}
+
+.kaza-map-marker {
+  display: inline-flex;
+  min-width: 76px;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  border-radius: 9999px;
+  background: #1b2a3a;
+  color: #fff;
+  box-shadow: 0 5px 16px rgb(15 23 42 / 24%);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.kaza-map-marker::after {
+  position: absolute;
+  inset-inline-start: 34px;
+  top: 30px;
+  width: 0;
+  height: 0;
+  border-inline: 5px solid transparent;
+  border-top: 7px solid #1b2a3a;
+  content: "";
+}
+
 @layer base {
   body {
     background-color: theme('colors.background');
