@@ -117,13 +117,6 @@ function SearchContent() {
     appliedFilters.projectId || appliedFilters.minGuests
   );
 
-  const updateDraft = <K extends keyof SearchFilters>(
-    key: K,
-    value: SearchFilters[K]
-  ) => {
-    setDraftFilters((current) => ({ ...current, [key]: value }));
-  };
-
   const navigateWithFilters = (filters: SearchFilters, replace = false) => {
     const params = buildSearchParams(filters);
     if (viewMode === "map") params.set("view", "map");
@@ -132,13 +125,18 @@ function SearchContent() {
     else router.push(href, { scroll: false });
   };
 
-  const applyFilters = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    navigateWithFilters(draftFilters);
+  const applyFilter = <K extends keyof SearchFilters>(
+    key: K,
+    value: SearchFilters[K]
+  ) => {
+    const nextFilters = { ...draftFilters, [key]: value };
+    setDraftFilters(nextFilters);
+    navigateWithFilters(nextFilters, true);
   };
 
   const resetFilters = () => {
-    navigateWithFilters(EMPTY_SEARCH_FILTERS);
+    setDraftFilters(EMPTY_SEARCH_FILTERS);
+    navigateWithFilters(EMPTY_SEARCH_FILTERS, true);
   };
 
   const setViewMode = (nextMode: ViewMode) => {
@@ -192,14 +190,14 @@ function SearchContent() {
             </div>
           </div>
 
-          <form onSubmit={applyFilters} className="mt-4">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_auto]">
+          <div className="mt-4" aria-busy={showLoading}>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto]">
               <label className="flex min-h-[52px] items-center gap-3 rounded-xl border border-transparent bg-gray-50 px-4 focus-within:border-brand-300">
                 <MapPin className="h-5 w-5 shrink-0 text-brand-500" />
                 <span className="sr-only">المشروع</span>
                 <select
                   value={draftFilters.projectId}
-                  onChange={(event) => updateDraft("projectId", event.target.value)}
+                  onChange={(event) => applyFilter("projectId", event.target.value)}
                   disabled={projectsLoading}
                   className="h-full w-full cursor-pointer bg-transparent font-bold text-brand-950 outline-none disabled:cursor-wait disabled:text-gray-400"
                 >
@@ -217,7 +215,7 @@ function SearchContent() {
                 <span className="sr-only">عدد الضيوف</span>
                 <select
                   value={draftFilters.minGuests}
-                  onChange={(event) => updateDraft("minGuests", event.target.value)}
+                  onChange={(event) => applyFilter("minGuests", event.target.value)}
                   className="h-full w-full cursor-pointer bg-transparent font-bold text-brand-950 outline-none"
                 >
                   <option value="">أي عدد للضيوف</option>
@@ -228,11 +226,6 @@ function SearchContent() {
                   ))}
                 </select>
               </label>
-
-              <Button type="submit" className="min-h-[52px] rounded-xl bg-brand-950 px-7 font-bold text-white hover:bg-brand-800">
-                <Search className="me-2 h-4 w-4" />
-                بحث
-              </Button>
 
               {hasActiveFilters && (
                 <Button
@@ -246,7 +239,7 @@ function SearchContent() {
                 </Button>
               )}
             </div>
-          </form>
+          </div>
         </section>
 
         {(error || projectsError) && !showLoading ? (

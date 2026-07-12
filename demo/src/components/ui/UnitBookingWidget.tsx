@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
-import { ChevronRight, Info, ShieldCheck, X, Loader2 } from 'lucide-react';
+import { ChevronRight, Info, ShieldCheck, X, Loader2, Minus, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -12,6 +12,11 @@ import 'react-day-picker/style.css';
 import { useAvailability } from '@/lib/hooks/useCatalog';
 import { formatCurrency, formatDateForApi, getNights } from '@/lib/utils/format';
 import { parseDateOnly } from '@/lib/utils/format';
+import {
+  formatGuestCount,
+  normalizeGuestCapacity,
+  stepGuestCount,
+} from '@/lib/booking/guest-count';
 
 interface Props {
   unitId: string;
@@ -41,6 +46,28 @@ export function UnitBookingWidget({ unitId, unitName, basePrice, maxGuests }: Pr
   const [showGuestsModal, setShowGuestsModal] = useState(false);
   const [range, setRange] = useState<DateRange | undefined>(undefined);
   const [guests, setGuests] = useState(1);
+  const guestsPopoverRef = useRef<HTMLDivElement>(null);
+  const guestCapacity = normalizeGuestCapacity(maxGuests);
+
+  useEffect(() => {
+    if (!showGuestsModal) return;
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!guestsPopoverRef.current?.contains(event.target as Node)) {
+        setShowGuestsModal(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowGuestsModal(false);
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [showGuestsModal]);
 
   // Pull all blocked days in the next year so the calendar can't offer dates
   // that are already booked/blocked (operational lockout).
@@ -117,7 +144,7 @@ export function UnitBookingWidget({ unitId, unitName, basePrice, maxGuests }: Pr
           </div>
         </div>
 
-        <div className="border border-brand-50 rounded-2xl overflow-hidden mb-6 bg-surface shadow-sm">
+        <div className="mb-6 rounded-2xl border border-brand-50 bg-surface shadow-sm">
           <div className="flex border-b border-brand-50 relative">
             <button
               type="button"
@@ -136,19 +163,29 @@ export function UnitBookingWidget({ unitId, unitName, basePrice, maxGuests }: Pr
               <div className="text-sm font-bold text-gray-900 truncate">{fmt(checkOut)}</div>
             </button>
           </div>
-          <div
-            className="p-4 cursor-pointer hover:bg-gray-50 transition-colors flex justify-between items-center relative"
-            onClick={() => setShowGuestsModal((s) => !s)}
-          >
-            <div>
-              <div className="text-[10px] font-black text-brand-950 uppercase mb-1">عدد الضيوف</div>
-              <div className="text-sm font-bold text-gray-900">{guests} ضيوف</div>
-            </div>
-            <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${showGuestsModal ? 'rotate-90' : ''}`} />
-
+          <div ref={guestsPopoverRef} className="relative">
+            <button
+              type="button"
+              aria-expanded={showGuestsModal}
+              aria-controls="unit-guests-selector"
+              className="flex w-full cursor-pointer items-center justify-between rounded-b-2xl p-4 text-right transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
+              onClick={() => setShowGuestsModal((open) => !open)}
+            >
+              <span>
+                <span className="mb-1 block text-[10px] font-black uppercase text-brand-950">عدد الضيوف</span>
+                <span className="block text-sm font-bold text-gray-900">{formatGuestCount(guests)}</span>
+                <span className="mt-1 block text-xs font-medium text-gray-500">
+                  الحد الأقصى لهذه الوحدة: {guestCapacity} أفراد
+                </span>
+              </span>
+              <ChevronRight className={`h-4 w-4 text-gray-400 transition-transform ${showGuestsModal ? 'rotate-90' : ''}`} />
+            </button>
             <AnimatePresence>
               {showGuestsModal && (
                 <motion.div
+                  id="unit-guests-selector"
+                  role="group"
+                  aria-label="تحديد عدد الضيوف"
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
@@ -159,20 +196,28 @@ export function UnitBookingWidget({ unitId, unitName, basePrice, maxGuests }: Pr
                     <div className="flex items-center gap-4">
                       <button
                         type="button"
-                        className="w-8 h-8 rounded-full border flex items-center justify-center text-lg text-gray-500 disabled:opacity-50"
-                        onClick={(e) => { e.stopPropagation(); setGuests((g) => Math.max(1, g - 1)); }}
+                        aria-label="تقليل عدد الضيوف"
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() => setGuests((current) => stepGuestCount(current, -1, guestCapacity))}
                         disabled={guests <= 1}
-                      >-</button>
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
                       <span className="font-bold w-4 text-center tabular-nums">{guests}</span>
                       <button
                         type="button"
-                        className="w-8 h-8 rounded-full border flex items-center justify-center text-lg text-gray-500 disabled:opacity-50"
-                        onClick={(e) => { e.stopPropagation(); setGuests((g) => Math.min(maxGuests, g + 1)); }}
-                        disabled={guests >= maxGuests}
-                      >+</button>
+                        aria-label="زيادة عدد الضيوف"
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() => setGuests((current) => stepGuestCount(current, 1, guestCapacity))}
+                        disabled={guests >= guestCapacity}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
-                  <p className="mt-2 text-[11px] text-gray-400 font-medium">الحد الأقصى {maxGuests} ضيوف</p>
+                  <p aria-live="polite" className="mt-2 text-[11px] font-medium text-gray-500">
+                    اختر من 1 إلى {guestCapacity} أفراد
+                  </p>
                 </motion.div>
               )}
             </AnimatePresence>
