@@ -63,7 +63,7 @@ public class UnitsController : ControllerBase
     {
         var unit = await _unitService.GetByIdAsync(id);
         
-        if (unit == null || !unit.IsActive || !unit.IsVisibleInPortfolio)
+        if (unit == null || !PublicUnitVisibility.IsSatisfiedBy(unit))
             return NotFound(ApiResponse.CreateFailure("Active unit not found."));
 
         return Ok(ApiResponse<UnitDetailsResponse>.CreateSuccess(MapToDetailsResponse(unit)));

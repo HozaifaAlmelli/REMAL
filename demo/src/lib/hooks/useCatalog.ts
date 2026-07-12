@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   availabilityService,
   projectsService,
@@ -13,6 +13,7 @@ import type {
   UnitDetails,
   UnitImage,
   UnitListItem,
+  PaginationMeta,
 } from "@/lib/api/types";
 
 interface AsyncState<T> {
@@ -29,15 +30,29 @@ export function useUnits(params: UnitCatalogParams) {
     isLoading: true,
     error: null,
   });
+  const [pagination, setPagination] = useState<PaginationMeta | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const lastRequestKey = useRef<string | null>(null);
   const key = JSON.stringify(params);
+  const refresh = useCallback(() => setRefreshVersion((value) => value + 1), []);
 
   useEffect(() => {
     let active = true;
-    setState({ data: null, isLoading: true, error: null });
+    const filtersChanged = lastRequestKey.current !== key;
+    lastRequestKey.current = key;
+    setState((current) => ({
+      data: filtersChanged ? null : current.data,
+      isLoading: filtersChanged || current.data === null,
+      error: null,
+    }));
+    if (filtersChanged) setPagination(null);
     unitsService
       .list(params)
       .then((res) => {
-        if (active) setState({ data: res.items, isLoading: false, error: null });
+        if (active) {
+          setState({ data: res.items, isLoading: false, error: null });
+          setPagination(res.pagination);
+        }
       })
       .catch((e: unknown) => {
         if (active)
@@ -51,9 +66,22 @@ export function useUnits(params: UnitCatalogParams) {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, refreshVersion]);
 
-  return state;
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refresh]);
+
+  return { ...state, pagination, refresh };
 }
 
 export function useProjects() {
@@ -62,6 +90,8 @@ export function useProjects() {
     isLoading: true,
     error: null,
   });
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const refresh = useCallback(() => setRefreshVersion((value) => value + 1), []);
 
   useEffect(() => {
     let active = true;
@@ -81,9 +111,22 @@ export function useProjects() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshVersion]);
 
-  return state;
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refresh]);
+
+  return { ...state, refresh };
 }
 
 export function useUnit(id: string | null) {

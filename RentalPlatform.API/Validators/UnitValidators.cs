@@ -4,6 +4,51 @@ using System.Linq;
 
 namespace RentalPlatform.API.Validators;
 
+public class PublicUnitCatalogRequestValidator : AbstractValidator<PublicUnitCatalogRequest>
+{
+    private static readonly string[] AllowedUnitTypes = { "apartment", "villa", "chalet", "studio" };
+    private static readonly string[] AllowedSortValues =
+    {
+        "newest", "newest_arrivals", "latest", "price_asc", "price_desc",
+        "cheapest", "expensive", "highest_price"
+    };
+
+    public PublicUnitCatalogRequestValidator()
+    {
+        RuleFor(x => x.MinGuests)
+            .GreaterThan(0)
+            .When(x => x.MinGuests.HasValue)
+            .WithMessage("MinGuests must be greater than 0.");
+
+        RuleFor(x => x.MinPrice)
+            .GreaterThanOrEqualTo(0)
+            .When(x => x.MinPrice.HasValue)
+            .WithMessage("MinPrice must be greater than or equal to 0.");
+
+        RuleFor(x => x.MaxPrice)
+            .GreaterThanOrEqualTo(0)
+            .When(x => x.MaxPrice.HasValue)
+            .WithMessage("MaxPrice must be greater than or equal to 0.");
+
+        RuleFor(x => x)
+            .Must(x => !x.MinPrice.HasValue || !x.MaxPrice.HasValue || x.MinPrice <= x.MaxPrice)
+            .WithMessage("MinPrice must be less than or equal to MaxPrice.");
+
+        RuleFor(x => x.UnitType)
+            .Must(value => string.IsNullOrWhiteSpace(value) || AllowedUnitTypes.Contains(value.Trim().ToLowerInvariant()))
+            .WithMessage($"UnitType must be one of: {string.Join(", ", AllowedUnitTypes)}.");
+
+        RuleFor(x => x.SortBy)
+            .Must(value => string.IsNullOrWhiteSpace(value) ||
+                           AllowedSortValues.Contains(value.Trim().ToLowerInvariant().Replace('-', '_')))
+            .WithMessage("SortBy is not supported.");
+
+        RuleFor(x => x.Search)
+            .MaximumLength(200)
+            .When(x => x.Search != null);
+    }
+}
+
 public class CreateUnitRequestValidator : AbstractValidator<CreateUnitRequest>
 {
     private static readonly string[] AllowedUnitTypes = { "apartment", "villa", "chalet", "studio" };

@@ -32,9 +32,11 @@ public class UnitService : IUnitService
 
         IQueryable<Unit> query = _unitOfWork.Units.Query()
             .AsNoTracking()
+            .Include(u => u.Project)
+            .Include(u => u.Owner)
             .Include(u => u.UnitImages)
             .Include(u => u.UnitAmenities)
-            .Where(u => u.IsActive && u.IsVisibleInPortfolio);
+            .Where(PublicUnitVisibility.Predicate);
 
         if (filter.ProjectId.HasValue)
         {
