@@ -10,6 +10,7 @@ using RentalPlatform.Data.Entities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace RentalPlatform.API.Controllers;
@@ -158,6 +159,7 @@ public class CrmLeadsController : ControllerBase
     [Authorize(Policy = PermissionKeys.CrmWrite)]
     public async Task<ActionResult<ApiResponse<BookingDetailsResponse>>> ConvertLeadToBooking(Guid id, ConvertLeadToBookingRequest request)
     {
+        var convertedByAdminUserId = GetCurrentAdminId();
         var booking = await _crmLeadService.ConvertToBookingAsync(
             id,
             request.ClientId,
@@ -165,10 +167,20 @@ public class CrmLeadsController : ControllerBase
             request.CheckInDate,
             request.CheckOutDate,
             request.GuestCount,
+            convertedByAdminUserId,
             request.InternalNotes
         );
 
         return Ok(ApiResponse<BookingDetailsResponse>.CreateSuccess(MapToBookingDetailsResponse(booking), "Lead converted to booking successfully."));
+    }
+
+    private Guid GetCurrentAdminId()
+    {
+        var subject = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(subject) || !Guid.TryParse(subject, out var adminUserId))
+            throw new UnauthorizedAccessException("Current admin user ID not found in claims.");
+
+        return adminUserId;
     }
 
     private static CrmLeadListItemResponse MapToListItemResponse(CrmLead lead)

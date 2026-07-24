@@ -3,6 +3,7 @@ using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Enums;
 
 namespace RentalPlatform.API.Services;
@@ -100,7 +101,7 @@ public class AutoCompleteBookingsJob : BackgroundService
                     OldStatus = oldStatus.ToString().ToLower(),
                     NewStatus = BookingStatus.Completed.ToString().ToLower(),
                     ChangedByAdminUserId = null,
-                    Notes = "Automatically completed on the first scheduled sweep after the checkout day ended in Cairo.",
+                    Notes = BookingHistoryEvents.AutomaticCompletion,
                     ChangedAt = now
                 },
                 cancellationToken);
