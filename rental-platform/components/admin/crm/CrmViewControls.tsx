@@ -63,11 +63,11 @@ export function CrmViewControls({
   return (
     <section
       aria-label="Lead view and filters"
-      className="shrink-0 border-y border-neutral-200 bg-white py-3"
+      className="shrink-0 overflow-hidden rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white"
     >
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div className="bg-neutral-50/70 flex min-h-11 items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2">
         <div
-          className="inline-flex w-fit rounded-[var(--portal-radius-control)] border border-neutral-200 bg-neutral-50 p-0.5"
+          className="inline-flex w-fit overflow-hidden rounded-[var(--portal-radius-control)] border border-neutral-300 bg-white p-0.5"
           role="group"
           aria-label="CRM view"
         >
@@ -78,11 +78,11 @@ export function CrmViewControls({
               aria-pressed={view === value}
               onClick={() => onViewChange(value)}
               className={cn(
-                "inline-flex h-9 items-center gap-2 rounded-[4px] px-3 text-sm font-medium transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1",
+                "inline-flex h-8 items-center gap-1.5 rounded-[4px] px-3 text-sm font-medium transition-colors duration-150",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500",
                 view === value
-                  ? "bg-white text-neutral-900 shadow-sm ring-1 ring-neutral-200"
-                  : "text-neutral-500 hover:text-neutral-800"
+                  ? "bg-primary-600 text-white"
+                  : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
               )}
             >
               <Icon className="h-4 w-4" aria-hidden="true" />
@@ -91,74 +91,77 @@ export function CrmViewControls({
           ))}
         </div>
 
-        <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-2 xl:max-w-[900px] xl:grid-cols-[minmax(220px,1fr)_160px_150px_190px_auto]">
-          <Input
-            aria-label="Search leads"
-            placeholder="Search name, phone, email, or unit"
-            value={filters.search}
-            onChange={(event) => onFilterChange("search", event.target.value)}
-            leftAddon={<Search className="h-4 w-4" aria-hidden="true" />}
-          />
-          <Select
-            aria-label="Filter by stage"
-            value={filters.status}
-            onChange={(value) =>
-              onFilterChange("status", value as CrmLeadStatus | "")
-            }
-            options={[
-              { value: "", label: "All stages" },
-              ...Object.values(CRM_LEAD_STATUSES).map((status) => ({
-                value: status,
-                label: CRM_STATUS_LABELS[status],
-              })),
-            ]}
-          />
-          <Select
-            aria-label="Filter by source"
-            value={filters.source}
-            onChange={(value) => onFilterChange("source", String(value))}
-            options={[
-              { value: "", label: "All sources" },
-              ...sources.map((source) => ({
-                value: source,
-                label: sourceLabel(source),
-              })),
-            ]}
-          />
-          <Select
-            aria-label="Filter by assigned owner"
-            value={filters.ownerId}
-            onChange={(value) => onFilterChange("ownerId", String(value))}
-            options={[
-              { value: "", label: "All owners" },
-              { value: "unassigned", label: "Unassigned" },
-              ...assignees.map((assignee) => ({
-                value: assignee.id,
-                label: assignee.name,
-              })),
-            ]}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onReset}
-            disabled={!hasFilters}
-            aria-label="Clear CRM filters"
-            className="h-[var(--portal-control-height)] justify-center"
-          >
-            <RotateCcw className="me-2 h-4 w-4" aria-hidden="true" />
-            Clear
-          </Button>
-        </div>
+        <p
+          className="shrink-0 text-xs font-medium tabular-nums text-neutral-500"
+          aria-live="polite"
+          data-testid="crm-lead-count"
+        >
+          {filteredCount === totalCount
+            ? `${totalCount} leads`
+            : `${filteredCount} of ${totalCount} leads`}
+        </p>
       </div>
 
-      <p
-        className="mt-2 text-xs tabular-nums text-neutral-500"
-        aria-live="polite"
-      >
-        Showing {filteredCount} of {totalCount} leads
-      </p>
+      <div className="grid min-w-0 grid-cols-1 gap-2 p-3 sm:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_160px_150px_190px_88px]">
+        <Input
+          aria-label="Search leads"
+          placeholder="Search name, phone, email, or unit"
+          value={filters.search}
+          onChange={(event) => onFilterChange("search", event.target.value)}
+          leftAddon={<Search className="h-4 w-4" aria-hidden="true" />}
+        />
+        <Select
+          aria-label="Filter by stage"
+          value={filters.status}
+          onChange={(value) =>
+            onFilterChange("status", value as CrmLeadStatus | "")
+          }
+          options={[
+            { value: "", label: "All stages" },
+            ...Object.values(CRM_LEAD_STATUSES).map((status) => ({
+              value: status,
+              label: CRM_STATUS_LABELS[status],
+            })),
+          ]}
+        />
+        <Select
+          aria-label="Filter by source"
+          value={filters.source}
+          onChange={(value) => onFilterChange("source", String(value))}
+          options={[
+            { value: "", label: "All sources" },
+            ...sources.map((source) => ({
+              value: source,
+              label: sourceLabel(source),
+            })),
+          ]}
+        />
+        <Select
+          aria-label="Filter by assigned owner"
+          value={filters.ownerId}
+          onChange={(value) => onFilterChange("ownerId", String(value))}
+          options={[
+            { value: "", label: "All owners" },
+            { value: "unassigned", label: "Unassigned" },
+            ...assignees.map((assignee) => ({
+              value: assignee.id,
+              label: assignee.name,
+            })),
+          ]}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onReset}
+          disabled={!hasFilters}
+          aria-label="Clear CRM filters"
+          className="h-[var(--portal-control-height)] w-full justify-center whitespace-nowrap"
+          leftIcon={<RotateCcw className="h-4 w-4" aria-hidden="true" />}
+        >
+          Clear
+        </Button>
+      </div>
     </section>
   );
 }

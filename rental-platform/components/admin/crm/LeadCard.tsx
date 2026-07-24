@@ -54,7 +54,7 @@ export function LeadCard({ lead, className }: LeadCardProps) {
         }, 0);
       }}
       className={cn(
-        "cursor-pointer touch-pan-y rounded-md bg-white p-3",
+        "cursor-pointer touch-pan-y rounded-[var(--portal-radius-control)] bg-white p-3",
         "border border-neutral-200 transition-colors duration-150 hover:border-neutral-300 hover:bg-neutral-50",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
         isNoAnswer && "border-warning/50",

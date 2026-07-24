@@ -96,9 +96,9 @@ export function PipelineColumn({
         onDropLead(leadId, status);
       }}
       data-stage={status}
-      className="flex h-full min-h-0 w-[330px] min-w-[330px] max-w-[330px] shrink-0 flex-col rounded-md border border-neutral-200 bg-neutral-50 p-3 transition-colors duration-200"
+      className="bg-neutral-100/60 flex h-full min-h-0 w-[330px] min-w-[330px] max-w-[330px] shrink-0 flex-col overflow-hidden rounded-[var(--portal-radius-card)] border border-neutral-200 transition-colors duration-200"
     >
-      <div className="mb-3 flex shrink-0 items-center justify-between">
+      <div className="flex min-h-10 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-3 py-2">
         <h3 className="text-sm font-semibold text-neutral-900">{label}</h3>
         <Badge
           variant={leads.length > 0 ? "info" : "neutral"}
@@ -120,14 +120,14 @@ export function PipelineColumn({
             String(event.currentTarget.scrollTop)
           )
         }
-        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain pb-2 pe-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500"
       >
         {isLoading ? (
           <span className="py-4 text-center text-sm italic text-neutral-500">
             Loading leads...
           </span>
         ) : leads.length === 0 ? (
-          <div className="flex min-h-28 flex-1 items-center justify-center rounded-md border border-dashed border-neutral-300 p-6">
+          <div className="flex min-h-28 flex-1 items-center justify-center rounded-[var(--portal-radius-control)] border border-dashed border-neutral-300 bg-white/60 p-6">
             <span className="text-sm italic text-neutral-400">
               This stage is empty
             </span>

@@ -276,14 +276,14 @@ async function openCrm(page: Page, path = "/admin/crm") {
       .getByRole("main")
       .getByRole("heading", { name: "Leads pipeline", level: 1 })
   ).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("Showing 30 of 80 leads")).toBeVisible();
+  await expect(page.getByTestId("crm-lead-count")).toHaveText("30 of 80 leads");
 
   const loadMore = page.getByRole("button", { name: "Load more leads" });
-  while (await loadMore.isVisible()) {
-    await loadMore.click();
-  }
-
-  await expect(page.getByText("Showing 80 of 80 leads")).toBeVisible();
+  await loadMore.click();
+  await expect(page.getByTestId("crm-lead-count")).toHaveText("60 of 80 leads");
+  await loadMore.click();
+  await expect(page.getByTestId("crm-lead-count")).toHaveText("80 leads");
+  await expect(loadMore).toBeHidden();
 }
 
 async function captureReviewScreenshot(page: Page, name: string) {
@@ -449,7 +449,7 @@ test("switches views, preserves filters, paginates, and restores URL state", asy
   await page.getByLabel("Filter by stage").selectOption("Prospecting");
   await expect(page).toHaveURL(/q=Sanitized\+Lead/);
   await expect(page).toHaveURL(/stage=Prospecting/);
-  await expect(page.getByText("Showing 40 of 80 leads")).toBeVisible();
+  await expect(page.getByTestId("crm-lead-count")).toHaveText("40 of 80 leads");
 
   await page.getByRole("button", { name: "List", exact: true }).click();
   await expect(page).toHaveURL(/view=list/);
@@ -494,12 +494,14 @@ test("list view exposes every lead through pagination and opens row details", as
 
   await page.getByLabel("Filter by source").selectOption("phone");
   await expect(page).toHaveURL(/source=phone/);
-  await expect(page.getByText("Showing 20 of 80 leads")).toBeVisible();
+  await expect(page.getByTestId("crm-lead-count")).toHaveText("20 of 80 leads");
   await page.getByLabel("Filter by assigned owner").selectOption("unassigned");
   await expect(page).toHaveURL(/owner=unassigned/);
-  await expect(page.getByText(/Showing \d+ of 80 leads/)).toBeVisible();
+  await expect(page.getByTestId("crm-lead-count")).toHaveText(
+    /\d+ of 80 leads/
+  );
   await page.getByRole("button", { name: "Clear CRM filters" }).click();
-  await expect(page.getByText("Showing 80 of 80 leads")).toBeVisible();
+  await expect(page.getByTestId("crm-lead-count")).toHaveText("80 leads");
 
   await page.getByRole("button", { name: "Next" }).click();
   await expect(page.getByText("Showing 26–50 of 80 results")).toBeVisible();

@@ -109,8 +109,8 @@ export function CrmLeadListView({
   };
 
   return (
-    <div className="min-h-0 overflow-y-auto overscroll-contain pb-1">
-      <div className="overflow-x-auto rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white">
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
         <table className="w-full min-w-[1015px] table-fixed border-collapse">
           <thead className="sticky top-0 z-10 border-b border-neutral-200 bg-neutral-50">
             <tr>
@@ -203,9 +203,11 @@ export function CrmLeadListView({
         </table>
       </div>
 
-      <div className="mt-3">
-        <Pagination meta={pagination} onPageChange={onPageChange} />
-      </div>
+      <Pagination
+        meta={pagination}
+        onPageChange={onPageChange}
+        className="bg-neutral-50/70 shrink-0 rounded-none border-x-0 border-b-0 px-3 py-2"
+      />
     </div>
   );
 }

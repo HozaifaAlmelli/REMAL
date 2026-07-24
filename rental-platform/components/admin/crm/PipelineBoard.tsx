@@ -121,7 +121,7 @@ export default function PipelineBoard({
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-4 overflow-hidden">
+    <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
       {/* Active Pipeline Board */}
       <div
         ref={boardRef}
@@ -134,7 +134,7 @@ export default function PipelineBoard({
           if (event.clientX < bounds.left + edge) board.scrollBy(-24, 0);
           if (event.clientX > bounds.right - edge) board.scrollBy(24, 0);
         }}
-        className="flex min-h-0 flex-1 items-stretch gap-4 overflow-x-auto overflow-y-hidden pb-3"
+        className="flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto overflow-y-hidden pb-2 pe-1"
       >
         {CRM_PIPELINE_COLUMNS.map((status) => (
           <PipelineColumn
@@ -165,7 +165,7 @@ export default function PipelineBoard({
           </button>
 
           {isClosedSectionOpen && (
-            <div className="flex max-h-[38dvh] min-h-0 items-stretch gap-4 overflow-x-auto overflow-y-hidden pb-3">
+            <div className="flex max-h-[38dvh] min-h-0 items-stretch gap-3 overflow-x-auto overflow-y-hidden pb-2 pe-1">
               {CRM_CLOSED_STATUSES.map((status) => (
                 <PipelineColumn
                   key={status}
