@@ -66,6 +66,7 @@ public sealed class GuestBookingService : IGuestBookingService
                 guestCount,
                 source: "website",
                 assignedAdminUserId: null,
+                createdByAdminUserId: null,
                 internalNotes: "Created through storefront guest checkout.",
                 requirePortfolioVisibility: true,
                 rejectSoftHoldOverlaps: true,

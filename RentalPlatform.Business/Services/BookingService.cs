@@ -135,6 +135,7 @@ public class BookingService : IBookingService
         int guestCount,
         string source,
         Guid? assignedAdminUserId,
+        Guid? createdByAdminUserId,
         string? internalNotes,
         BookingStatus? initialStatus = null,
         bool requirePortfolioVisibility = false,
@@ -169,6 +170,14 @@ public class BookingService : IBookingService
                 a => a.Id == assignedAdminUserId.Value && a.IsActive, cancellationToken);
             if (!adminExists)
                 throw new NotFoundException($"Active admin user with ID {assignedAdminUserId.Value} not found");
+        }
+
+        if (createdByAdminUserId.HasValue)
+        {
+            var creatorExists = await _unitOfWork.AdminUsers.ExistsAsync(
+                a => a.Id == createdByAdminUserId.Value && a.IsActive, cancellationToken);
+            if (!creatorExists)
+                throw new NotFoundException($"Active admin user with ID {createdByAdminUserId.Value} not found");
         }
 
         // --- Guest count vs unit capacity ---
@@ -236,8 +245,8 @@ public class BookingService : IBookingService
             BookingId = booking.Id,
             OldStatus = null,
             NewStatus = startingStatus.ToString().ToLower(),
-            ChangedByAdminUserId = assignedAdminUserId,
-            Notes = "Booking created",
+            ChangedByAdminUserId = createdByAdminUserId,
+            Notes = BookingHistoryEvents.BookingCreated,
             ChangedAt = DateTime.UtcNow
         };
 
@@ -255,6 +264,7 @@ public class BookingService : IBookingService
         int guestCount,
         string source,
         Guid? assignedAdminUserId,
+        Guid? createdByAdminUserId,
         string? internalNotes,
         bool requirePortfolioVisibility = false,
         bool rejectSoftHoldOverlaps = false,
@@ -270,6 +280,7 @@ public class BookingService : IBookingService
                 guestCount,
                 source,
                 assignedAdminUserId,
+                createdByAdminUserId,
                 internalNotes,
                 requirePortfolioVisibility,
                 rejectSoftHoldOverlaps,
@@ -287,6 +298,7 @@ public class BookingService : IBookingService
                 guestCount,
                 source,
                 assignedAdminUserId,
+                createdByAdminUserId,
                 internalNotes,
                 requirePortfolioVisibility,
                 rejectSoftHoldOverlaps,
@@ -310,6 +322,7 @@ public class BookingService : IBookingService
         int guestCount,
         string source,
         Guid? assignedAdminUserId,
+        Guid? createdByAdminUserId,
         string? internalNotes,
         bool requirePortfolioVisibility,
         bool rejectSoftHoldOverlaps,
@@ -346,6 +359,7 @@ public class BookingService : IBookingService
             guestCount,
             source,
             assignedAdminUserId,
+            createdByAdminUserId,
             internalNotes,
             BookingStatus.Prospecting,
             requirePortfolioVisibility,
@@ -435,6 +449,8 @@ public class BookingService : IBookingService
     public async Task<IReadOnlyList<BookingStatusHistory>> GetStatusHistoryAsync(Guid bookingId, CancellationToken cancellationToken = default)
     {
         return await _unitOfWork.BookingStatusHistories.Query()
+            .Include(h => h.Booking)
+            .Include(h => h.ChangedByAdminUser)
             .Where(h => h.BookingId == bookingId)
             .OrderByDescending(h => h.ChangedAt)
             .ToListAsync(cancellationToken);

@@ -247,6 +247,7 @@ public class CrmLeadService : ICrmLeadService
         DateOnly checkInDate,
         DateOnly checkOutDate,
         int guestCount,
+        Guid convertedByAdminUserId,
         string? internalNotes,
         CancellationToken cancellationToken = default)
     {
@@ -307,6 +308,7 @@ public class CrmLeadService : ICrmLeadService
                 guestCount: guestCount,
                 source: lead.Source,
                 assignedAdminUserId: lead.AssignedAdminUserId,
+                createdByAdminUserId: convertedByAdminUserId,
                 internalNotes: internalNotes,
                 initialStatus: BookingStatus.Booked,
                 cancellationToken: cancellationToken);
