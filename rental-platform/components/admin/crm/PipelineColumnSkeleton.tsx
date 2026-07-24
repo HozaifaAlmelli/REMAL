@@ -3,12 +3,12 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export function PipelineColumnSkeleton() {
   return (
-    <div className="flex-1 min-w-[300px] max-w-[350px] flex flex-col gap-3 p-3 bg-neutral-50 rounded-lg shrink-0">
-      <div className="flex justify-between items-center mb-2">
-        <SkeletonText className="w-1/2 h-5" />
-        <div className="w-6 h-5 rounded-full bg-neutral-200 animate-pulse" />
+    <div className="bg-neutral-100/60 flex h-full min-h-0 w-[330px] min-w-[330px] max-w-[330px] shrink-0 flex-col overflow-hidden rounded-[var(--portal-radius-card)] border border-neutral-200">
+      <div className="flex min-h-10 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-3 py-2">
+        <SkeletonText className="h-5 w-1/2" />
+        <div className="h-5 w-6 animate-pulse rounded-full bg-neutral-200" />
       </div>
-      <div className="flex flex-col gap-3">
+      <div className="min-h-0 flex-1 space-y-2 overflow-hidden p-2">
         <SkeletonCard showImage={false} lines={2} />
         <SkeletonCard showImage={false} lines={2} />
         <SkeletonCard showImage={false} lines={2} />
