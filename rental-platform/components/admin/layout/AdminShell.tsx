@@ -90,10 +90,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     <div className="portal-admin content-density-compact flex h-screen overflow-hidden bg-neutral-50 text-neutral-700">
       <AdminSidebar />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AdminHeader />
 
-        <main className="flex-1 overflow-y-auto px-6 py-5">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {children}
+        </main>
       </div>
     </div>
   );

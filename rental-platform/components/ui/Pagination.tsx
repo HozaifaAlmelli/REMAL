@@ -8,12 +8,14 @@ export interface PaginationProps {
   meta: PaginationMeta;
   onPageChange: (page: number) => void;
   isLoading?: boolean;
+  className?: string;
 }
 
 export function Pagination({
   meta,
   onPageChange,
   isLoading = false,
+  className,
 }: PaginationProps) {
   const { page, totalPages, totalCount, pageSize } = meta;
 
@@ -25,7 +27,8 @@ export function Pagination({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+        "flex flex-col gap-3 rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
+        className
       )}
     >
       <p className="text-sm text-neutral-600">
