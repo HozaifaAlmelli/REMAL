@@ -18,6 +18,15 @@ export function BookingStatusHistory({ bookingId }: BookingStatusHistoryProps) {
     return entry.actorType === "system" || entry.actorType === "online";
   };
 
+  const getActorDisplayName = (entry: BookingStatusHistoryResponse) => {
+    const displayName = entry.actorDisplayName?.trim();
+    if (displayName) return displayName;
+
+    return entry.oldStatus === null
+      ? "Creator unavailable"
+      : "Actor unavailable";
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -43,6 +52,10 @@ export function BookingStatusHistory({ bookingId }: BookingStatusHistoryProps) {
       <div className="relative space-y-0">
         {history.map((entry, index) => {
           const isSystem = isSystemEntry(entry);
+          const actorDisplayName = getActorDisplayName(entry);
+          const isUnavailable =
+            entry.actorType === "unavailable" ||
+            !entry.actorDisplayName?.trim();
 
           return (
             <div key={entry.id} className="relative flex gap-3 pb-4">
@@ -61,7 +74,7 @@ export function BookingStatusHistory({ bookingId }: BookingStatusHistoryProps) {
               >
                 {isSystem ? (
                   <Bot className="h-4 w-4" />
-                ) : entry.actorType === "unavailable" ? (
+                ) : isUnavailable ? (
                   <CircleHelp className="h-4 w-4" />
                 ) : (
                   <User className="h-4 w-4" />
@@ -87,7 +100,7 @@ export function BookingStatusHistory({ bookingId }: BookingStatusHistoryProps) {
                       isSystem ? "text-blue-600" : "text-neutral-600"
                     }`}
                   >
-                    {entry.actorDisplayName}
+                    {actorDisplayName}
                   </span>
                   <span className="text-xs text-neutral-400">
                     {formatRelativeTime(entry.changedAt)}

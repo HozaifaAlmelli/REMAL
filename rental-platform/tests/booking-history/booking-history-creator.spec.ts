@@ -612,6 +612,16 @@ test("renders system and unavailable actors without leaking ids or Unknown Admin
       notes: "Booking created",
       changedAt: "2026-07-24T08:00:00.000Z",
     }),
+    historyEntry({
+      id: "70000000-0000-4000-8000-000000000005",
+      oldStatus: null,
+      newStatus: "Prospecting",
+      actorUserId: null,
+      actorDisplayName: "",
+      actorType: "unavailable",
+      notes: "Legacy creation actor was not returned.",
+      changedAt: "2026-07-24T07:00:00.000Z",
+    }),
   ];
   await installFixtureApi(page, state);
   await openBooking(page);
@@ -621,6 +631,9 @@ test("renders system and unavailable actors without leaking ids or Unknown Admin
   await expect(historyPanel.getByText("System", { exact: true })).toBeVisible();
   await expect(
     historyPanel.getByText("Actor unavailable", { exact: true })
+  ).toBeVisible();
+  await expect(
+    historyPanel.getByText("Creator unavailable", { exact: true })
   ).toBeVisible();
   await expect(historyPanel.getByText("Unknown Admin")).toHaveCount(0);
   await expect(historyPanel.getByText(ADMIN_A_ID)).toHaveCount(0);
