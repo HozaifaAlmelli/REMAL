@@ -10,6 +10,7 @@ using RentalPlatform.Data.Entities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Enums;
@@ -97,6 +98,7 @@ public class BookingsController : ControllerBase
     [Authorize(Policy = PermissionKeys.BookingsWrite)]
     public async Task<ActionResult<ApiResponse<BookingDetailsResponse>>> CreateBooking(CreateBookingRequest request)
     {
+        var creatorAdminUserId = GetCurrentAdminId();
         var booking = await _bookingService.CreateAsync(
             request.ClientId,
             request.UnitId,
@@ -104,8 +106,9 @@ public class BookingsController : ControllerBase
             request.CheckOutDate,
             request.GuestCount,
             request.Source,
-            request.AssignedAdminUserId,
-            request.InternalNotes
+            assignedAdminUserId: request.AssignedAdminUserId,
+            createdByAdminUserId: creatorAdminUserId,
+            internalNotes: request.InternalNotes
         );
         
         return Ok(ApiResponse<BookingDetailsResponse>.CreateSuccess(MapToDetailsResponse(booking), "Booking created successfully."));
@@ -116,6 +119,7 @@ public class BookingsController : ControllerBase
     [Authorize(Policy = PermissionKeys.BookingsWrite)]
     public async Task<ActionResult<ApiResponse<BookingDetailsResponse>>> CreateQuickBooking(CreateBookingRequest request)
     {
+        var creatorAdminUserId = GetCurrentAdminId();
         var booking = await _bookingService.CreateQuickAsync(
             request.ClientId,
             request.UnitId,
@@ -123,8 +127,9 @@ public class BookingsController : ControllerBase
             request.CheckOutDate,
             request.GuestCount,
             string.IsNullOrWhiteSpace(request.Source) ? "admin" : request.Source,
-            request.AssignedAdminUserId,
-            request.InternalNotes
+            assignedAdminUserId: request.AssignedAdminUserId,
+            createdByAdminUserId: creatorAdminUserId,
+            internalNotes: request.InternalNotes
         );
 
         return Ok(ApiResponse<BookingDetailsResponse>.CreateSuccess(MapToDetailsResponse(booking), "Quick booking created successfully."));
@@ -220,16 +225,66 @@ public class BookingsController : ControllerBase
 
     private static BookingStatusHistoryResponse MapToHistoryResponse(BookingStatusHistory history)
     {
+        var actor = ResolveHistoryActor(history);
+
         return new BookingStatusHistoryResponse
         {
             Id = history.Id,
             BookingId = history.BookingId,
             OldStatus = NormalizeBookingStatus(history.OldStatus),
             NewStatus = NormalizeBookingStatus(history.NewStatus) ?? history.NewStatus,
-            ChangedByAdminUserId = history.ChangedByAdminUserId ?? Guid.Empty,
+            ChangedByAdminUserId = history.ChangedByAdminUserId,
+            ActorDisplayName = actor.DisplayName,
+            ActorType = actor.Type,
             Notes = history.Notes,
             ChangedAt = history.ChangedAt
         };
+    }
+
+    private Guid GetCurrentAdminId()
+    {
+        var subject = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(subject) || !Guid.TryParse(subject, out var adminUserId))
+            throw new UnauthorizedAccessException("Current admin user ID not found in claims.");
+
+        return adminUserId;
+    }
+
+    private static (string DisplayName, string Type) ResolveHistoryActor(BookingStatusHistory history)
+    {
+        if (history.ChangedByAdminUser != null)
+        {
+            var displayName = !string.IsNullOrWhiteSpace(history.ChangedByAdminUser.Name)
+                ? history.ChangedByAdminUser.Name.Trim()
+                : history.ChangedByAdminUser.Email.Trim();
+
+            if (!string.IsNullOrWhiteSpace(displayName))
+                return (displayName, "admin");
+        }
+
+        var isCreationEntry =
+            history.OldStatus == null &&
+            string.Equals(
+                history.Notes,
+                BookingHistoryEvents.BookingCreated,
+                StringComparison.Ordinal);
+        if (isCreationEntry &&
+            string.Equals(history.Booking?.Source, "website", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("Online booking", "online");
+        }
+
+        if (string.Equals(
+                history.Notes,
+                BookingHistoryEvents.AutomaticCompletion,
+                StringComparison.Ordinal))
+        {
+            return ("System", "system");
+        }
+
+        return isCreationEntry
+            ? ("Creator unavailable", "unavailable")
+            : ("Actor unavailable", "unavailable");
     }
 
     private static string? NormalizeBookingStatus(string? status)
