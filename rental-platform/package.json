@@ -14,7 +14,8 @@
     "test:client-smoke": "playwright test --config=playwright.client.config.ts",
     "test:client-smoke:ui": "playwright test --config=playwright.client.config.ts --ui",
     "test:client-smoke:headed": "playwright test --config=playwright.client.config.ts --headed",
-    "test:crm-ui": "playwright test --config=playwright.crm.config.ts"
+    "test:crm-ui": "playwright test --config=playwright.crm.config.ts",
+    "test:booking-history": "playwright test --config=playwright.booking-history.config.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.1",

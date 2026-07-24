@@ -1,11 +1,10 @@
 "use client";
 
 import { useBookingStatusHistory } from "@/lib/hooks/useBookings";
-import { useAdminDirectory } from "@/lib/hooks/useAdminUsers";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { formatRelativeTime } from "@/lib/utils/format";
-import { Bot, User } from "lucide-react";
+import { Bot, CircleHelp, User } from "lucide-react";
 import type { BookingStatusHistoryResponse } from "@/lib/types/booking.types";
 
 interface BookingStatusHistoryProps {
@@ -14,18 +13,9 @@ interface BookingStatusHistoryProps {
 
 export function BookingStatusHistory({ bookingId }: BookingStatusHistoryProps) {
   const { data: history, isLoading } = useBookingStatusHistory(bookingId);
-  const { data: adminUsers } = useAdminDirectory();
-
-  const getAdminName = (userId: string) => {
-    if (userId === "SYSTEM" || !userId) return "System";
-    const user = adminUsers?.find((u) => u.id === userId);
-    return user?.name ?? "Unknown Admin";
-  };
 
   const isSystemEntry = (entry: BookingStatusHistoryResponse) => {
-    return (
-      entry.changedByAdminUserId === "SYSTEM" || !entry.changedByAdminUserId
-    );
+    return entry.actorType === "system" || entry.actorType === "online";
   };
 
   if (isLoading) {
@@ -71,6 +61,8 @@ export function BookingStatusHistory({ bookingId }: BookingStatusHistoryProps) {
               >
                 {isSystem ? (
                   <Bot className="h-4 w-4" />
+                ) : entry.actorType === "unavailable" ? (
+                  <CircleHelp className="h-4 w-4" />
                 ) : (
                   <User className="h-4 w-4" />
                 )}
@@ -91,11 +83,11 @@ export function BookingStatusHistory({ bookingId }: BookingStatusHistoryProps) {
 
                 <div className="mt-1 flex items-center gap-2">
                   <span
-                    className={`text-xs font-medium ${
+                    className={`min-w-0 break-words text-xs font-medium ${
                       isSystem ? "text-blue-600" : "text-neutral-600"
                     }`}
                   >
-                    {getAdminName(entry.changedByAdminUserId)}
+                    {entry.actorDisplayName}
                   </span>
                   <span className="text-xs text-neutral-400">
                     {formatRelativeTime(entry.changedAt)}

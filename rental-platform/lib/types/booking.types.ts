@@ -162,7 +162,9 @@ export interface BookingStatusHistoryResponse {
   bookingId: string;
   oldStatus: FormalBookingStatus | null;
   newStatus: FormalBookingStatus;
-  changedByAdminUserId: string;
+  changedByAdminUserId: string | null;
+  actorDisplayName: string;
+  actorType: "admin" | "online" | "system" | "unavailable";
   notes: string | null;
   changedAt: string;
 }

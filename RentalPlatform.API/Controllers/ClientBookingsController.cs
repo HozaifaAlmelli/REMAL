@@ -123,6 +123,7 @@ public class ClientBookingsController : ControllerBase
             request.GuestCount,
             source: "website",
             assignedAdminUserId: null,
+            createdByAdminUserId: null,
             internalNotes: null,
             requirePortfolioVisibility: true,
             rejectSoftHoldOverlaps: true,
