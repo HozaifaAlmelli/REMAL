@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { crmService } from "@/lib/api/services/crm.service";
@@ -22,19 +27,43 @@ import type {
   AssignLeadRequest,
 } from "@/lib/types/crm.types";
 
+const CRM_LEADS_PAGE_SIZE = 100;
+
 export function useLeadsPipeline(enabled = true) {
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: queryKeys.crm.leads(),
-    queryFn: () => crmService.getLeads({ pageSize: 200 }), // fetch all for pipeline view
+    queryFn: ({ pageParam }) =>
+      crmService.getLeads({
+        page: pageParam,
+        pageSize: CRM_LEADS_PAGE_SIZE,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination.page < lastPage.pagination.totalPages
+        ? lastPage.pagination.page + 1
+        : undefined,
     staleTime: 0,
     refetchInterval: 5000,
     refetchOnWindowFocus: true, // sales switches between windows
     enabled,
   });
 
+  // De-duplicate by id so records created during incremental loading cannot
+  // appear twice when a server page boundary shifts.
+  const leads = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          (query.data?.pages ?? [])
+            .flatMap((page) => page.items)
+            .map((lead) => [lead.id, lead])
+        ).values()
+      ),
+    [query.data?.pages]
+  );
+
   const groupedLeads = useMemo(() => {
-    const all = query.data?.items ?? [];
-    return all.reduce(
+    return leads.reduce(
       (acc, lead) => {
         const normalizedStatus = normalizeStatus(lead.leadStatus);
         if (
@@ -52,15 +81,21 @@ export function useLeadsPipeline(enabled = true) {
       },
       {} as Record<CrmLeadStatus, CrmLeadListItemResponse[]>
     );
-  }, [query.data]);
+  }, [leads]);
 
   // Open-lead count is intentionally NOT derived here: the pipeline fetch is page-capped
   // and would undercount. The authoritative count comes from the server via
   // useOpenLeadsCount() (GET /api/internal/crm/leads/open-count) — single source of truth.
   return {
+    leads,
     groupedLeads,
-    totalCount: query.data?.pagination?.totalCount ?? 0,
+    totalCount: query.data?.pages[0]?.pagination.totalCount ?? 0,
+    loadedCount: leads.length,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    isFetchingNextPage: query.isFetchingNextPage,
+    hasNextPage: query.hasNextPage,
+    fetchNextPage: query.fetchNextPage,
     isError: query.isError,
     refetch: query.refetch,
   };

@@ -1,8 +1,11 @@
+"use client";
+
 import { CrmLeadStatus, CrmLeadListItemResponse } from "@/lib/types/crm.types";
 import { LeadCard } from "./LeadCard";
 import { Badge } from "@/components/ui/Badge";
 import { CRM_VALID_TRANSITIONS } from "@/lib/constants/booking-statuses";
 import { toastError } from "@/lib/utils/toast";
+import { useEffect, useRef } from "react";
 
 interface PipelineColumnProps {
   status: CrmLeadStatus;
@@ -14,8 +17,7 @@ interface PipelineColumnProps {
 
 function isValidDrop(sourceStatus: string, targetStatus: string): boolean {
   if (sourceStatus === targetStatus) return false;
-  const allowed =
-    CRM_VALID_TRANSITIONS[sourceStatus as CrmLeadStatus] ?? [];
+  const allowed = CRM_VALID_TRANSITIONS[sourceStatus as CrmLeadStatus] ?? [];
   return allowed.includes(targetStatus as CrmLeadStatus);
 }
 
@@ -26,19 +28,57 @@ export function PipelineColumn({
   isLoading,
   onDropLead,
 }: PipelineColumnProps) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const storageKey = `crm-stage-scroll:${status}`;
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const savedPosition = Number(sessionStorage.getItem(storageKey));
+    if (Number.isFinite(savedPosition) && savedPosition > 0) {
+      list.scrollTop = savedPosition;
+    }
+  }, [storageKey]);
+
   return (
     <div
       onDragOver={(e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
-        e.currentTarget.classList.add("ring-2", "ring-primary/40", "bg-neutral-200/80");
+        e.currentTarget.classList.add(
+          "ring-2",
+          "ring-primary/40",
+          "bg-neutral-200/80"
+        );
+
+        const list = listRef.current;
+        if (list) {
+          const bounds = list.getBoundingClientRect();
+          const edge = 48;
+          if (e.clientY < bounds.top + edge) list.scrollBy(0, -18);
+          if (e.clientY > bounds.bottom - edge) list.scrollBy(0, 18);
+        }
       }}
       onDragLeave={(e) => {
-        e.currentTarget.classList.remove("ring-2", "ring-primary/40", "bg-neutral-200/80");
+        if (
+          e.relatedTarget instanceof Node &&
+          e.currentTarget.contains(e.relatedTarget)
+        ) {
+          return;
+        }
+        e.currentTarget.classList.remove(
+          "ring-2",
+          "ring-primary/40",
+          "bg-neutral-200/80"
+        );
       }}
       onDrop={(e) => {
         e.preventDefault();
-        e.currentTarget.classList.remove("ring-2", "ring-primary/40", "bg-neutral-200/80");
+        e.currentTarget.classList.remove(
+          "ring-2",
+          "ring-primary/40",
+          "bg-neutral-200/80"
+        );
         const leadId = e.dataTransfer.getData("leadId");
         const sourceStatus = e.dataTransfer.getData("leadStatus");
 
@@ -55,9 +95,10 @@ export function PipelineColumn({
 
         onDropLead(leadId, status);
       }}
-      className="flex w-[330px] max-w-[330px] flex-1 shrink-0 flex-col rounded-md border border-neutral-200 bg-neutral-50 p-3 transition-colors duration-200"
+      data-stage={status}
+      className="bg-neutral-100/60 flex h-full min-h-0 w-[330px] min-w-[330px] max-w-[330px] shrink-0 flex-col overflow-hidden rounded-[var(--portal-radius-card)] border border-neutral-200 transition-colors duration-200"
     >
-      <div className="mb-3 flex items-center justify-between">
+      <div className="flex min-h-10 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-3 py-2">
         <h3 className="text-sm font-semibold text-neutral-900">{label}</h3>
         <Badge
           variant={leads.length > 0 ? "info" : "neutral"}
@@ -67,19 +108,36 @@ export function PipelineColumn({
         </Badge>
       </div>
 
-      <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
+      <div
+        ref={listRef}
+        role="list"
+        tabIndex={0}
+        aria-label={`${label} leads`}
+        data-testid={`crm-stage-list-${status}`}
+        onScroll={(event) =>
+          sessionStorage.setItem(
+            storageKey,
+            String(event.currentTarget.scrollTop)
+          )
+        }
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500"
+      >
         {isLoading ? (
           <span className="py-4 text-center text-sm italic text-neutral-500">
             Loading leads...
           </span>
         ) : leads.length === 0 ? (
-          <div className="flex items-center justify-center rounded-md border border-dashed border-neutral-300 p-6">
+          <div className="flex min-h-28 flex-1 items-center justify-center rounded-[var(--portal-radius-control)] border border-dashed border-neutral-300 bg-white/60 p-6">
             <span className="text-sm italic text-neutral-400">
               This stage is empty
             </span>
           </div>
         ) : (
-          leads.map((lead) => <LeadCard key={lead.id} lead={lead} />)
+          leads.map((lead) => (
+            <div key={lead.id} role="listitem">
+              <LeadCard lead={lead} />
+            </div>
+          ))
         )}
       </div>
     </div>
