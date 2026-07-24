@@ -3,7 +3,7 @@ import "./globals.css";
 import QueryProvider from "@/lib/providers/query-provider";
 import SmoothScrollProvider from "@/lib/providers/smooth-scroll-provider";
 import { GsapProvider } from "@/lib/providers/gsap-provider";
-import { ViewTransitions } from "next-view-transitions";
+import { ViewTransitionsProvider } from "@/lib/providers/view-transitions-provider";
 import { Toaster } from "react-hot-toast";
 
 export const metadata: Metadata = {
@@ -17,9 +17,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ViewTransitions>
+    <ViewTransitionsProvider>
       <html lang="en">
-        <body className="bg-background text-foreground font-sans">
+        <body className="bg-background font-sans text-foreground">
           <QueryProvider>
             <SmoothScrollProvider>
               <GsapProvider>{children}</GsapProvider>
@@ -33,6 +33,6 @@ export default function RootLayout({
           />
         </body>
       </html>
-    </ViewTransitions>
+    </ViewTransitionsProvider>
   );
 }
