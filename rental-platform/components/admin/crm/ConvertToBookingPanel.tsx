@@ -1,48 +1,69 @@
 "use client";
 
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { ChevronLeft, ChevronRight, CircleAlert, Loader2 } from "lucide-react";
 import { useConvertToBooking } from "@/lib/hooks/useCrm";
 import { useCreateClient } from "@/lib/hooks/useClients";
 import { useAvailabilityCheck } from "@/lib/hooks/usePublic";
+import {
+  useInternalUnitDetail,
+  useInternalUnitsList,
+} from "@/lib/hooks/useUnits";
 import { clientsService } from "@/lib/api/services/clients.service";
+import { ApiError } from "@/lib/api/api-error";
 import { toastSuccess } from "@/lib/utils/toast";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import {
   CRM_CLOSED_STATUSES,
   CRM_STATUS_LABELS,
 } from "@/lib/constants/booking-statuses";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { formatDateRange, getNights } from "@/lib/utils/format";
-import type { CrmLeadDetailsResponse } from "@/lib/types/crm.types";
-import type { CreateClientRequest } from "@/lib/types";
 import {
-  Check,
-  CircleAlert,
-  Copy,
-  Loader2,
-  PencilLine,
-} from "lucide-react";
-
-const newClientSchema = z.object({
-  name: z.string().min(1, "Please enter the client name"),
-  phone: z
-    .string()
-    .min(1, "Please enter the phone number")
-    .regex(/^\+?\d{10,15}$/, "Enter 10 to 15 digits, optionally starting with +"),
-  email: z
-    .string()
-    .email("Enter a valid email address")
-    .optional()
-    .or(z.literal("")),
-});
+  isUnitAvailabilityConflict,
+} from "@/lib/constants/crm-recommendation";
+import { Button } from "@/components/ui/Button";
+import type { CrmLeadDetailsResponse } from "@/lib/types/crm.types";
+import type { UnitListItemResponse } from "@/lib/types/unit.types";
+import {
+  buildCrmBookingWizardSteps,
+  CRM_BOOKING_WIZARD_COPY,
+  isValidStayRange,
+  requiresStayDetailsStep,
+  type CrmBookingWizardStepId,
+} from "./booking-wizard/crm-booking-wizard";
+import {
+  useCrmBookingWizard,
+  useCrmBookingWizardLocale,
+  type WizardClientSummary,
+} from "./booking-wizard/useCrmBookingWizard";
+import { CrmBookingWizardStepper } from "./booking-wizard/CrmBookingWizardStepper";
+import { CrmBookingWizardSummary } from "./booking-wizard/CrmBookingWizardSummary";
+import {
+  BookingDetailsStep,
+  ClientStep,
+  type ClientValidationErrors,
+  ReviewStep,
+  StayStep,
+  TemporaryPasswordNotice,
+  UnitStep,
+} from "./booking-wizard/CrmBookingWizardSteps";
 
 interface ConvertToBookingPanelProps {
   leadId: string;
   lead: CrmLeadDetailsResponse;
+}
+
+const PHONE_PATTERN = /^\+?\d{10,15}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) return fallback;
+  return error.errors[0] ?? error.message ?? fallback;
 }
 
 export function ConvertToBookingPanel({
@@ -52,76 +73,197 @@ export function ConvertToBookingPanel({
   const { canManageCRM } = usePermissions();
   const convertMutation = useConvertToBooking(leadId);
   const createClientMutation = useCreateClient();
-
-  // The lead is already linked to a client → the backend forces that client, so the
-  // choice is locked. Otherwise the team creates/attaches one during conversion.
-  const clientLocked = Boolean(lead.clientId);
-
-  const [showNewClientForm, setShowNewClientForm] = useState(false);
-  const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
+  const locale = useCrmBookingWizardLocale();
+  const copy = CRM_BOOKING_WIZARD_COPY[locale];
+  const { state, dispatch } = useCrmBookingWizard(lead);
+  const [clientValidationErrors, setClientValidationErrors] =
+    useState<ClientValidationErrors>({});
   const [passwordCopied, setPasswordCopied] = useState(false);
-  const [clientId, setClientId] = useState<string>(lead.clientId ?? "");
-  const [attachedClient, setAttachedClient] = useState<{
-    name: string;
-    phone: string;
-  } | null>(
-    // A pre-linked client is shown by the lead's own contact identity — never a raw ID.
-    lead.clientId ? { name: lead.contactName, phone: lead.contactPhone } : null
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  const requiresStayStep = requiresStayDetailsStep(lead);
+  const requiresUnitStep =
+    lead.needsRecommendation && !lead.targetUnitId;
+  const requiresClientStep = !lead.clientId;
+  const hasValidStay = isValidStayRange(
+    state.checkInDate,
+    state.checkOutDate
   );
 
-  const [guestCount, setGuestCount] = useState<number>(lead.guestCount ?? 1);
-  const [internalNotes, setInternalNotes] = useState("");
-
   const {
-    register: registerClient,
-    handleSubmit: handleClientSubmit,
-    reset: resetClientForm,
-    formState: { errors: clientErrors, isSubmitting: isCreatingClient },
-  } = useForm<CreateClientRequest>({
-    resolver: zodResolver(newClientSchema),
-    defaultValues: {
-      name: lead.contactName ?? "",
-      phone: lead.contactPhone ?? "",
-      email: lead.contactEmail ?? "",
+    data: unitsData,
+    isLoading: isLoadingUnits,
+    isFetching: isFetchingUnits,
+    isError: isUnitsError,
+    refetch: refetchUnits,
+  } = useInternalUnitsList(
+    {
+      pageSize: 500,
+      isActive: true,
+      availableFrom: state.checkInDate || undefined,
+      availableTo: state.checkOutDate || undefined,
+      unitType: state.unitTypeFilter || undefined,
     },
-  });
-
-  // ── Agreed deal terms (the lead is the source of truth — these are NOT editable here) ──
-  const checkIn = lead.desiredCheckInDate;
-  const checkOut = lead.desiredCheckOutDate;
-  const hasCompleteDeal = Boolean(lead.targetUnitId && checkIn && checkOut);
-  const nights = checkIn && checkOut ? getNights(checkIn, checkOut) : 0;
-
-  // Live re-validation: the agreed dates were available when the lead was created, but
-  // a block or another booking may have landed since. Re-check now; block convert if so.
+    { enabled: requiresUnitStep && hasValidStay }
+  );
   const {
-    data: availability,
-    isLoading: isCheckingAvailability,
-  } = useAvailabilityCheck(lead.targetUnitId ?? "", checkIn, checkOut);
+    data: linkedUnit,
+    isLoading: isLoadingLinkedUnit,
+    isError: isLinkedUnitError,
+    refetch: refetchLinkedUnit,
+  } = useInternalUnitDetail(lead.targetUnitId ?? "");
+
+  const availableUnits = useMemo(
+    () => unitsData?.items ?? [],
+    [unitsData?.items]
+  );
+  const selectedUnit = useMemo<UnitListItemResponse | null>(() => {
+    const fromResults = availableUnits.find(
+      (unit) => unit.id === state.selectedUnitId
+    );
+    if (fromResults) return fromResults;
+    if (linkedUnit?.id === state.selectedUnitId) return linkedUnit;
+    return null;
+  }, [availableUnits, linkedUnit, state.selectedUnitId]);
+
+  const isRefreshingUnits = isLoadingUnits || isFetchingUnits;
+  const hasGuestCapacityConflict = Boolean(
+    selectedUnit && state.guestCount > selectedUnit.maxGuests
+  );
+  const guestError =
+    state.guestCount < 1
+      ? copy.guestMinimum
+      : hasGuestCapacityConflict && selectedUnit
+        ? copy.capacity(selectedUnit.name, selectedUnit.maxGuests)
+        : null;
+
+  const { data: availability, isLoading: isCheckingAvailability } =
+    useAvailabilityCheck(
+      state.selectedUnitId ?? "",
+      state.checkInDate || null,
+      state.checkOutDate || null
+    );
   const hasDateConflict = availability?.isAvailable === false;
 
-  const attachClient = (id: string, name: string, phone: string) => {
-    setClientId(id);
-    setAttachedClient({ name, phone });
-    setShowNewClientForm(false);
-  };
+  const domainState = useMemo(
+    () => ({
+      checkInDate: state.checkInDate,
+      checkOutDate: state.checkOutDate,
+      selectedUnitId: state.selectedUnitId,
+      clientId: state.clientId,
+      guestCount: state.guestCount,
+      hasGuestCapacityConflict,
+    }),
+    [
+      hasGuestCapacityConflict,
+      state.checkInDate,
+      state.checkOutDate,
+      state.clientId,
+      state.guestCount,
+      state.selectedUnitId,
+    ]
+  );
+  const steps = useMemo(
+    () =>
+      buildCrmBookingWizardSteps({
+        locale,
+        currentStep: state.currentStep,
+        state: domainState,
+        requiresStayStep,
+        requiresUnitStep,
+        requiresClientStep,
+      }),
+    [
+      domainState,
+      locale,
+      requiresClientStep,
+      requiresStayStep,
+      requiresUnitStep,
+      state.currentStep,
+    ]
+  );
+  const currentIndex = Math.max(
+    0,
+    steps.findIndex((step) => step.id === state.currentStep)
+  );
+  const previousStep = steps[currentIndex - 1];
+  const nextStep = steps[currentIndex + 1];
 
-  const clearClient = () => {
-    setClientId("");
-    setAttachedClient(null);
-    setTemporaryPassword(null);
-    setPasswordCopied(false);
-    setShowNewClientForm(true);
-    resetClientForm({
-      name: lead.contactName ?? "",
-      phone: lead.contactPhone ?? "",
-      email: lead.contactEmail ?? "",
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, [state.currentStep]);
+
+  useEffect(() => {
+    if (
+      !requiresUnitStep ||
+      !state.selectedUnitId ||
+      isRefreshingUnits ||
+      isUnitsError
+    ) {
+      return;
+    }
+
+    if (!availableUnits.some((unit) => unit.id === state.selectedUnitId)) {
+      dispatch({
+        type: "availabilityConflict",
+        message: copy.conflict,
+      });
+    }
+  }, [
+    availableUnits,
+    copy.conflict,
+    dispatch,
+    isRefreshingUnits,
+    isUnitsError,
+    requiresUnitStep,
+    state.selectedUnitId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !state.selectedUnitId ||
+      isCheckingAvailability ||
+      !hasDateConflict
+    ) {
+      return;
+    }
+
+    dispatch({
+      type: "availabilityConflict",
+      message: copy.conflict,
     });
+  }, [
+    copy.conflict,
+    dispatch,
+    hasDateConflict,
+    isCheckingAvailability,
+    state.selectedUnitId,
+  ]);
+
+  const goToStep = (stepId: CrmBookingWizardStepId) => {
+    const target = steps.find((step) => step.id === stepId);
+    if (!target || target.isBlocked) return;
+    dispatch({ type: "goTo", step: stepId });
   };
 
-  // Look up an existing client by phone, then email, via the admin clients search.
-  // The backend enforces uniqueness on BOTH, so a match on either means we attach that
-  // client instead of failing on a duplicate. Phone identity ignores a leading "+".
+  const goForward = () => {
+    if (nextStep) dispatch({ type: "goTo", step: nextStep.id });
+  };
+
+  const validateClientDraft = (): boolean => {
+    const errors: ClientValidationErrors = {};
+    const name = state.clientDraft.name.trim();
+    const phone = state.clientDraft.phone.trim();
+    const email = state.clientDraft.email.trim();
+
+    if (!name) errors.name = copy.clientRequired;
+    if (!PHONE_PATTERN.test(phone)) errors.phone = copy.phoneInvalid;
+    if (email && !EMAIL_PATTERN.test(email)) errors.email = copy.emailInvalid;
+
+    setClientValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const findExistingClient = async (phone: string, email?: string) => {
     const normalizedPhone = phone.replace(/\+/g, "");
     const byPhone = await clientsService.getAll({
@@ -130,87 +272,189 @@ export function ConvertToBookingPanel({
       pageSize: 20,
     });
     const phoneMatch = byPhone.items.find(
-      (c) => c.phone.replace(/\+/g, "") === normalizedPhone
+      (client) => client.phone.replace(/\+/g, "") === normalizedPhone
     );
-    if (phoneMatch) return { client: phoneMatch, matchedBy: "phone" as const };
+    if (phoneMatch) return phoneMatch;
 
     const normalizedEmail = email?.trim().toLowerCase();
-    if (normalizedEmail) {
-      const byEmail = await clientsService.getAll({
-        search: normalizedEmail,
-        includeInactive: true,
-        pageSize: 20,
-      });
-      const emailMatch = byEmail.items.find(
-        (c) => c.email?.toLowerCase() === normalizedEmail
-      );
-      if (emailMatch) return { client: emailMatch, matchedBy: "email" as const };
-    }
-
-    return null;
+    if (!normalizedEmail) return null;
+    const byEmail = await clientsService.getAll({
+      search: normalizedEmail,
+      includeInactive: true,
+      pageSize: 20,
+    });
+    return (
+      byEmail.items.find(
+        (client) => client.email?.toLowerCase() === normalizedEmail
+      ) ?? null
+    );
   };
 
-  const onCreateClient = async (data: CreateClientRequest) => {
-    const phone = data.phone.trim();
-    const email = data.email?.trim() || undefined;
+  const attachClientAndAdvance = (
+    client: WizardClientSummary,
+    temporaryPassword?: string | null
+  ) => {
+    dispatch({ type: "attachClient", client, temporaryPassword });
+    if (nextStep) dispatch({ type: "goTo", step: nextStep.id });
+  };
 
-    // Attach an existing client on a phone/email match rather than failing with a
-    // duplicate error and forcing a manual ID paste.
+  const handleClientSubmit = async () => {
+    if (state.client) {
+      goForward();
+      return;
+    }
+    if (!validateClientDraft()) return;
+
+    dispatch({ type: "setClientError", message: null });
+    const name = state.clientDraft.name.trim();
+    const phone = state.clientDraft.phone.trim();
+    const email = state.clientDraft.email.trim() || undefined;
+
     try {
       const existing = await findExistingClient(phone, email);
       if (existing) {
-        attachClient(existing.client.id, existing.client.name, existing.client.phone);
-        setTemporaryPassword(null);
-        setPasswordCopied(false);
-        toastSuccess(
-          `Existing client attached (matched by ${existing.matchedBy}): ${existing.client.name}`
-        );
+        attachClientAndAdvance({
+          id: existing.id,
+          name: existing.name,
+          phone: existing.phone,
+          email: existing.email,
+        });
+        toastSuccess(copy.matchedExisting);
         return;
       }
     } catch {
-      // Lookup failed (transient/permission) — fall through to create, which still
-      // surfaces a clear error if the client turns out to already exist.
+      // A transient lookup failure must not block the existing create flow.
+      // The create endpoint still enforces phone/email uniqueness.
     }
 
     createClientMutation.mutate(
-      { ...data, email },
+      { name, phone, email },
       {
         onSuccess: (client) => {
-          attachClient(client.id, client.name, client.phone);
-          setTemporaryPassword(client.temporaryPassword);
-          setPasswordCopied(false);
+          attachClientAndAdvance(
+            {
+              id: client.id,
+              name: client.name,
+              phone: client.phone,
+              email: client.email,
+            },
+            client.temporaryPassword
+          );
+        },
+        onError: async (error) => {
+          if (error instanceof ApiError && error.status === 409) {
+            try {
+              const existing = await findExistingClient(phone, email);
+              if (existing) {
+                attachClientAndAdvance({
+                  id: existing.id,
+                  name: existing.name,
+                  phone: existing.phone,
+                  email: existing.email,
+                });
+                return;
+              }
+            } catch {
+              // Fall through to the inline error below.
+            }
+          }
+
+          dispatch({
+            type: "setClientError",
+            message: errorMessage(error, copy.clientLookupError),
+          });
         },
       }
     );
   };
 
   const handleConvert = () => {
-    if (!hasCompleteDeal || !checkIn || !checkOut) return;
-    convertMutation.mutate({
-      clientId,
-      unitId: lead.targetUnitId!,
-      checkInDate: checkIn,
-      checkOutDate: checkOut,
-      guestCount,
-      internalNotes: internalNotes.trim() || undefined,
-    });
+    if (
+      !state.clientId ||
+      !state.selectedUnitId ||
+      !selectedUnit ||
+      !hasValidStay ||
+      state.guestCount < 1 ||
+      hasGuestCapacityConflict ||
+      convertMutation.isPending
+    ) {
+      return;
+    }
+
+    dispatch({ type: "setSubmissionError", message: null });
+    convertMutation.mutate(
+      {
+        clientId: state.clientId,
+        unitId: state.selectedUnitId,
+        checkInDate: state.checkInDate,
+        checkOutDate: state.checkOutDate,
+        guestCount: state.guestCount,
+        internalNotes: state.internalNotes.trim() || undefined,
+      },
+      {
+        onError: (error) => {
+          if (
+            error instanceof ApiError &&
+            error.status === 409 &&
+            isUnitAvailabilityConflict(error, state.selectedUnitId!)
+          ) {
+            dispatch({
+              type: "availabilityConflict",
+              message: copy.conflict,
+            });
+            void refetchUnits();
+            return;
+          }
+
+          dispatch({
+            type: "setSubmissionError",
+            message: errorMessage(error, copy.bookingError),
+          });
+        },
+      }
+    );
   };
 
-  // ── Gating ──
-  if (CRM_CLOSED_STATUSES.includes(lead.leadStatus)) {
-    return null;
-  }
+  const handlePrimaryAction = () => {
+    switch (state.currentStep) {
+      case "stay":
+        if (hasValidStay) goForward();
+        return;
+      case "unit":
+        if (
+          state.selectedUnitId &&
+          selectedUnit &&
+          !hasDateConflict &&
+          !isCheckingAvailability
+        ) {
+          goForward();
+        }
+        return;
+      case "client":
+        void handleClientSubmit();
+        return;
+      case "booking":
+        if (!guestError) goForward();
+        return;
+      case "review":
+        handleConvert();
+    }
+  };
+
+  if (CRM_CLOSED_STATUSES.includes(lead.leadStatus)) return null;
 
   if (lead.leadStatus !== "Booked") {
     return (
-      <div className="grid gap-3 rounded-[var(--portal-radius-card,8px)] border border-warning-bg bg-warning-bg p-4 md:grid-cols-[180px_minmax(0,1fr)] md:items-center">
-        <h3 className="text-sm font-semibold text-warning">Convert to booking</h3>
+      <div className="grid gap-3 rounded-[var(--portal-radius-card)] border border-warning-bg bg-warning-bg p-4 md:grid-cols-[180px_minmax(0,1fr)] md:items-center">
+        <h3 className="text-sm font-semibold text-warning">
+          Convert to booking
+        </h3>
         <div className="space-y-1">
           <p className="text-sm text-warning">
             This lead must be moved to <strong>Booked</strong> status before it
             can be converted to a booking.
           </p>
-          <p className="text-xs text-warning/80">
+          <p className="text-xs text-warning">
             Current status:{" "}
             <strong>
               {CRM_STATUS_LABELS[lead.leadStatus] ?? lead.leadStatus}
@@ -221,248 +465,306 @@ export function ConvertToBookingPanel({
     );
   }
 
-  // Conversion materializes the lead's agreed terms verbatim. If the unit or dates are
-  // missing, there is nothing validated to convert — direct the team to set them first.
-  if (!hasCompleteDeal) {
-    const missing = [
-      !lead.targetUnitId && "a target unit",
-      !(checkIn && checkOut) && "stay dates",
-    ].filter(Boolean);
+  if (!lead.targetUnitId && !lead.needsRecommendation) {
     return (
-      <div className="space-y-2 rounded-[var(--portal-radius-card,8px)] border border-warning-bg bg-warning-bg p-4">
-        <h3 className="text-sm font-semibold text-warning">Convert to booking</h3>
+      <div className="grid gap-3 rounded-[var(--portal-radius-card)] border border-warning-bg bg-warning-bg p-4 md:grid-cols-[180px_minmax(0,1fr)] md:items-center">
+        <h3 className="text-sm font-semibold text-warning">
+          Convert to booking
+        </h3>
         <p className="text-sm text-warning">
-          Add {missing.join(" and ")} to this lead before converting. The booking
-          is created from the lead&apos;s agreed details, so they must be set —
-          and availability validated — on the lead first.
+          Add a target unit to this lead before converting. Historical
+          unit-less leads are not treated as recommendation requests.
         </p>
       </div>
     );
   }
 
-  const availabilityChip = isCheckingAvailability ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500">
-      <Loader2 className="h-3 w-3 animate-spin" /> Checking
-    </span>
-  ) : hasDateConflict ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-error-bg px-2 py-0.5 text-[11px] font-medium text-error">
-      <CircleAlert className="h-3 w-3" /> Unavailable
-    </span>
-  ) : availability?.isAvailable ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-success-bg px-2 py-0.5 text-[11px] font-medium text-success">
-      <Check className="h-3 w-3" /> Available
-    </span>
-  ) : null;
+  const checkInLocked = Boolean(lead.desiredCheckInDate);
+  const checkOutLocked = Boolean(lead.desiredCheckOutDate);
+  const lockedInvalid =
+    checkInLocked &&
+    checkOutLocked &&
+    !isValidStayRange(
+      lead.desiredCheckInDate!,
+      lead.desiredCheckOutDate!
+    );
+  const dateError =
+    state.checkInDate &&
+    state.checkOutDate &&
+    !isValidStayRange(state.checkInDate, state.checkOutDate)
+      ? copy.stayDateError
+      : null;
+  const unitDetailUnavailable =
+    Boolean(lead.targetUnitId) && isLinkedUnitError;
+  const primaryDisabled =
+    !canManageCRM ||
+    (state.currentStep === "stay" &&
+      (!hasValidStay || lockedInvalid)) ||
+    (state.currentStep === "unit" &&
+      (!state.selectedUnitId ||
+        !selectedUnit ||
+        isRefreshingUnits ||
+        isCheckingAvailability ||
+        hasDateConflict)) ||
+    (state.currentStep === "client" &&
+      createClientMutation.isPending) ||
+    (state.currentStep === "booking" && Boolean(guestError)) ||
+    (state.currentStep === "review" &&
+      (!selectedUnit ||
+        unitDetailUnavailable ||
+        convertMutation.isPending ||
+        isCheckingAvailability));
 
-  const canConvert =
-    canManageCRM &&
-    Boolean(clientId) &&
-    !hasDateConflict &&
-    !isCheckingAvailability &&
-    guestCount >= 1 &&
-    !convertMutation.isPending;
+  const primaryLabel =
+    state.currentStep === "review"
+      ? copy.createBooking
+      : state.currentStep === "client" && !state.client
+        ? copy.createOrAttach
+        : copy.continue;
 
   return (
-    <section className="space-y-5 rounded-[var(--portal-radius-card,8px)] border border-neutral-200 bg-white p-5">
-      <div>
-        <h3 className="text-sm font-semibold text-neutral-900">
-          Convert to booking
-        </h3>
-        <p className="mt-0.5 text-xs text-neutral-500">
-          Confirm the agreed terms and create the booking. Unit and dates are
-          locked to this lead.
+    <section
+      dir={copy.direction}
+      aria-labelledby="crm-booking-wizard-title"
+      className="overflow-clip rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white"
+    >
+      <header className="border-b border-neutral-200 px-4 py-4 sm:px-5">
+        <h2
+          id="crm-booking-wizard-title"
+          className="text-base font-semibold text-neutral-900"
+        >
+          {copy.title}
+        </h2>
+        <p className="mt-1 max-w-[70ch] text-sm text-neutral-600">
+          {copy.description}
         </p>
-      </div>
+      </header>
 
-      {/* Agreed deal — read-only. Dates are not editable here by design. */}
-      <dl className="divide-y divide-neutral-200/70 overflow-hidden rounded-[var(--portal-radius-control,6px)] bg-neutral-50">
-        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
-          <dt className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
-            Unit
-          </dt>
-          <dd className="text-right text-sm font-medium text-neutral-900">
-            {lead.targetUnitName ?? "Linked unit"}
-          </dd>
-        </div>
-        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
-          <dt className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
-            Stay
-          </dt>
-          <dd className="flex flex-wrap items-center justify-end gap-2">
-            <span className="text-sm font-medium tabular-nums text-neutral-900">
-              {formatDateRange(checkIn!, checkOut!)}
-            </span>
-            <span className="text-xs tabular-nums text-neutral-500">
-              {nights} {nights === 1 ? "night" : "nights"}
-            </span>
-            {availabilityChip}
-          </dd>
-        </div>
-      </dl>
-
-      {hasDateConflict && (
-        <div className="flex items-start gap-2.5 rounded-[var(--portal-radius-control,6px)] border border-error-bg bg-error-bg p-3 text-sm text-error">
-          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          <div>
-            <p className="font-medium">These dates are no longer available.</p>
-            <p className="mt-0.5 text-error/90">
-              They were blocked or booked after this lead was created. Update the
-              stay dates on the lead — which re-checks availability — then convert.
-              {availability?.blockedDates?.length
-                ? ` Conflicting: ${availability.blockedDates.join(", ")}.`
-                : ""}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Client */}
-      <div className="space-y-2">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
-          Client
-        </p>
-
-        {attachedClient ? (
-          <div className="flex items-center justify-between gap-3 rounded-[var(--portal-radius-control,6px)] border border-success-bg bg-success-bg px-3.5 py-2.5">
-            <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-success">
-              <Check className="h-4 w-4 shrink-0" />
-              <span className="truncate">
-                {attachedClient.name}
-                <span className="text-success/70"> · {attachedClient.phone}</span>
-              </span>
-            </span>
-            {!clientLocked && (
-              <button
-                type="button"
-                onClick={clearClient}
-                className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-neutral-500 transition-colors hover:text-neutral-800"
-              >
-                <PencilLine className="h-3.5 w-3.5" /> Change
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-3 rounded-[var(--portal-radius-control,6px)] border border-neutral-200 bg-neutral-50 p-3.5">
-            <p className="text-xs text-neutral-600">
-              This lead isn&apos;t a client yet. Create one from the contact
-              details below — if the phone or email already exists, we&apos;ll
-              attach that client instead.
-            </p>
-            <Input
-              label="Full name"
-              {...registerClient("name")}
-              error={clientErrors.name?.message}
-              required
-              disabled={createClientMutation.isPending}
-            />
-            <Input
-              label="Phone number"
-              {...registerClient("phone")}
-              error={clientErrors.phone?.message}
-              required
-              disabled={createClientMutation.isPending}
-            />
-            <Input
-              label="Email (optional)"
-              type="email"
-              {...registerClient("email")}
-              error={clientErrors.email?.message}
-              disabled={createClientMutation.isPending}
-            />
-            {showNewClientForm && (
-              <button
-                type="button"
-                onClick={() => setShowNewClientForm(false)}
-                className="text-xs font-medium text-neutral-400 hover:text-neutral-600"
-              >
-                Cancel
-              </button>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              isLoading={isCreatingClient || createClientMutation.isPending}
-              disabled={isCreatingClient || createClientMutation.isPending}
-              onClick={handleClientSubmit(onCreateClient)}
-              className="w-full"
-            >
-              Create or attach client
-            </Button>
-          </div>
-        )}
-
-        {temporaryPassword && (
-          <div className="rounded-[var(--portal-radius-control,6px)] border border-warning-bg bg-warning-bg p-3">
-            <p className="text-xs font-medium text-warning">Temporary password</p>
-            <div className="mt-2 flex items-center gap-2">
-              <code className="min-w-0 flex-1 break-all font-mono text-sm text-neutral-900">
-                {temporaryPassword}
-              </code>
-              <button
-                type="button"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--portal-radius-control,6px)] border border-warning bg-white text-warning hover:bg-warning-bg"
-                aria-label="Copy temporary password"
-                title="Copy temporary password"
-                onClick={async () => {
-                  await navigator.clipboard.writeText(temporaryPassword);
-                  setPasswordCopied(true);
-                }}
-              >
-                {passwordCopied ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-            <p className="mt-2 text-xs text-warning/80">
-              This password is returned once. Give it to the client securely.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Guests + notes */}
-      <div className="space-y-3">
-        <Input
-          label="Guests"
-          type="number"
-          min={1}
-          value={guestCount}
-          onChange={(e) => setGuestCount(Number(e.target.value))}
-          disabled={convertMutation.isPending}
-          required
+      <div
+        className="border-b border-neutral-200 px-4 py-3 sm:px-5"
+        style={
+          { "--wizard-steps": steps.length } as CSSProperties
+        }
+      >
+        <CrmBookingWizardStepper
+          steps={steps}
+          currentStep={state.currentStep}
+          copy={copy}
+          onStepChange={goToStep}
         />
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-neutral-700">
-            Internal notes{" "}
-            <span className="font-normal text-neutral-400">(optional)</span>
-          </label>
-          <textarea
-            value={internalNotes}
-            onChange={(e) => setInternalNotes(e.target.value)}
-            placeholder="Add booking context for operations or finance"
-            className="h-20 w-full resize-none rounded-[var(--portal-radius-control,6px)] border border-neutral-300 p-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-neutral-400"
-            disabled={convertMutation.isPending}
+      </div>
+
+      <div className="px-4 py-4 sm:px-5 lg:hidden">
+        <CrmBookingWizardSummary
+          compact
+          state={state}
+          selectedUnit={selectedUnit}
+          copy={copy}
+          onEdit={goToStep}
+          canEditStay={requiresStayStep}
+          canEditUnit={requiresUnitStep}
+          canEditClient={requiresClientStep}
+        />
+      </div>
+
+      <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_17rem]">
+        <div
+          aria-labelledby="crm-booking-step-heading"
+          className="min-h-[22rem] min-w-0 px-4 pb-6 pt-3 sm:px-5 sm:pt-5 lg:px-6 lg:py-6"
+        >
+          {state.temporaryPassword && state.currentStep !== "client" && (
+            <TemporaryPasswordNotice
+              password={state.temporaryPassword}
+              copy={copy}
+              copied={passwordCopied}
+              onCopy={async () => {
+                await navigator.clipboard.writeText(state.temporaryPassword!);
+                setPasswordCopied(true);
+              }}
+            />
+          )}
+
+          <div className={state.temporaryPassword ? "mt-5" : undefined}>
+            {state.currentStep === "stay" && (
+              <StayStep
+                state={state}
+                copy={copy}
+                headingRef={headingRef}
+                checkInLocked={checkInLocked}
+                checkOutLocked={checkOutLocked}
+                lockedInvalid={lockedInvalid}
+                dateError={dateError}
+                onChange={(checkInDate, checkOutDate) =>
+                  dispatch({
+                    type: "setStay",
+                    checkInDate,
+                    checkOutDate,
+                    clearSelectedUnit: requiresUnitStep,
+                  })
+                }
+              />
+            )}
+
+            {state.currentStep === "unit" && (
+              <UnitStep
+                state={state}
+                copy={copy}
+                headingRef={headingRef}
+                units={availableUnits}
+                isRefreshing={isRefreshingUnits}
+                isError={isUnitsError}
+                onRetry={() => void refetchUnits()}
+                onSelect={(unitId) =>
+                  dispatch({ type: "selectUnit", unitId })
+                }
+                onUnitTypeChange={(unitType) =>
+                  dispatch({ type: "setUnitType", unitType })
+                }
+                disabled={convertMutation.isPending}
+              />
+            )}
+
+            {state.currentStep === "client" && (
+              <ClientStep
+                state={state}
+                copy={copy}
+                headingRef={headingRef}
+                validationErrors={clientValidationErrors}
+                isLoading={createClientMutation.isPending}
+                onDraftChange={(draft) => {
+                  setClientValidationErrors({});
+                  dispatch({ type: "setClientDraft", draft });
+                }}
+                onSubmit={() => void handleClientSubmit()}
+                onChangeClient={() => {
+                  dispatch({ type: "clearClient", lead });
+                  setClientValidationErrors({});
+                }}
+              />
+            )}
+
+            {state.currentStep === "booking" && (
+              <BookingDetailsStep
+                state={state}
+                copy={copy}
+                headingRef={headingRef}
+                selectedUnit={selectedUnit}
+                isLoading={convertMutation.isPending}
+                guestError={guestError}
+                onGuestCountChange={(guestCount) =>
+                  dispatch({ type: "setGuestCount", guestCount })
+                }
+                onNotesChange={(internalNotes) =>
+                  dispatch({ type: "setInternalNotes", internalNotes })
+                }
+              />
+            )}
+
+            {state.currentStep === "review" &&
+              (isLoadingLinkedUnit && !selectedUnit ? (
+                <div
+                  role="status"
+                  className="flex min-h-48 items-center justify-center gap-2 text-sm text-neutral-500"
+                >
+                  <Loader2
+                    aria-hidden="true"
+                    size={17}
+                    className="animate-spin"
+                  />
+                  {copy.loadingUnits}
+                </div>
+              ) : unitDetailUnavailable || !selectedUnit ? (
+                <div
+                  role="alert"
+                  className="flex min-h-48 flex-col items-center justify-center gap-3 text-center text-sm text-error"
+                >
+                  <CircleAlert aria-hidden="true" size={20} />
+                  <p>{copy.unitLoadError}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void refetchLinkedUnit()}
+                  >
+                    {copy.retry}
+                  </Button>
+                </div>
+              ) : (
+                <ReviewStep
+                  state={state}
+                  copy={copy}
+                  headingRef={headingRef}
+                  selectedUnit={selectedUnit}
+                  onEdit={goToStep}
+                  canEditStay={requiresStayStep}
+                  canEditUnit={requiresUnitStep}
+                  canEditClient={requiresClientStep}
+                />
+              ))}
+          </div>
+        </div>
+
+        <div className="hidden border-s border-neutral-200 bg-neutral-50/70 p-4 lg:block">
+          <CrmBookingWizardSummary
+            className="sticky top-4 border-0 bg-transparent p-0"
+            state={state}
+            selectedUnit={selectedUnit}
+            copy={copy}
+            onEdit={goToStep}
+            canEditStay={requiresStayStep}
+            canEditUnit={requiresUnitStep}
+            canEditClient={requiresClientStep}
           />
         </div>
       </div>
 
       {canManageCRM && (
-        <Button
-          type="button"
-          onClick={handleConvert}
-          isLoading={convertMutation.isPending}
-          disabled={!canConvert}
-          className="w-full"
-        >
-          {hasDateConflict
-            ? "Dates unavailable"
-            : !clientId
-              ? "Attach a client to continue"
-              : "Convert lead to booking"}
-        </Button>
+        <footer className="sticky bottom-0 z-[var(--z-sticky)] flex items-center justify-between gap-3 border-t border-neutral-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:px-5">
+          <div>
+            {previousStep && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() =>
+                  dispatch({ type: "goTo", step: previousStep.id })
+                }
+                disabled={
+                  convertMutation.isPending ||
+                  createClientMutation.isPending
+                }
+                leftIcon={
+                  <ChevronLeft
+                    aria-hidden="true"
+                    size={16}
+                    className="rtl:rotate-180"
+                  />
+                }
+              >
+                {copy.back}
+              </Button>
+            )}
+          </div>
+          <Button
+            type="button"
+            onClick={handlePrimaryAction}
+            isLoading={
+              convertMutation.isPending ||
+              createClientMutation.isPending
+            }
+            disabled={primaryDisabled}
+            rightIcon={
+              state.currentStep === "review" ? undefined : (
+                <ChevronRight
+                  aria-hidden="true"
+                  size={16}
+                  className="rtl:rotate-180"
+                />
+              )
+            }
+          >
+            {primaryLabel}
+          </Button>
+        </footer>
       )}
     </section>
   );

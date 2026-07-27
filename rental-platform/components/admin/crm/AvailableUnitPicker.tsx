@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Check, Loader2, Search } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { formatCurrency } from "@/lib/utils/format";
@@ -23,8 +23,39 @@ interface AvailableUnitPickerProps {
   onUnitTypeFilterChange: (type: "" | UnitType) => void;
   hasValidRange: boolean;
   isRefreshing: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
+  labels?: Partial<AvailableUnitPickerLabels>;
   disabled?: boolean;
 }
+
+export interface AvailableUnitPickerLabels {
+  allTypes: string;
+  availableCount: (count: number) => string;
+  refreshing: string;
+  search: string;
+  loading: string;
+  noUnits: string;
+  noSearchResults: (query: string) => string;
+  loadError: string;
+  retry: string;
+  selected: string;
+}
+
+const DEFAULT_LABELS: AvailableUnitPickerLabels = {
+  allTypes: "All",
+  availableCount: (count) =>
+    `${count} ${count === 1 ? "unit" : "units"} available`,
+  refreshing: "Refreshing…",
+  search: "Search units by name or project",
+  loading: "Loading available units…",
+  noUnits: "No available units were found for the selected stay.",
+  noSearchResults: (query) => `No units match “${query}”.`,
+  loadError:
+    "Available units could not be loaded. Check your connection and try again.",
+  retry: "Try again",
+  selected: "Selected",
+};
 
 /**
  * Inline, always-visible picker for available units. Replaces the closed
@@ -40,9 +71,17 @@ export function AvailableUnitPicker({
   onUnitTypeFilterChange,
   hasValidRange,
   isRefreshing,
+  isError = false,
+  onRetry,
+  labels: labelOverrides,
   disabled = false,
 }: AvailableUnitPickerProps) {
   const [query, setQuery] = useState("");
+  const searchId = useId();
+  const labels = { ...DEFAULT_LABELS, ...labelOverrides };
+  const typeChips = TYPE_CHIPS.map((chip) =>
+    chip.value ? chip : { ...chip, label: labels.allTypes }
+  );
 
   const visibleUnits = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -65,7 +104,7 @@ export function AvailableUnitPicker({
   return (
     <div className="space-y-3" aria-live="polite">
       <div className="flex flex-wrap items-center gap-2">
-        {TYPE_CHIPS.map((chip) => {
+        {typeChips.map((chip) => {
           const active = unitTypeFilter === chip.value;
           return (
             <button
@@ -88,46 +127,65 @@ export function AvailableUnitPicker({
         })}
         <span className="ms-auto text-xs text-neutral-500">
           {isRefreshing
-            ? "Refreshing…"
-            : `${units.length} ${units.length === 1 ? "unit" : "units"} available`}
+            ? labels.refreshing
+            : labels.availableCount(units.length)}
         </span>
       </div>
 
       <div className="relative">
+        <label htmlFor={searchId} className="sr-only">
+          {labels.search}
+        </label>
         <Search
           aria-hidden="true"
           size={15}
           className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-neutral-400"
         />
         <input
+          id={searchId}
           type="text"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search units by name or project"
+          placeholder={labels.search}
           disabled={disabled || (units.length === 0 && !query)}
           className="h-[var(--portal-control-height)] w-full rounded-[var(--portal-radius-control)] border border-neutral-300 bg-white pe-3 ps-9 text-sm text-neutral-800 placeholder:text-neutral-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50"
         />
       </div>
 
-      {isRefreshing ? (
-        <div className="flex items-center justify-center gap-2 rounded-[var(--portal-radius-control)] border border-neutral-200 px-4 py-8 text-sm text-neutral-500">
+      {isError ? (
+        <div
+          role="alert"
+          className="flex flex-col items-center justify-center gap-3 rounded-[var(--portal-radius-control)] border border-error-bg bg-error-bg px-4 py-8 text-center text-sm text-error"
+        >
+          <p>{labels.loadError}</p>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="min-h-10 rounded-[var(--portal-radius-control)] border border-error px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2"
+            >
+              {labels.retry}
+            </button>
+          )}
+        </div>
+      ) : isRefreshing ? (
+        <div
+          role="status"
+          className="flex items-center justify-center gap-2 rounded-[var(--portal-radius-control)] border border-neutral-200 px-4 py-8 text-sm text-neutral-500"
+        >
           <Loader2 aria-hidden="true" size={16} className="animate-spin" />
-          Loading available units…
+          {labels.loading}
         </div>
       ) : units.length === 0 ? (
         <p className="rounded-[var(--portal-radius-control)] border border-neutral-200 bg-neutral-50 px-4 py-6 text-center text-sm text-neutral-500">
-          {unitTypeFilter
-            ? `No available ${UNIT_TYPE_LABELS[
-                unitTypeFilter
-              ].toLowerCase()} units for these dates. Choose another type or adjust the dates.`
-            : "No units are available for these dates. Try adjusting the date range."}
+          {labels.noUnits}
         </p>
       ) : visibleUnits.length === 0 ? (
         <p className="rounded-[var(--portal-radius-control)] border border-neutral-200 bg-neutral-50 px-4 py-6 text-center text-sm text-neutral-500">
-          No units match “{query.trim()}”.
+          {labels.noSearchResults(query.trim())}
         </p>
       ) : (
-        <div className="grid max-h-72 grid-cols-1 gap-2 overflow-auto sm:grid-cols-2">
+        <div className="grid max-h-[min(48dvh,32rem)] grid-cols-1 gap-2 overflow-y-auto overscroll-contain pe-1 sm:grid-cols-2">
           {visibleUnits.map((unit) => {
             const selected = unit.id === value;
             return (
@@ -150,11 +208,10 @@ export function AvailableUnitPicker({
                     {unit.name}
                   </span>
                   {selected && (
-                    <Check
-                      aria-hidden="true"
-                      size={16}
-                      className="shrink-0 text-primary-600"
-                    />
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary-700">
+                      <Check aria-hidden="true" size={16} />
+                      {labels.selected}
+                    </span>
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">

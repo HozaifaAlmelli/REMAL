@@ -18,6 +18,10 @@ public class CrmLead
     public int? GuestCount { get; set; }
     public LeadStatus LeadStatus { get; set; }
     public string Source { get; set; } = null!;
+    /// <summary>
+    /// May contain the internal prefix managed exclusively by
+    /// RentalPlatform.Business.Crm.CrmRecommendationMarker.
+    /// </summary>
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

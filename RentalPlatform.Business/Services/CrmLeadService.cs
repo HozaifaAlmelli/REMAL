@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using RentalPlatform.Business.Crm;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
@@ -117,9 +118,70 @@ public class CrmLeadService : ICrmLeadService
         bool requirePortfolioVisibility = false,
         CancellationToken cancellationToken = default)
     {
+        return await CreateInternalAsync(
+            clientId,
+            targetUnitId,
+            assignedAdminUserId,
+            contactName,
+            contactPhone,
+            contactEmail,
+            desiredCheckInDate,
+            desiredCheckOutDate,
+            guestCount,
+            source,
+            notes,
+            requirePortfolioVisibility,
+            markAsRecommendationRequest: false,
+            cancellationToken);
+    }
+
+    public Task<CrmLead> CreateRecommendationRequestAsync(
+        string contactName,
+        string contactPhone,
+        string? contactEmail,
+        DateOnly? desiredCheckInDate,
+        DateOnly? desiredCheckOutDate,
+        int? guestCount,
+        string? notes,
+        CancellationToken cancellationToken = default) =>
+        CreateInternalAsync(
+            clientId: null,
+            targetUnitId: null,
+            assignedAdminUserId: null,
+            contactName,
+            contactPhone,
+            contactEmail,
+            desiredCheckInDate,
+            desiredCheckOutDate,
+            guestCount,
+            source: "website",
+            notes,
+            requirePortfolioVisibility: false,
+            markAsRecommendationRequest: true,
+            cancellationToken);
+
+    private async Task<CrmLead> CreateInternalAsync(
+        Guid? clientId,
+        Guid? targetUnitId,
+        Guid? assignedAdminUserId,
+        string contactName,
+        string contactPhone,
+        string? contactEmail,
+        DateOnly? desiredCheckInDate,
+        DateOnly? desiredCheckOutDate,
+        int? guestCount,
+        string source,
+        string? notes,
+        bool requirePortfolioVisibility,
+        bool markAsRecommendationRequest,
+        CancellationToken cancellationToken)
+    {
         ValidateContactInfo(contactName, contactPhone);
         ValidateDesiredStay(desiredCheckInDate, desiredCheckOutDate, guestCount);
         var normalizedSource = ValidateAndNormalizeSource(source);
+        // Client-supplied signatures are always removed. Only the dedicated
+        // recommendation contract may restore the marker after sanitization.
+        var cleanNotes = CrmRecommendationMarker.Strip(notes?.Trim());
 
         await ValidateOptionalReferencesAsync(
             clientId,
@@ -152,7 +214,9 @@ public class CrmLeadService : ICrmLeadService
             GuestCount = guestCount,
             LeadStatus = LeadStatus.Prospecting,
             Source = normalizedSource,
-            Notes = notes?.Trim(),
+            Notes = markAsRecommendationRequest
+                ? CrmRecommendationMarker.Apply(cleanNotes)
+                : cleanNotes,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -205,7 +269,13 @@ public class CrmLeadService : ICrmLeadService
         lead.DesiredCheckOutDate = desiredCheckOutDate;
         lead.GuestCount = guestCount;
         lead.Source = normalizedSource;
-        lead.Notes = notes?.Trim();
+        // Classification records provenance. Admin edits may change the visible
+        // text but can neither forge nor destroy the stored marker.
+        var wasRecommendationRequest = CrmRecommendationMarker.IsSigned(lead.Notes);
+        var cleanNotes = CrmRecommendationMarker.Strip(notes?.Trim());
+        lead.Notes = wasRecommendationRequest
+            ? CrmRecommendationMarker.Apply(cleanNotes)
+            : cleanNotes;
         lead.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.CrmLeads.Update(lead);

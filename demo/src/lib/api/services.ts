@@ -1,8 +1,9 @@
 import { http } from "./client";
+import { ApiError } from "./api-error";
 import type {
   CreateBookingPayload,
   CreateGuestBookingPayload,
-  CreateLeadPayload,
+  CreateRecommendationPayload,
   GuestBookingResponse,
   OperationalAvailability,
   Paginated,
@@ -53,8 +54,26 @@ export const availabilityService = {
 };
 
 export const leadsService = {
-  create: (payload: CreateLeadPayload): Promise<unknown> =>
-    http.post<unknown>("/api/crm/leads", payload, { auth: false }),
+  create: async (payload: CreateRecommendationPayload): Promise<unknown> => {
+    try {
+      return await http.post<unknown>(
+        "/api/crm/leads/recommendation-request",
+        payload,
+        { auth: false }
+      );
+    } catch (error) {
+      // During a deploy or rollback, one side may briefly lack the new route.
+      // Preserve the inquiry through the legacy path; it remains unclassified.
+      if (error instanceof ApiError && error.status === 404) {
+        return http.post<unknown>(
+          "/api/crm/leads",
+          { ...payload, source: "website" },
+          { auth: false }
+        );
+      }
+      throw error;
+    }
+  },
 };
 
 export const bookingsService = {

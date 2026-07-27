@@ -40,6 +40,37 @@ public class PublicCreateCrmLeadRequestValidator : AbstractValidator<PublicCreat
     }
 }
 
+public class PublicCreateRecommendationLeadRequestValidator : AbstractValidator<PublicCreateRecommendationLeadRequest>
+{
+    public PublicCreateRecommendationLeadRequestValidator()
+    {
+        RuleFor(x => x.ContactName)
+            .NotEmpty()
+            .MaximumLength(150)
+            .Must(x => !string.IsNullOrWhiteSpace(x?.Trim()))
+            .WithMessage("ContactName is required.");
+
+        RuleFor(x => x.ContactPhone)
+            .NotEmpty()
+            .MaximumLength(30)
+            .Matches(@"^\+?\d{10,15}$")
+            .WithMessage("Invalid phone configuration. Provide 10-15 digits with an optional leading '+' format.");
+
+        RuleFor(x => x.DesiredCheckOutDate)
+            .GreaterThan(x => x.DesiredCheckInDate)
+            .When(x => x.DesiredCheckInDate.HasValue && x.DesiredCheckOutDate.HasValue)
+            .WithMessage("DesiredCheckOutDate must be after DesiredCheckInDate.");
+
+        RuleFor(x => x.GuestCount)
+            .GreaterThan(0)
+            .When(x => x.GuestCount.HasValue)
+            .WithMessage("GuestCount must be greater than 0.");
+
+        RuleFor(x => x.Notes)
+            .MaximumLength(2000);
+    }
+}
+
 public class InternalCreateCrmLeadRequestValidator : AbstractValidator<InternalCreateCrmLeadRequest>
 {
     private static readonly string[] AllowedSources = { "direct", "admin", "phone", "whatsapp", "website" };
@@ -62,6 +93,15 @@ public class InternalCreateCrmLeadRequestValidator : AbstractValidator<InternalC
             .NotEmpty()
             .Must(x => !string.IsNullOrWhiteSpace(x) && AllowedSources.Contains(x.Trim().ToLower()))
             .WithMessage($"Source must be one of: {string.Join(", ", AllowedSources)}.");
+
+        // Public recommendation requests intentionally allow no unit through a
+        // dedicated contract. Admin-created leads must identify the unit.
+        RuleFor(x => x.TargetUnitId)
+            .NotNull()
+            .NotEqual(Guid.Empty)
+            .WithMessage(
+                "TargetUnitId is required when an admin creates a lead. Unit-less leads are " +
+                "only created through the storefront recommendation contract.");
 
         RuleFor(x => x.DesiredCheckOutDate)
             .GreaterThan(x => x.DesiredCheckInDate)

@@ -1,6 +1,10 @@
 import { CrmLeadDetailsResponse } from "@/lib/types/crm.types";
 import { formatDateRange } from "@/lib/utils/format";
 import { Home, Calendar, Users } from "lucide-react";
+import {
+  WAITING_FOR_RECOMMENDATION,
+  WAITING_FOR_RECOMMENDATION_HINT,
+} from "@/lib/constants/crm-recommendation";
 
 interface LeadUnitInfoProps {
   lead: CrmLeadDetailsResponse;
@@ -23,12 +27,21 @@ export function LeadUnitInfo({ lead }: LeadUnitInfoProps) {
               <span className="font-mono text-sm font-medium text-neutral-800">
                 Unit: {lead.targetUnitName || lead.targetUnitId}
               </span>
+            ) : lead.needsRecommendation ? (
+              <span className="text-sm font-medium text-neutral-700">
+                {WAITING_FOR_RECOMMENDATION}
+              </span>
             ) : (
               <span className="text-sm italic text-neutral-400">
                 Unit not selected
               </span>
             )}
           </div>
+          {lead.needsRecommendation && (
+            <p className="mt-1 text-xs text-neutral-500">
+              {WAITING_FOR_RECOMMENDATION_HINT}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-1">
