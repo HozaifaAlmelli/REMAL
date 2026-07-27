@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-/opt/kaza/env/.env.production}"
-COMPOSE_FILE="${COMPOSE_FILE:-/opt/kaza/app/docker-compose.prod.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-/opt/apps/kaza-booking/docker-compose.prod.yml}"
 
 BACKUP_FILE="${1:?Usage: restore-postgres.sh <backup_file.sql.gz> [target_db]}"
 # shellcheck disable=SC1090

@@ -18,8 +18,8 @@
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-/opt/kaza/env/.env.production}"
-COMPOSE_FILE="${COMPOSE_FILE:-/opt/kaza/app/docker-compose.prod.yml}"
-APP_DIR="${APP_DIR:-/opt/kaza/app}"
+COMPOSE_FILE="${COMPOSE_FILE:-/opt/apps/kaza-booking/docker-compose.prod.yml}"
+APP_DIR="${APP_DIR:-/opt/apps/kaza-booking}"
 MIG_DIR="${MIG_DIR:-$APP_DIR/db/migrations}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

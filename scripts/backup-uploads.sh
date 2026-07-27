@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Daily uploads backup for KAZA production (tars the uploads_data Docker volume).
-#   Example cron (03:30 daily):  30 3 * * * /opt/kaza/app/scripts/backup-uploads.sh >> /opt/kaza/logs/backup-uploads.log 2>&1
+#   Example cron (03:30 daily):  30 3 * * * /opt/apps/kaza-booking/scripts/backup-uploads.sh >> /opt/kaza/logs/backup-uploads.log 2>&1
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-/opt/kaza/backups/uploads}"

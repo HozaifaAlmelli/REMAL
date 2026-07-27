@@ -24,6 +24,9 @@ server {
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
+    # Unit image uploads are <=5MB (API enforces); default 1m would 413 them at the proxy.
+    client_max_body_size 6m;
+
     # Do not expose API docs publicly (defense-in-depth; also off in Production mode).
     location /swagger {
         return 404;
