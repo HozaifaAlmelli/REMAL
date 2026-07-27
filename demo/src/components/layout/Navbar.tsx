@@ -11,8 +11,8 @@ import { platformAuthUrl } from "@/lib/auth/platform";
 
 const NAV_LINKS = [
   { href: "/", label: "الرئيسية" },
-  { href: "/projects", label: "الوجهات" },
-  { href: "/about", label: "كيف نعمل" },
+  { href: "/search", label: "الوجهات" },
+  { href: "/#how-it-works", label: "كيف نعمل" },
 ];
 
 export function Navbar() {
