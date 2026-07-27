@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils/cn";
 import { BOOKING_SOURCE_LABELS } from "@/lib/constants/booking-sources";
 import { formatDateRange } from "@/lib/utils/format";
 import { useRef } from "react";
+import { NEEDS_RECOMMENDATION_BADGE } from "@/lib/constants/crm-recommendation";
 
 interface LeadCardProps {
   lead: CrmLeadListItemResponse;
@@ -89,12 +90,19 @@ export function LeadCard({ lead, className }: LeadCardProps) {
         </p>
       )}
 
-      <div className="mt-2 flex items-center justify-between border-t border-neutral-100 pt-2">
-        <Badge variant="info" size="sm">
-          {BOOKING_SOURCE_LABELS[
-            lead.source as keyof typeof BOOKING_SOURCE_LABELS
-          ] ?? lead.source}
-        </Badge>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-neutral-100 pt-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="info" size="sm">
+            {BOOKING_SOURCE_LABELS[
+              lead.source as keyof typeof BOOKING_SOURCE_LABELS
+            ] ?? lead.source}
+          </Badge>
+          {lead.needsRecommendation && (
+            <Badge variant="warning" size="sm">
+              {NEEDS_RECOMMENDATION_BADGE}
+            </Badge>
+          )}
+        </div>
         {lead.assignedAdminUserId && (
           <span className="max-w-28 truncate text-xs text-neutral-400">
             Assigned

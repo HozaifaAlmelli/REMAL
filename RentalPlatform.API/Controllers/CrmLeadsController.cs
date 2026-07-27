@@ -6,6 +6,7 @@ using RentalPlatform.API.DTOs.Responses.Bookings;
 using RentalPlatform.API.Models;
 using RentalPlatform.API.Authorization;
 using RentalPlatform.Business.Interfaces;
+using RentalPlatform.Business.Crm;
 using RentalPlatform.Data.Entities;
 using System;
 using System.Collections.Generic;
@@ -46,6 +47,25 @@ public class CrmLeadsController : ControllerBase
         );
 
         return Ok(ApiResponse<CrmLeadDetailsResponse>.CreateSuccess(MapToDetailsResponse(lead), "Lead captured successfully."));
+    }
+
+    [HttpPost("api/crm/leads/recommendation-request")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<CrmLeadDetailsResponse>>> PublicCaptureRecommendationRequest(
+        PublicCreateRecommendationLeadRequest request)
+    {
+        var lead = await _crmLeadService.CreateRecommendationRequestAsync(
+            request.ContactName,
+            request.ContactPhone,
+            request.ContactEmail,
+            request.DesiredCheckInDate,
+            request.DesiredCheckOutDate,
+            request.GuestCount,
+            request.Notes);
+
+        return Ok(ApiResponse<CrmLeadDetailsResponse>.CreateSuccess(
+            MapToDetailsResponse(lead),
+            "Lead captured successfully."));
     }
 
     // 1b. POST /api/internal/crm/leads - Internal Admin Create
@@ -200,6 +220,7 @@ public class CrmLeadsController : ControllerBase
             LeadStatus = lead.LeadStatus.ToString(),
             Source = lead.Source,
             TargetUnitName = lead.TargetUnit?.Name,
+            NeedsRecommendation = CrmRecommendationMarker.NeedsRecommendation(lead),
             CreatedAt = lead.CreatedAt
         };
     }
@@ -220,8 +241,9 @@ public class CrmLeadsController : ControllerBase
             GuestCount = lead.GuestCount,
             LeadStatus = lead.LeadStatus.ToString(),
             Source = lead.Source,
-            Notes = lead.Notes,
+            Notes = CrmRecommendationMarker.Strip(lead.Notes),
             TargetUnitName = lead.TargetUnit?.Name,
+            NeedsRecommendation = CrmRecommendationMarker.NeedsRecommendation(lead),
             CreatedAt = lead.CreatedAt,
             UpdatedAt = lead.UpdatedAt
         };
