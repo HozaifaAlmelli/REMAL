@@ -5,6 +5,7 @@ import { CRM_STATUS_LABELS } from "@/lib/constants/booking-statuses";
 import { BOOKING_SOURCE_LABELS } from "@/lib/constants/booking-sources";
 import { getStatusVariant } from "@/lib/utils/status";
 import { Mail, Phone } from "lucide-react";
+import { NEEDS_RECOMMENDATION_BADGE } from "@/lib/constants/crm-recommendation";
 
 interface LeadDetailHeaderProps {
   lead: CrmLeadDetailsResponse;
@@ -42,8 +43,13 @@ export function LeadDetailHeader({ lead }: LeadDetailHeaderProps) {
       </div>
 
       <div className="flex shrink-0 flex-col gap-2 md:items-end">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 md:justify-end">
           <Badge variant="info">{sourceLabel}</Badge>
+          {lead.needsRecommendation && (
+            <Badge variant="warning" size="sm">
+              {NEEDS_RECOMMENDATION_BADGE}
+            </Badge>
+          )}
           <Badge variant={getStatusVariant(lead.leadStatus)}>
             {statusLabel}
           </Badge>

@@ -113,16 +113,13 @@ export interface AuthResponse {
 }
 
 // ── Write payloads ──
-export interface CreateLeadPayload {
-  clientId?: string | null;
-  targetUnitId?: string | null;
+export interface CreateRecommendationPayload {
   contactName: string;
   contactPhone: string;
   contactEmail?: string | null;
   desiredCheckInDate?: string | null;
   desiredCheckOutDate?: string | null;
   guestCount?: number | null;
-  source: string;
   notes?: string | null;
 }
 

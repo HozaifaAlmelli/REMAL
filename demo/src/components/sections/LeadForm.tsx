@@ -73,7 +73,6 @@ export function LeadForm() {
         desiredCheckInDate: data.checkIn,
         desiredCheckOutDate: data.checkOut,
         guestCount: Number(data.guests) || null,
-        source: "website",
         notes: composedNotes,
       });
       setStep("success");

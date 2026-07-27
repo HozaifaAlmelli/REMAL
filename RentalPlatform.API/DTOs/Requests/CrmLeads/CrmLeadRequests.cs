@@ -16,6 +16,22 @@ public record PublicCreateCrmLeadRequest
     public string? Notes { get; init; }
 }
 
+/// <summary>
+/// Dedicated storefront recommendation contract. It deliberately has no unit,
+/// client, source, or classification fields; provenance is established by the
+/// server-side endpoint and service method.
+/// </summary>
+public record PublicCreateRecommendationLeadRequest
+{
+    public string ContactName { get; init; } = string.Empty;
+    public string ContactPhone { get; init; } = string.Empty;
+    public string? ContactEmail { get; init; }
+    public DateOnly? DesiredCheckInDate { get; init; }
+    public DateOnly? DesiredCheckOutDate { get; init; }
+    public int? GuestCount { get; init; }
+    public string? Notes { get; init; }
+}
+
 public record InternalCreateCrmLeadRequest
 {
     public Guid? ClientId { get; init; }

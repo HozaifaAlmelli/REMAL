@@ -60,6 +60,7 @@ mono_crash.*
 node_modules/
 .claude/
 # Test / browser-automation artifacts
+.tmp/
 .playwright-mcp/
 playwright-report/
 test-results/

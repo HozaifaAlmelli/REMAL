@@ -11,7 +11,7 @@ export function AdminSidebar() {
     <aside
       className={cn(
         "flex flex-col border-e border-neutral-200 bg-white transition-[width] duration-200 ease-out",
-        isSidebarOpen ? "w-60" : "w-16"
+        isSidebarOpen ? "w-16 md:w-60" : "w-16"
       )}
     >
       <div
@@ -27,7 +27,7 @@ export function AdminSidebar() {
           K
         </span>
         {isSidebarOpen && (
-          <span className="text-[15px] font-semibold tracking-tight text-neutral-900">
+          <span className="hidden text-[15px] font-semibold tracking-tight text-neutral-900 md:inline">
             Kaza Booking
           </span>
         )}

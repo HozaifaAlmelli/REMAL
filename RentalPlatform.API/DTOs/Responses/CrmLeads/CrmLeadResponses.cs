@@ -17,6 +17,11 @@ public record CrmLeadListItemResponse
     public string LeadStatus { get; init; } = string.Empty;
     public string Source { get; init; } = string.Empty;
     public string? TargetUnitName { get; init; }
+    /// <summary>
+    /// True only for a server-classified recommendation request that still
+    /// needs a unit in an actionable CRM stage.
+    /// </summary>
+    public bool NeedsRecommendation { get; init; }
     public DateTime CreatedAt { get; init; }
 }
 
@@ -36,6 +41,11 @@ public record CrmLeadDetailsResponse
     public string Source { get; init; } = string.Empty;
     public string? Notes { get; init; }
     public string? TargetUnitName { get; init; }
+    /// <summary>
+    /// True only for a server-classified recommendation request that still
+    /// needs a unit in an actionable CRM stage.
+    /// </summary>
+    public bool NeedsRecommendation { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 }

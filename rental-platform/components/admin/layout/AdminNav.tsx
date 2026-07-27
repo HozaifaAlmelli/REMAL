@@ -154,7 +154,7 @@ export function AdminNav({ isCollapsed }: AdminNavProps) {
         return (
           <div key={group.label} className="space-y-1">
             {!isCollapsed ? (
-              <p className="px-3 text-[11px] font-semibold text-neutral-400">
+              <p className="hidden px-3 text-[11px] font-semibold text-neutral-400 md:block">
                 {group.label}
               </p>
             ) : (
@@ -172,20 +172,22 @@ export function AdminNav({ isCollapsed }: AdminNavProps) {
                   key={item.label}
                   href={item.href}
                   aria-current={isActive ? "page" : undefined}
-                  aria-label={isCollapsed ? item.label : undefined}
+                  aria-label={item.label}
                   title={isCollapsed ? item.label : undefined}
                   className={cn(
                     "group relative flex min-h-[38px] items-center gap-3 rounded-[4px] px-3 text-sm transition-colors",
                     isActive
                       ? "bg-neutral-100 font-semibold text-neutral-900"
                       : "font-medium text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900",
-                    isCollapsed && "justify-center px-2"
+                    isCollapsed
+                      ? "justify-center px-2"
+                      : "justify-center px-2 md:justify-start md:px-3"
                   )}
                 >
                   {isActive && !isCollapsed && (
                     <span
                       aria-hidden
-                      className="absolute inset-y-[7px] start-0 w-[2px] rounded-full bg-primary-500"
+                      className="absolute inset-y-[7px] start-0 hidden w-[2px] rounded-full bg-primary-500 md:block"
                     />
                   )}
                   <item.icon
@@ -198,7 +200,9 @@ export function AdminNav({ isCollapsed }: AdminNavProps) {
                     )}
                   />
                   {!isCollapsed && (
-                    <span className="truncate">{item.label}</span>
+                    <span className="hidden truncate md:inline">
+                      {item.label}
+                    </span>
                   )}
                 </Link>
               );

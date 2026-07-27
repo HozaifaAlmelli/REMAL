@@ -194,6 +194,8 @@ export function useConvertToBooking(leadId: string) {
       router.push(ROUTES.admin.bookings.detail(booking.id));
     },
     onError: (error: unknown) => {
+      if (error instanceof ApiError && error.status === 409) return;
+
       const message =
         error instanceof ApiError
           ? (error.errors[0] ?? error.message)

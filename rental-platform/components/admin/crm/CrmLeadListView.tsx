@@ -20,6 +20,7 @@ import type {
 import { ROUTES } from "@/lib/constants/routes";
 import { formatDate, formatDateRange, maskPhone } from "@/lib/utils/format";
 import type { PaginationMeta } from "@/lib/api/types";
+import { NEEDS_RECOMMENDATION_BADGE } from "@/lib/constants/crm-recommendation";
 
 const LIST_PAGE_SIZE = 25;
 const listColumns = [
@@ -166,12 +167,18 @@ export function CrmLeadListView({
                     : "Unassigned"}
                 </td>
                 <td className="px-3 py-2.5">
-                  <p
-                    className="max-w-[190px] truncate text-sm text-neutral-800"
-                    title={lead.targetUnitName ?? undefined}
-                  >
-                    {lead.targetUnitName ?? "No unit selected"}
-                  </p>
+                  {lead.needsRecommendation ? (
+                    <Badge variant="warning" size="sm">
+                      {NEEDS_RECOMMENDATION_BADGE}
+                    </Badge>
+                  ) : (
+                    <p
+                      className="max-w-[190px] truncate text-sm text-neutral-800"
+                      title={lead.targetUnitName ?? undefined}
+                    >
+                      {lead.targetUnitName ?? "No unit selected"}
+                    </p>
+                  )}
                   <p className="mt-0.5 text-xs tabular-nums text-neutral-500">
                     {formatDateRange(
                       lead.desiredCheckInDate,
