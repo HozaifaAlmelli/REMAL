@@ -20,6 +20,7 @@ using Xunit;
 
 namespace RentalPlatform.Tests;
 
+[Trait(TestCategories.Name, TestCategories.Fast)]
 public sealed class BookingHistoryCreatorTests
 {
     [Fact]
