@@ -171,5 +171,8 @@
 \echo '=== Running migration 0056: add unit portfolio visibility ==='
 \i /docker-entrypoint-initdb.d/migrations/0056_add_unit_portfolio_visibility.sql
 
+\echo '=== Running migration 0057: add owner contact fields ==='
+\i /docker-entrypoint-initdb.d/migrations/0057_add_owner_contact_fields.sql
+
 \echo '=== All migrations completed successfully ==='
 
