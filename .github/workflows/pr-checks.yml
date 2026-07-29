@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   backend:
-    name: Backend (.NET) build
+    name: Backend (.NET) build + fast tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +22,48 @@ jobs:
         run: dotnet restore RentalPlatform.slnx
       - name: Build (Release)
         run: dotnet build RentalPlatform.slnx -c Release --no-restore
+      - name: Test (Fast)
+        run: >-
+          dotnet test RentalPlatform.Tests/RentalPlatform.Tests.csproj
+          -c Release --no-build --no-restore
+          --filter "Category=Fast"
+
+  backend-postgres:
+    name: Backend PostgreSQL integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KAZA_TEST_DB: >-
+        Host=127.0.0.1;Port=5432;Database=kaza_test;
+        Username=postgres;Password=kaza_test_ci;Pooling=false;
+        Timeout=5;Command Timeout=120
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: kaza_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: kaza_test_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kaza_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+      - name: Restore
+        run: dotnet restore RentalPlatform.slnx
+      - name: Test (PostgreSQL)
+        run: >-
+          dotnet test RentalPlatform.Tests/RentalPlatform.Tests.csproj
+          -c Release --no-restore
+          --filter "Category=PostgreSQL"
 
   api-container:
     name: API production image build
