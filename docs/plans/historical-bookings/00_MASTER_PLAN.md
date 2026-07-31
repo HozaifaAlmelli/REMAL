@@ -475,16 +475,16 @@ implementer takes the next free number at branch time.
 | 1 | `bookings.is_historical` | column `BOOLEAN NOT NULL DEFAULT false` | **HB-02** | — |
 | 2 | `bookings.actual_booked_at` | column `DATE NULL` | **HB-02** | — |
 | 3 | `bookings.historical_entry_reason` | column `VARCHAR(50) NULL` | **HB-02** | — |
-| 4 | `bookings.original_source` | column `VARCHAR(50) NULL` | **HB-02** | — |
+| 4 | `bookings.original_source` | column `VARCHAR(50) NULL` | **HB-02** | #10 |
 | 5 | `bookings.external_reference` | column `VARCHAR(100) NULL` | **HB-02** | — |
 | 6 | `ix_bookings_is_historical` | partial index `WHERE is_historical` | **HB-02** | #1 |
 | 7 | `ux_bookings_external_reference` | unique partial index `WHERE external_reference IS NOT NULL`, created `CONCURRENTLY` | **HB-02** | #5 |
 | 8 | `ck_bookings_actual_booked_at_requires_historical` | CHECK | **HB-02** | #1, #2 |
 | 9 | `ck_bookings_historical_entry_reason` | CHECK, allow-list | **HB-02** | #3 |
-| 10 | `ck_bookings_original_source` | CHECK, allow-list | **HB-02** | #4 |
+| 10 | `booking_original_sources` **+** `fk_bookings_original_source` | table `(code PK, label, is_active, created_at, updated_at)`, seeded with four codes, plus the FK from #4 `ON DELETE RESTRICT` | **HB-02** | — |
 | 11 | `ck_bookings_historical_fields_coherent` | CHECK | **HB-02** | #1–#4 |
-| 12 | `idempotency_keys` | table | **HB-02** | — (the idempotency contract belongs to HB-02's endpoint) |
-| 13 | `bookings:record_historical`, `bookings:override_owner` permission seeds | data seed | **HB-02** | RBAC tables from `0053` |
+| 12 | `idempotency_keys` | table, PK `(actor_admin_user_id, endpoint, key)` | **HB-02** | — (the idempotency contract belongs to HB-02's endpoint; **not** optional, deferred, or HB-03's) |
+| 13 | `bookings:record_historical` permission seed | data seed | **HB-02** | RBAC tables from `0053` |
 | 14 | `bookings.agreed_amount` | column `DECIMAL(12,2) NULL` | **HB-04** | — |
 | 15 | `ck_bookings_agreed_amount_non_negative` | CHECK | **HB-04** | #14 |
 | 16 | `payments.created_by_admin_user_id` | column `UUID NULL` + FK `→ admin_users(id) ON DELETE SET NULL` | **HB-04** | — |
@@ -500,6 +500,7 @@ implementer takes the next free number at branch time.
 | 26 | `ck_bookings_historical_snapshot_complete` | CHECK | **HB-05** | #1 (HB-02), #14 (HB-04), #18–#20 |
 | 27 | `ck_bookings_owner_override_reason` | CHECK, allow-list | **HB-05** | #21 |
 | 28 | `ck_bookings_owner_override_note_required` | CHECK | **HB-05** | #21, #22 |
+| 28b | `bookings:override_owner` permission seed | data seed | **HB-05** | RBAC tables from `0053` |
 | 29 | `reporting_booking_stay_daily_summary` | view, NEW | **HB-08** | #1, #14 |
 | 30 | `reporting_finance_stay_daily_summary` | view, NEW | **HB-08** | #1, #14 |
 | 31 | `reporting_historical_entry_reconciliation` | view, NEW | **HB-08** | #1, #2, #4, #14 |
@@ -512,7 +513,9 @@ implementer takes the next free number at branch time.
 |---|---|---|---|
 | The three `snapshot_*` columns | HB-04 **and** HB-05 | **HB-05** | They are owner-commission fields; HB-05 owns the commission domain. HB-04 reads them for the reconciliation assertion |
 | `ux_bookings_external_reference` | HB-02 declared it; HB-03 assigned it to "HB-04's migration" | **HB-02** | It indexes `external_reference`, an HB-02 column. HB-03 depends on it for duplicate detection |
-| `idempotency_keys` | HB-03 assigned it to "HB-04's migration" | **HB-02** | Idempotency is a property of the HB-02 endpoint |
+| `idempotency_keys` | HB-03 assigned it to "HB-04's migration" and called the header advisory | **HB-02** | Idempotency is a property of the HB-02 endpoint. Ratified in full by [D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract): the header is **required**, storage is **not** optional or deferred, and HB-03 keeps booking-level duplicate protection |
+| `bookings:override_owner` permission seed | HB-02 §15.4 | **HB-05** | The permission gates the owner override, and HB-02 no longer has an override to gate ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)). Seeding a permission whose behaviour does not yet exist would grant a claim with nothing behind it |
+| The `original_source` vocabulary | HB-02 §15.3 as a `CHECK` allow-list | **HB-02**, as a **table** | Unchanged owner, changed mechanism. [D-HB02-06](DECISION_RATIFICATION_PACKET.md#d-hb02-06--original_source-vocabulary) requires a stable code, a human-readable label and active/inactive behaviour; a `CHECK` constraint can carry none of them |
 | `ck_bookings_snapshot_split_reconciles` | HB-04 §15 (unnamed composite CHECK) **and** HB-05 | **HB-05** | One constraint, one owner. It spans `agreed_amount`, so HB-05's migration is ordered after HB-04's |
 | `bookings.is_historical` | described as "HB-02/HB-04" in HB-05 §15 | **HB-02** | Single owner; HB-04, HB-05 and HB-08 all read it |
 | `db/init.sql` missing `0057` | HB-09 §15 | **Prerequisite PR `PRE-01`** | A pre-existing bootstrap defect, unrelated to this feature — see [§21.1](#211-prerequisites-before-any-historical-migration-lands) |
@@ -558,26 +561,55 @@ Error statuses are in the error contract below; they are unaffected by this cano
 | Past dates | Accepted today; **rejected** once REQ-16 hardening is activated in the HB-08 rollout | Required to be fully past |
 | Initial status | `Prospecting` (or caller-supplied) | Always `Completed` |
 | Reason | n/a | Mandatory |
-| Owner | `unit.OwnerId`, never caller input | Default `unit.OwnerId`; override requires `bookings:override_owner` |
-| Amount | Computed from current pricing | Operator-entered agreed amount, protected |
-| Payment | Separate call | **`DECISION REQUIRED`** — [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy); recommended default is a separate privileged command, not inline entry |
-| Invoice | Auto-created on `Booked → Confirmed` | **`DECISION REQUIRED`** — [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy); recommended default is no invoice in v1 |
+| Amount | Computed from current pricing | **Operator-entered `agreedAmount`, required, persisted verbatim, never defaulted from current pricing** ([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary)) |
+| Owner | `unit.OwnerId`, never caller input | **Server-resolved current unit owner, never caller input.** Uncertain ownership is refused with `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`; override arrives with HB-05 ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)) |
+| Payment | Separate call | **None on this route.** [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) is `OWNER APPROVED` for a separate privileged command |
+| Invoice | Auto-created on `Booked → Confirmed` | **None in v1.** [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) is `OWNER APPROVED` |
 | Notifications | On transitions | None |
-| Idempotency | 30-second `RecentDuplicateWindow` (`BookingService.cs:19`) | Explicit key + business duplicate rules |
+| Idempotency | 30-second `RecentDuplicateWindow` (`BookingService.cs:19`) | **`Idempotency-Key` header, required**, scoped to actor + endpoint + key, plus HB-03's business duplicate rules ([D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract)) |
 
-**Error contract** (`PROPOSED`, aligned with existing exception→status mapping):
+### 12.3 Error contract — transport and codes
 
-| Condition | Status | Code |
-|---|---|---|
-| Validation failure | 400 | `validation_error` |
-| Missing permission | 403 | `forbidden` |
-| Unit/client not found or out of portfolio | 404 | `not_found` |
-| Stay not yet complete | 400 | `historical_stay_not_complete` |
-| Overlap incl. historical | 409 | `historical_overlap_conflict` |
-| Exact duplicate | 409 | `historical_duplicate_booking` |
-| Owner attribution unconfirmed | 400 | `owner_attribution_required` |
-| Owner override without permission | 403 | `owner_override_forbidden` |
-| Soft-deleted unit | 400 | `unit_deleted_unsupported` |
+**Transport** is ratified by [D-HB02-03](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport):
+an **optional `Code` property on the shared `ApiResponse` contract**, populated from coded business
+exceptions. Every existing envelope field is preserved, human-readable messages are unaffected, the code is
+**never** placed inside `errors[0]`, and unrelated endpoints are not required to migrate.
+
+**Codes are `UPPER_SNAKE_CASE`** and their statuses follow the repository's existing exception mapping
+(`BusinessValidationException` → 400, `NotFoundException` → 404, `ConflictException` → 409). The lowercase
+forms used in earlier drafts were prose labels, never a shipped contract — the envelope has no code field
+today — and are retired.
+
+| Condition | Status | Code | Owner |
+|---|---|---|---|
+| Validation failure | 400 | `VALIDATION_ERROR` | HB-02 |
+| Missing permission | 403 | *(none — empty policy response)* | HB-02 |
+| Client reference not exactly one of `clientId` / `newClient` | 400 | `CLIENT_REFERENCE_INVALID` | HB-02 |
+| `clientId` not found | 404 | `CLIENT_NOT_FOUND` | HB-02 |
+| `newClient` phone already held | 409 | `CLIENT_PHONE_ALREADY_EXISTS` | HB-02 |
+| Unit not found | 404 | `UNIT_NOT_FOUND` | HB-02 |
+| Assigned admin not found | 404 | `ADMIN_USER_NOT_FOUND` | HB-02 |
+| Stay not yet complete | 400 | `HISTORICAL_CHECKOUT_NOT_COMPLETED` | HB-02 |
+| `original_source` unknown or inactive | 400 | `ORIGINAL_SOURCE_INVALID` | HB-02 |
+| `Idempotency-Key` absent or malformed | 400 | `IDEMPOTENCY_KEY_REQUIRED` | HB-02 |
+| Key replayed with a different request | 409 | `IDEMPOTENCY_KEY_REUSED` | HB-02 |
+| Key claimed but never completed | 409 | `IDEMPOTENCY_REQUEST_IN_PROGRESS` | HB-02 |
+| Current unit ownership absent, multiple or ambiguous | 409 | `OWNER_ATTRIBUTION_REQUIRES_REVIEW` | HB-02 |
+| `externalReference` already used | 409 | `EXTERNAL_REFERENCE_ALREADY_EXISTS` | HB-02 |
+| Overlap incl. historical | 409 | `HISTORICAL_OVERLAP_CONFLICT` | HB-03 |
+| Exact duplicate | 409 | `HISTORICAL_DUPLICATE_BOOKING` | HB-03 |
+| Soft-deleted unit | 400 | `UNIT_DELETED_UNSUPPORTED` | HB-03 |
+| Explicit owner confirmation absent (HB-05's added field) | 400 | `OWNER_ATTRIBUTION_REQUIRED` | HB-05 |
+| Owner override without permission | 403 | `OWNER_OVERRIDE_FORBIDDEN` | HB-05 |
+| Owner correction attempted against a settled payout | 409 | `OWNER_CORRECTION_SETTLEMENT_LOCKED` | HB-05 |
+| Past stay dates on the **normal** endpoint | 400 | `STAY_DATES_IN_PAST` | HB-08 |
+
+`OWNER_ATTRIBUTION_REQUIRED` (HB-05, `400`, *the operator did not confirm*) and
+`OWNER_ATTRIBUTION_REQUIRES_REVIEW` (HB-02, `409`, *the system cannot determine the owner*) are **two
+different conditions** and must not be collapsed into one code.
+
+The full HB-02 set, with the exception type behind each code, is
+[HB-02 §14.4](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md#144-error-contract--machine-readable-codes-d-hb02-03).
 
 **A client-supplied `allowPastDates` flag is explicitly rejected as a design.** A frontend boolean is not an
 authorization decision; it would be forgeable, unauditable, and would leave one endpoint with two
@@ -969,6 +1001,24 @@ status; eleven are `OWNER APPROVED` outright and **ADR-10** is approved in desig
 | ADR-11 | Reporting gains a stay-period dimension. |
 | ADR-12 | Inactive units allowed; soft-deleted units unsupported in v1. |
 
+### HB-02 decisions — all decided
+
+HB-02 is **implementation-ready**. Its eight cross-cutting decisions are recorded in the
+[decision record](DECISION_RATIFICATION_PACKET.md#hb-02-decisions); the six local to the ticket are in
+[HB-02 §10](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md#101-ratified-decisions). All fourteen are
+`OWNER APPROVED`.
+
+| ID | Outcome |
+|---|---|
+| D-HB02-03 | Optional `Code` on the shared `ApiResponse` contract; never inside `errors[0]`; other endpoints need not migrate |
+| D-HB02-04 | Dissolved for HB-02 — there is no override to refuse. `ForbiddenBusinessException` and the `403` branch are HB-05's |
+| D-HB02-05 | Exactly one of `clientId` / `newClient`; a known phone is refused with `409` and the existing id, never merged |
+| D-HB02-06 | `original_source` is a database-backed table seeded with `legacy_system`, `external_platform`, `offline_record`, `other` |
+| D-HB02-IDEM | HB-02 owns `idempotency_keys`; `Idempotency-Key` is required; no expiry in v1 |
+| D-HB02-AMT | HB-02 captures the raw `agreedAmount`; HB-04 owns the immutable snapshot and payments |
+| D-HB02-OWN | Current owner resolved server-side; no owner input; refuse when uncertain; override is HB-05's |
+| D-HB02-CAL | HB-02 creates the narrowest Cairo business-date abstraction; no longer a readiness blocker |
+
 ### Cross-ticket decisions — all decided
 
 Nine decisions span more than one ticket and cannot be settled inside any of them. Each is recorded in the
@@ -1091,7 +1141,7 @@ that ticket demands most, not additional people.
 | PRE-01 | Database bootstrap parity for `0057` | P1 | — | Restore `db/init.sql` ↔ `db/migrations` parity; decide the rollback question by analysis, per [§21.1](#pre-01--the-rollback-question-is-deliberately-left-open) | Prerequisite PR — no feature code | Low | S | Engineering · Operations | **HB-02 must not merge before it** |
 | PRE-02 | Baseline test execution and real-PostgreSQL infrastructure | P0 | — | CI test step that can fail the build; reusable provisioning and fixture; transaction-capable; no silent fallback; baseline docs. **No feature tests** | Prerequisite PR — infrastructure only | Med | M | Engineering · Operations | **HB-03 must not merge before it** |
 | HB-01 | Discovery, ADRs & the hardening specification | P0 | — | Verify current state, decide ADRs and cross-ticket decisions, specify REQ-16 hardening. **No code** | Documentation PR | Med | M | All five | **COMPLETE** — gate satisfied |
-| HB-02 | Historical booking domain & API | P0 | PRE-01 (merge gate); PRE-00 only on existing-row evidence | Command, endpoint, permission, audit, direct-`Completed`; owns the identity/audit migration | Backend + migration PR | High | L | Engineering · Security · Product | — |
+| HB-02 | Historical booking domain & API — **IMPLEMENTATION-READY, no outstanding gate** | P0 | PRE-01 and PRE-02 merged; PRE-00 only on existing-row evidence | Command, endpoint, permission, audit, direct-`Completed`, the `Idempotency-Key` contract and `idempotency_keys`, the `booking_original_sources` vocabulary, truthful `agreedAmount` capture, server-resolved owner, and the Cairo business-date abstraction; owns the identity/audit migration | Backend + migration PR | High | L | Engineering · Security · Product | All fourteen decisions `OWNER APPROVED` |
 | HB-03 | Conflicts & duplicate protection | P0 | HB-02; **PRE-02** | Historical conflict set, concurrency, duplicates. **Authors no migration** | Backend PR | **Critical** | M | Engineering · Operations | **Cannot merge until `PRE-02` is complete** ([D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement)) |
 | HB-04 | Financial snapshot & historical payments | P0 | HB-02 | Agreed amount, repricing guard, payments; owns the financial migration | Backend + migration PR | **Critical** | L | Finance · Engineering · Security | — |
 | HB-05 | Owner accounting & settlement | P0 | HB-02, HB-04 | Review, override, commission snapshot, correction; owns the owner migration | Backend + migration PR | **Critical** | L | Finance · Security · Operations | — |
@@ -1123,7 +1173,8 @@ Sizes are T-shirt (XS/S/M/L) — no fabricated delivery dates.
 
 `BLOCKED` — the test harness's relational capability is unconfirmed (`SQLitePCLRaw` is present in
 `RentalPlatform.Tests`, but whether a real relational provider is wired is not established). HB-09 must
-resolve this before integration coverage is promised. See [OQ-09](#32-open-questions).
+resolve this before integration coverage is promised. See [OQ-09](#32-open-questions), now closed by the
+delivery of `PRE-02`.
 
 ---
 
@@ -1221,5 +1272,5 @@ model in [§1.1](#11-governance-model) rather than by assigning people, and they
 | OQ-06 | Are fees, taxes and discounts required? | HB-04 | No engine in v1; the agreed total is the snapshot | Finance · Product | **`DEFERRED`** — [risk and revisit trigger](DECISION_RATIFICATION_PACKET.md#oq-06--fee-tax-and-discount-model) |
 | OQ-07 | How is an already-**paid** owner payout corrected? | HB-05 | Manual, owner-reviewed finance process. Historical creation must not mutate a paid payout | Finance · Engineering · Operations | **`DEFERRED`** — [risk and revisit trigger](DECISION_RATIFICATION_PACKET.md#oq-07--paid-payout-correction) |
 | OQ-08 | Arabic/i18n for the operator wizard? | HB-06 | English UI in v1, consistent with the rest of the operator portal; Arabic terminology documented for operators | Product · Operations | **`DEFERRED`** to a portal-wide i18n effort |
-| OQ-09 | Can integration tests run against real PostgreSQL in CI? | **PRE-02**, then HB-09 | Yes, and they are mandatory. The baseline infrastructure is `PRE-02`, delivered before HB-03; HB-09 extends it with feature suites. Superseded by [D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement) | Engineering · Operations | **`BLOCKED BY TECHNICAL PREREQUISITE PRE-02`** |
+| OQ-09 | Can integration tests run against real PostgreSQL in CI? | **PRE-02**, then HB-09 | Yes, and they are mandatory. **`PRE-02` is delivered** — CI provisions `postgres:16-alpine` and executes tests, and a reusable real-PostgreSQL fixture exists. HB-09 extends it with feature suites. Superseded by [D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement) | Engineering · Operations | **`OWNER APPROVED`** — the prerequisite that blocked it is complete |
 | OQ-10 | Are historical bookings visible in storefront occupancy? | HB-08 | Include in occupancy history; exclude from future availability | Product · Engineering | **`OWNER APPROVED`** |

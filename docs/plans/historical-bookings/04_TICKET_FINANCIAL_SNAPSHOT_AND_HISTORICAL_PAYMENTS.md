@@ -11,6 +11,7 @@
 | Field | Value |
 |---|---|
 | Ticket ID | **HB-04** |
+| Boundary with HB-02 | **HB-02 owns truthful capture of the raw `agreedAmount` needed to create the booking**, persisted into the booking's existing amount columns. **HB-04 owns the extended immutable historical financial snapshot** — the dedicated `bookings.agreed_amount` column (matrix #14), its constraint, the repricing guard, and all payment behaviour. See [D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary) |
 | Title | Financial Snapshot & Historical Payments |
 | Priority | **P0** |
 | Type | Backend domain + schema migration + finance correctness |
@@ -228,7 +229,7 @@ names the perspectives applied — it is not a list of separate approvers.
 | `D-HB04-03` | Which permission gates historical payment recording? | Every existing payment endpoint requires `finance:manage` (HB04-E25); the historical command will require `bookings:record_historical` | Either a privilege gap or an unusable feature for ops staff without finance rights | **Superseded by [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy).** Under the recommended option `PP-2` the payment is recorded by a **separate** privileged command requiring **both** `bookings:record_historical` **and** `finance:manage`. If Finance and Security instead select `PP-3` (inline entry), `bookings:record_historical` alone applies and the privilege boundary must be re-reviewed | Security · Finance | No — resolved by [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) |
 | `D-HB04-04` | Invoice policy for historical bookings: none, internal draft, or created and issued? | F-10 / HB04-E13/E14/E21 — no invoice means paid money is invisible to `reporting_finance_daily_summary` | Finance reporting silently under-counts historical cash | **Superseded by [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy).** Recommended option is `PI-1` — **no invoice creation or issuance in v1** — because it is the lowest-side-effect option and issues no finance-visible document for a period that is already closed. The reporting consequence is real and is closed by HB-08's reconciliation view, not by issuing a backdated document. See §11.6 | Finance | No — resolved by [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) |
 | `D-HB04-05` | How is an over-collection or refund on a historical booking handled in v1? | `ck_payments_amount_positive` and non-negative invoice lines make negative money unrepresentable (HB04-E20) | Operators will hit a wall with no documented answer | **Not supported in v1.** Overpayment is rejected with the existing 409; refunds are handled outside the system and noted in `internal_notes`. Record as a known limitation in the operator runbook | Finance | No |
-| `D-HB04-06` | Does the error contract need machine-readable codes for financial failures? | HB04-E24: the envelope carries no code field at all | The wizard cannot branch on failure type; it can only show the message | **No new codes in v1.** Reuse `validation_error` (400) and the existing descriptive 409 for overpayment. The code-carrier mechanism itself is [HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md)'s to design; HB-04 consumes whatever it provides | Engineering | No |
+| `D-HB04-06` | Does the error contract need machine-readable codes for financial failures? | HB04-E24: the envelope carries no code field at all | The wizard cannot branch on failure type; it can only show the message | **No new codes in v1.** Reuse `VALIDATION_ERROR` (400) and the existing descriptive 409 for overpayment. The code-carrier mechanism itself is [HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md)'s to design; HB-04 consumes whatever it provides | Engineering | No |
 | `D-HB04-07` | Migration ownership and ordering across HB-02 / HB-04 / HB-05. | An earlier draft claimed the `snapshot_*` columns for both HB-04 and HB-05, and assigned HB-02's index and idempotency table to "HB-04's migration" | Duplicate ownership; an implementer improvises and two migrations fight over the same column | **Resolved and superseded by the [migration-ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix), ratified as [D-MIG-01](DECISION_RATIFICATION_PACKET.md#d-mig-01--migration-ownership).** Three additive migrations, one per ticket, in dependency order: **HB-02** = identity/audit/context columns, their constraints, `ux_bookings_external_reference`, `idempotency_keys`, permission seeds; **HB-04** = `agreed_amount` + its CHECK, `payments.created_by_admin_user_id` + FK and index; **HB-05** = the three `snapshot_*` columns, the two override columns and all six owner-side constraints. Each is independently deployable and backward compatible | Engineering | No — resolved by [D-MIG-01](DECISION_RATIFICATION_PACKET.md#d-mig-01--migration-ownership) |
 | `D-HB04-08` | Reporting period for a historical deposit — `PaidAt` period or recorded period? | [OQ-03](00_MASTER_PLAN.md#32-open-questions), still open | Cash-position reports differ by the entry lag | Master's default stands: `PaidAt` drives payment reporting; recorded date drives entry audit. HB-04 must **store** both truthfully so HB-08 can implement either | Finance | No |
 
@@ -279,7 +280,7 @@ agreed_amount >= 0
 ```
 
 Client-supplied split values, if present in the payload, are ignored and recomputed. The client may send them
-only for display confirmation; a mismatch between client and server computation is a `validation_error`, not
+only for display confirmation; a mismatch between client and server computation is a `VALIDATION_ERROR`, not
 a silent server win — the operator must see that the number they approved is not the number being stored.
 
 ### 11.3 The repricing guard
@@ -565,7 +566,7 @@ is specified whichever way the two decisions land.
 
 | Condition | Exception | Status | Master §12 code |
 |---|---|---|---|
-| Any financial validation failure in §17 | `BusinessValidationException` | 400 | `validation_error` |
+| Any financial validation failure in §17 | `BusinessValidationException` | 400 | `VALIDATION_ERROR` |
 | Payments exceed the agreed amount | `ConflictException` (existing text, `PaymentService.cs:193-196`) | **409** | — |
 | Booking not found for payment/invoice | `NotFoundException` | 404 | `not_found` |
 | Caller lacks the historical permission | policy | 403 | `forbidden` |

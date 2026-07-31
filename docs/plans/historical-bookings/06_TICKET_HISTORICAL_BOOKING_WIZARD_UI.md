@@ -45,7 +45,7 @@ operator is told, unambiguously, what recording this record will and will not do
 
 | # | Problem |
 |---|---|
-| P-1 | There is no operator surface for a historical booking at all. Today an operator either does not record it, or uses the normal flow — which, once [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) activates the REQ-16 hardening, will return `400 stay_dates_in_past` and leave them stranded. This wizard is what makes that activation safe. |
+| P-1 | There is no operator surface for a historical booking at all. Today an operator either does not record it, or uses the normal flow — which, once [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) activates the REQ-16 hardening, will return `400 STAY_DATES_IN_PAST` and leave them stranded. This wizard is what makes that activation safe. |
 | P-2 | Bolting "historical" fields onto the normal booking form would put a high-privilege, irreversible, financially significant action one mis-click away from the everyday flow. ADR-01 rejects that. |
 | P-3 | Historical entry needs data the normal form has no concept of: agreement date, late-entry reason, original source, external reference, an operator-entered agreed amount, a payment with a real past `PaidAt`, and an explicitly reviewed owner. |
 | P-4 | The riskiest failures (wrong owner, duplicate entry, overlapping stay) are all *recoverable at entry time* and *expensive afterwards*. The UI is the cheapest place to catch them. |
@@ -260,7 +260,7 @@ names the perspectives applied — it is not a list of separate approvers.
 |---|---|---|---|---|---|---|
 | D-01 | Route path and entry-point placement | No historical route exists; the bookings list is the natural home but Finance may want it under `/admin/finance` | Navigation and deep links cannot be built | `/admin/bookings/historical/new`, entry point = a secondary button beside "Quick Booking" on the bookings list, plus a nav item only if Ops asks | Product | **Yes** |
 | D-02 | Does the wizard live on a full page or in a modal/drawer? | Six steps with a summary rail exceed comfortable modal size; `QuickBookingModal` sets a modal precedent | Layout, focus management and unsaved-changes handling all differ | **Full page**, following `ConvertToBookingPanel`'s panel layout. A modal cannot carry six steps, a summary rail and a persistent conflict panel on mobile | Product | **Yes** |
-| D-03 | Error body shape for `historical_overlap_conflict` and `historical_duplicate_booking` | UI-11 — `ApiError` discards everything but `message` and `errors[]`; today conflicts are identified by substring-matching the unit id | Inline, actionable conflict/duplicate surfaces are impossible; the wizard regresses to string sniffing | Envelope gains `code: string` and `details: object`; overlap `details` carries `conflictingBookingId`, `checkInDate`, `checkOutDate`, `bookingStatus`; duplicate `details` carries an array of candidate summaries | Engineering | **Yes** |
+| D-03 | Error body shape for `HISTORICAL_OVERLAP_CONFLICT` and `HISTORICAL_DUPLICATE_BOOKING` | UI-11 — `ApiError` discards everything but `message` and `errors[]`; today conflicts are identified by substring-matching the unit id | Inline, actionable conflict/duplicate surfaces are impossible; the wizard regresses to string sniffing | Envelope gains `code: string` and `details: object`; overlap `details` carries `conflictingBookingId`, `checkInDate`, `checkOutDate`, `bookingStatus`; duplicate `details` carries an array of candidate summaries | Engineering | **Yes** |
 | D-04 | How does step 5 obtain the owner, commission rate and split? | No confirmed read endpoint returns commission rate to the portal | Step 5 cannot show what the operator is being asked to confirm | A read-only preview field on the unit detail response, or a dedicated `GET` owned by HB-05; the split is **displayed** from the server, never computed in the browser | Engineering · Finance | **Yes** |
 | D-05 | Which payment methods does step 4 offer? | §5.6 — the portal constant and the API allow-list disagree; three of four options 400 | Operators hit unexplained 400s while recording a real cash deposit | Offer exactly the API allow-list (`cash`, `bank_transfer`, `wallet`; exclude `card` for manual offline entry unless Finance objects) from a **new** historical-scoped constant | Finance · Engineering | **Yes** |
 | D-06 | Duplicate acknowledgement contract | Master V-09 says "409 until confirmed" but names no field | The operator can never get past a probable duplicate | Resubmit with `acknowledgedDuplicateBookingIds: string[]` — an id list, not a blanket boolean, so acknowledgement cannot be pre-set and cannot cover a candidate the operator never saw | Engineering · Product | **Yes** |
@@ -377,11 +377,11 @@ flowchart TD
 
     SUBMIT["POST /api/internal/bookings/historical"]
     SUBMIT -->|200| DONE["Redirect to booking detail<br/>invalidate bookings + availability caches"]
-    SUBMIT -->|409 historical_overlap_conflict| C1["Return to step 2<br/>inline conflict panel naming the dates<br/>clear unit selection · invalidate caches"]
-    SUBMIT -->|409 historical_duplicate_booking| C2["Stay on step 6<br/>render candidates · require acknowledgement"]
-    SUBMIT -->|400 owner_attribution_required| C3["Return to step 5 · inline error"]
-    SUBMIT -->|403 owner_override_forbidden| C4["Return to step 5 · hide override · escalation message"]
-    SUBMIT -->|400 historical_stay_not_complete| C5["Return to step 2 · inline error"]
+    SUBMIT -->|409 HISTORICAL_OVERLAP_CONFLICT| C1["Return to step 2<br/>inline conflict panel naming the dates<br/>clear unit selection · invalidate caches"]
+    SUBMIT -->|409 HISTORICAL_DUPLICATE_BOOKING| C2["Stay on step 6<br/>render candidates · require acknowledgement"]
+    SUBMIT -->|400 OWNER_ATTRIBUTION_REQUIRED| C3["Return to step 5 · inline error"]
+    SUBMIT -->|403 OWNER_OVERRIDE_FORBIDDEN| C4["Return to step 5 · hide override · escalation message"]
+    SUBMIT -->|400 HISTORICAL_CHECKOUT_NOT_COMPLETED| C5["Return to step 2 · inline error"]
     SUBMIT -->|403 forbidden| C6["Full-flow error · no retry offered"]
     SUBMIT -->|other| C7["Inline submission error<br/>ALL ENTRIES PRESERVED"]
     C1 --> S2
@@ -479,9 +479,9 @@ sequenceDiagram
 
 | Requirement | Owner | Label |
 |---|---|---|
-| Machine-readable `code` on every error response, matching the Master §12 table | HB-02 | `DECISION REQUIRED` — D-03 |
-| `details` payload on `historical_overlap_conflict`: conflicting booking id, its check-in/check-out, its status | HB-03 | D-03 |
-| `details` payload on `historical_duplicate_booking`: candidate list (id, client name, unit, stay dates, amount, recorded date) | HB-03 | D-03 |
+| Machine-readable `code` on every error response, matching [Master §12.3](00_MASTER_PLAN.md#123-error-contract--transport-and-codes) | HB-02 | **Settled** — [D-HB02-03](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport). The code arrives in the envelope's `code` property, **never** in `errors[0]`, so the wizard branches on `code` and renders `message` |
+| `details` payload on `HISTORICAL_OVERLAP_CONFLICT`: conflicting booking id, its check-in/check-out, its status | HB-03 | D-03 |
+| `details` payload on `HISTORICAL_DUPLICATE_BOOKING`: candidate list (id, client name, unit, stay dates, amount, recorded date) | HB-03 | D-03 |
 | Request field `acknowledgedDuplicateBookingIds: string[]` | HB-03 | D-06 |
 | Unit list must return inactive units when explicitly requested (ADR-12); `useInternalUnitsList` currently pins `isActive: true` at the call sites (`ConvertToBookingPanel.tsx:102`, `QuickBookingModal.tsx:98`) | HB-03 + this ticket | `PROPOSED` |
 | Owner preview: credited owner, commission rate, computed split | HB-05 | D-04 |
@@ -510,7 +510,7 @@ additive and optional, and the existing `status` / `message` / `errors` fields k
 | Navigation | If a nav item is added, it uses `requiredPermission` (`AdminNav.tsx:24-29`) so it disappears entirely | INV-10 |
 | Route guard | Effect-based redirect to the dashboard plus `return null`, matching `app/(admin)/bookings/page.tsx:21-25,51` | INV-10 |
 | Override control | Step 5's override is rendered only when `canOverrideBookingOwner`. Without it: read-only owner, plus an escalation message naming the required permission | INV-10, INV-14 |
-| Browser manipulation | Editing the auth store, toggling a devtools boolean or forcing the route yields **403 `forbidden`** / **403 `owner_override_forbidden`** from the server. The wizard renders that outcome; it never treats a client-side capability as authority | INV-10 |
+| Browser manipulation | Editing the auth store, toggling a devtools boolean or forcing the route yields **403 `forbidden`** / **403 `OWNER_OVERRIDE_FORBIDDEN`** from the server. The wizard renders that outcome; it never treats a client-side capability as authority | INV-10 |
 | Actor | Never sent from the client. The recorded-by actor is the authenticated principal, server-side | INV-11 |
 | Owner / unit / client ids | Submitted as opaque ids; portfolio scoping is enforced server-side. The wizard must not assume a returned id is in scope | INV-12 |
 | Mass assignment | The request DTO is built explicitly field-by-field. No object spread of wizard state into the request body | — |
@@ -526,23 +526,23 @@ server-side; the client copy is convenience, never authority.
 
 | # | Rule | Step | Client behaviour | Server code on breach |
 |---|---|---|---|---|
-| CV-01 | `checkOut > checkIn` | 2 | Inline error; Continue disabled | `validation_error` |
-| CV-02 | `checkOut <= yesterday (Cairo)` | 2 | `maxDate` on the picker + inline blocking message naming the normal flow as the route for present/future stays | `historical_stay_not_complete` |
-| CV-03 | Agreement date `<= today` and `<= checkInDate` (recommended) | 1 | Inline warning; `DECISION REQUIRED` whether "agreed after check-in" is an error or a warning — recommended default: **warning**, since late paperwork is real | `validation_error` if the server makes it an error |
-| CV-04 | Reason chosen from the allow-list | 1 | Required `Select`; Continue disabled | `validation_error` |
-| CV-05 | Original source chosen from the allow-list | 1 | Required `Select` | `validation_error` |
-| CV-06 | External reference optional; trimmed; length-capped to the column width | 1 | Inline counter | `historical_duplicate_booking` if it collides |
-| CV-07 | Unit selected; inactive allowed and **visibly badged**; soft-deleted never listed | 2 | Badge on inactive units; picker disabled until the range is valid | `unit_deleted_unsupported` |
-| CV-08 | `1 <= guestCount <= unit.maxGuests` | 2 | Existing pattern (`ConvertToBookingPanel.tsx:130-138`) | `validation_error` |
-| CV-09 | Client resolved or creatable | 3 | Existing match-or-create pattern | `validation_error` |
-| CV-10 | `agreedAmount > 0`, max 2 decimals | 4 | Inline error; no rounding performed in the browser | `validation_error` |
-| CV-11 | Payment amount `> 0` and `<= agreedAmount` | 4 | Inline error | `validation_error` |
-| CV-12 | `paidAt` not in the future; recommend not before the agreement date | 4 | `maxDate` = today; a warning, not a block, for "before agreement" | `validation_error` |
-| CV-13 | Payment method from the API allow-list (D-05) | 4 | `Select` populated from the historical constant, **not** `PAYMENT_METHOD_OPTIONS` | `validation_error` |
-| CV-14 | Owner attribution explicitly confirmed | 5 | Create button disabled until confirmed | `owner_attribution_required` |
-| CV-15 | Override requires a reason **and** a note | 5 | Both required once the owner differs from the unit owner | `validation_error` / `owner_override_forbidden` |
-| CV-16 | Ownership unresolvable ⇒ hard block | 5 | Blocking panel; Continue and Create both disabled (INV-17) | `owner_attribution_required` |
-| CV-17 | Duplicate candidates each acknowledged | 6 | Per-candidate control; blanket acknowledgement not offered (D-06) | `historical_duplicate_booking` |
+| CV-01 | `checkOut > checkIn` | 2 | Inline error; Continue disabled | `VALIDATION_ERROR` |
+| CV-02 | `checkOut <= yesterday (Cairo)` | 2 | `maxDate` on the picker + inline blocking message naming the normal flow as the route for present/future stays | `HISTORICAL_CHECKOUT_NOT_COMPLETED` |
+| CV-03 | Agreement date `<= today` and `<= checkInDate` | 1 | **Settled — the server treats it as an error** (D-HB02-08), so the wizard blocks rather than warns and never submits a request it knows will be refused | `VALIDATION_ERROR` |
+| CV-04 | Reason chosen from the allow-list | 1 | Required `Select`; Continue disabled | `VALIDATION_ERROR` |
+| CV-05 | Original source chosen from the allow-list | 1 | Required `Select` | `VALIDATION_ERROR` |
+| CV-06 | External reference optional; trimmed; length-capped to the column width | 1 | Inline counter | `HISTORICAL_DUPLICATE_BOOKING` if it collides |
+| CV-07 | Unit selected; inactive allowed and **visibly badged**; soft-deleted never listed | 2 | Badge on inactive units; picker disabled until the range is valid | `UNIT_DELETED_UNSUPPORTED` |
+| CV-08 | `1 <= guestCount <= unit.maxGuests` | 2 | Existing pattern (`ConvertToBookingPanel.tsx:130-138`) | `VALIDATION_ERROR` |
+| CV-09 | Client resolved or creatable | 3 | Existing match-or-create pattern | `VALIDATION_ERROR` |
+| CV-10 | `agreedAmount > 0`, max 2 decimals | 4 | Inline error; no rounding performed in the browser | `VALIDATION_ERROR` |
+| CV-11 | Payment amount `> 0` and `<= agreedAmount` | 4 | Inline error | `VALIDATION_ERROR` |
+| CV-12 | `paidAt` not in the future; recommend not before the agreement date | 4 | `maxDate` = today; a warning, not a block, for "before agreement" | `VALIDATION_ERROR` |
+| CV-13 | Payment method from the API allow-list (D-05) | 4 | `Select` populated from the historical constant, **not** `PAYMENT_METHOD_OPTIONS` | `VALIDATION_ERROR` |
+| CV-14 | Owner attribution explicitly confirmed | 5 | Create button disabled until confirmed | `OWNER_ATTRIBUTION_REQUIRED` |
+| CV-15 | Override requires a reason **and** a note | 5 | Both required once the owner differs from the unit owner | `VALIDATION_ERROR` / `OWNER_OVERRIDE_FORBIDDEN` |
+| CV-16 | Ownership unresolvable ⇒ hard block | 5 | Blocking panel; Continue and Create both disabled (INV-17) | `OWNER_ATTRIBUTION_REQUIRED` |
+| CV-17 | Duplicate candidates each acknowledged | 6 | Per-candidate control; blanket acknowledgement not offered (D-06) | `HISTORICAL_DUPLICATE_BOOKING` |
 
 ---
 
@@ -566,7 +566,7 @@ Atomicity is the server's (INV-05).
 | Concern | Handling |
 |---|---|
 | Double submit | Create button disabled while the mutation is pending (`isLoading` + `disabled`, the `ConvertToBookingPanel.tsx:747-766` pattern). This is a UX guard; the server's duplicate rules are the real control (`BookingService.cs:19` 30-second window plus HB-03's business rules) |
-| Two operators, same unit and dates | The loser receives `409 historical_overlap_conflict` and lands on step 2 with the inline panel. Caches are invalidated so the second operator does not see stale availability |
+| Two operators, same unit and dates | The loser receives `409 HISTORICAL_OVERLAP_CONFLICT` and lands on step 2 with the inline panel. Caches are invalidated so the second operator does not see stale availability |
 | Stale unit list | After **any** conflict, invalidate `queryKeys.bookings.all`, `["units", unitId, "availability"]` and `["ownerPortal","unitAvailability",unitId]` — the `invalidateUnitAvailability` helper (`useBookings.ts:32-41`) already covers both namespaces (UI-12) — then refetch the unit list before re-enabling selection |
 | Cairo midnight crossing mid-session | The client-side `maxDate` is computed once at mount and is therefore advisory. A stay that becomes eligible or ineligible mid-session is adjudicated by the server. Recompute `maxDate` on window focus so long-lived tabs do not drift |
 | Acknowledgement replay | `acknowledgedDuplicateBookingIds` is cleared on any change to dates, unit, client or amount, so an acknowledgement cannot silently carry over to a different record |
@@ -717,10 +717,10 @@ Ordered; each independently checkable.
 | AC-HB06-09 | Step 2 lists inactive-but-not-deleted units, visibly badged; soft-deleted units never appear. |
 | AC-HB06-10 | Step 4 accepts an operator-entered agreed amount; any live pricing shown is labelled as reference only and never populates the submitted amount. |
 | AC-HB06-11 | Step 5 shows the credited owner, commission rate and split, and Create stays disabled until owner attribution is explicitly confirmed. |
-| AC-HB06-12 | **Given** a `409 historical_overlap_conflict`, **when** it is returned, **then** the operator is placed on step 2 with a **persistent inline** panel naming the conflicting stay dates — not a toast — and the unit and availability caches are invalidated and refetched. |
-| AC-HB06-13 | **Given** a `409 historical_duplicate_booking`, **when** it is returned, **then** each candidate is displayed with enough detail to judge it, and Create is re-enabled only after each is explicitly acknowledged. |
+| AC-HB06-12 | **Given** a `409 HISTORICAL_OVERLAP_CONFLICT`, **when** it is returned, **then** the operator is placed on step 2 with a **persistent inline** panel naming the conflicting stay dates — not a toast — and the unit and availability caches are invalidated and refetched. |
+| AC-HB06-13 | **Given** a `409 HISTORICAL_DUPLICATE_BOOKING`, **when** it is returned, **then** each candidate is displayed with enough detail to judge it, and Create is re-enabled only after each is explicitly acknowledged. |
 | AC-HB06-14 | **Given** an operator **without** `bookings:override_owner`, **when** they reach step 5, **then** the owner is read-only, no override control exists, and an escalation message names what is required. |
-| AC-HB06-15 | **Given** an operator who forces an override client-side without the permission, **when** they submit, **then** the server returns `403 owner_override_forbidden` and the wizard renders it on step 5 without creating anything. |
+| AC-HB06-15 | **Given** an operator who forces an override client-side without the permission, **when** they submit, **then** the server returns `403 OWNER_OVERRIDE_FORBIDDEN` and the wizard renders it on step 5 without creating anything. |
 | AC-HB06-16 | Step 6 displays all five mandatory warnings (§21) above the Create button, non-dismissible. |
 | AC-HB06-17 | Keyboard-only completion is possible end to end; focus moves to the step heading on every step change and to the conflict panel when one appears. |
 | AC-HB06-18 | Every input has a programmatically associated label; invalid inputs carry `aria-invalid` and `aria-describedby` pointing at their error; errors are announced (`role="alert"`). |
@@ -892,7 +892,7 @@ different consequences, and is the concrete form of what ADR-01 forbids.
 check-out from **below** (`CrmBookingWizardSteps.tsx:116`); this wizard bounds it from **above** at yesterday,
 Cairo. `components/ui/DatePicker.tsx:8-17` already has `maxDate`, so the affordance is cheap. But the Cairo
 boundary is a server concept (`AutoCompleteBookingsJob.cs:70`) and the browser's clock is not Cairo's.
-Compute `maxDate` for guidance, recompute it on focus, and let `historical_stay_not_complete` be the truth.
+Compute `maxDate` for guidance, recompute it on focus, and let `HISTORICAL_CHECKOUT_NOT_COMPLETED` be the truth.
 
 **Third: the 409 is the interesting path, not the edge case.** This repository has already learned that a
 stale cache can re-offer a unit the server has rejected — that is why `ConvertToBookingPanel.tsx:405` calls

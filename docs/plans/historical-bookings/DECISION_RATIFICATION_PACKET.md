@@ -57,7 +57,28 @@ Any earlier text implying that a Product owner, Engineering owner, Finance appro
 | [D-HARD-01](#d-hard-01--normal-flow-hardening) | Normal-flow hardening | HB-01 specifies; HB-08 implements and activates last | Product · Security · Engineering | **`OWNER APPROVED`** |
 | [D-TEST-01](#d-test-01--postgresql-test-requirement) | PostgreSQL test requirement | Real PostgreSQL integration testing is mandatory before HB-03 merges | Engineering · Operations | **`OWNER APPROVED`**, execution `BLOCKED BY TECHNICAL PREREQUISITE PRE-02` |
 
-Nine of nine cross-ticket decisions have a final status. None is waiting on a person.
+
+### HB-02 decisions
+
+Eight further decisions were ratified when HB-02 was made implementation-ready. Each either changes a shared
+contract or settles a boundary between HB-02 and a later ticket, which is why each is recorded here rather
+than only inside the ticket. The six decisions local to HB-02 alone
+([D-HB02-01, -02, -07, -08, -09, -10](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md#101-ratified-decisions))
+live in the ticket.
+
+| ID | Decision | Outcome | Review lenses | Status |
+|---|---|---|---|---|
+| [D-HB02-03](#d-hb02-03--machine-readable-error-transport) | Machine-readable error transport | Optional `Code` on the shared `ApiResponse` contract; never in `errors[0]` | Engineering · Product | **`OWNER APPROVED`** |
+| [D-HB02-04](#d-hb02-04--producing-a-403-for-an-owner-override-refusal) | Producing a `403` for an owner-override refusal | Dissolved for HB-02 — no override exists there. Mechanism moves to HB-05 | Engineering · Security | **`OWNER APPROVED`** |
+| [D-HB02-05](#d-hb02-05--client-reference-contract) | Client reference contract | Exactly one of `clientId` / `newClient`; known phone refused with the existing id | Product · Engineering | **`OWNER APPROVED`** |
+| [D-HB02-06](#d-hb02-06--original_source-vocabulary) | `original_source` vocabulary | Database-backed lookup table, four seeded codes, active/inactive | Product · Finance · Engineering | **`OWNER APPROVED`** |
+| [D-HB02-IDEM](#d-hb02-idem--idempotency-ownership-and-contract) | Idempotency ownership and contract | HB-02 owns `idempotency_keys`; `Idempotency-Key` required | Engineering · Operations | **`OWNER APPROVED`** |
+| [D-HB02-AMT](#d-hb02-amt--financial-truth-boundary) | Financial truth boundary | HB-02 captures raw `agreedAmount`; HB-04 owns the snapshot and payments | Finance · Engineering | **`OWNER APPROVED`** |
+| [D-HB02-OWN](#d-hb02-own--owner-attribution-boundary) | Owner attribution boundary | Current owner resolved server-side; no owner input; refuse when uncertain | Finance · Security · Product | **`OWNER APPROVED`** |
+| [D-HB02-CAL](#d-hb02-cal--cairo-business-date-ownership) | Cairo business-date ownership | HB-02 creates the narrowest resolver; no longer a readiness blocker | Engineering · Operations | **`OWNER APPROVED`** |
+
+Nine of nine cross-ticket decisions and eight of eight HB-02 decisions have a final status. None is waiting
+on a person.
 
 ### Deferred v1 scope decisions
 
@@ -75,10 +96,12 @@ ticket, and their repository footprints do not overlap, so they may proceed in p
 | ID | Prerequisite | Blocks |
 |---|---|---|
 | [PRE-00](#pre-00--historical-data-census) | Historical data census — read-only, non-production, sanitized aggregates | **Pilot and migration rollout approval.** Blocks HB-02 **only if** the migration or backfill strategy materially depends on existing-row evidence |
-| [PRE-01](#pre-01--database-bootstrap-parity-for-migration-0057) | Restore database bootstrap parity concerning migration `0057` | **HB-02 must not merge before PRE-01 is complete**; also the CI schema-parity gate |
-| [PRE-02](#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) | Baseline test execution and reusable real-PostgreSQL integration infrastructure | **HB-03 must not merge before PRE-02 is complete** |
+| [PRE-01](#pre-01--database-bootstrap-parity-for-migration-0057) | Restore database bootstrap parity concerning migration `0057` | **`COMPLETE` — merged.** Formerly gated HB-02's merge |
+| [PRE-02](#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) | Baseline test execution and reusable real-PostgreSQL integration infrastructure | **`COMPLETE` — merged.** Formerly gated HB-03's merge; HB-09 still consumes and extends it |
 
-These are the **only** active blockers in the programme. All three are technical. None is an approval gap.
+**Two of the three are now discharged.** `PRE-01` and `PRE-02` are merged. **`PRE-00` is the only
+prerequisite still outstanding**, and it blocks pilot and migration rollout approval rather than any
+ticket's implementation. None of the three was ever an approval gap; all were technical.
 
 **`PRE-02` is not delivered by HB-09.** An earlier revision said it was, which was contradictory: `PRE-02`
 gates HB-03's merge, while HB-09 runs after every feature wave including HB-03. `PRE-02` is now an
@@ -104,7 +127,7 @@ the day as open. Using UTC would shift the business day by two or three hours an
 midnight. Reusing the job's expression means the platform has exactly one definition of "the business day
 ended".
 
-**Consequences.** HB-02 validates the boundary and returns `400 historical_stay_not_complete` outside it.
+**Consequences.** HB-02 validates the boundary and returns `400 HISTORICAL_CHECKOUT_NOT_COMPLETED` outside it.
 HB-08 extracts the expression into a shared resolver so the job and the validator cannot drift.
 `SC-DATE-01`, `SC-DATE-04` and `SC-DATE-06` are the boundary tests.
 
@@ -334,6 +357,263 @@ are recorded as manually executed.
 
 ---
 
+## D-HB02-03 — Machine-readable error transport
+
+| Field | Value |
+|---|---|
+| **Decision** | Adopt an **explicit optional machine-readable error code in the shared API response contract**. Add a nullable `Code` property to `ApiResponse` and `ApiResponse<T>`, populated by `ExceptionHandlingMiddleware` from coded business exceptions. The code is **never** encoded inside `errors[0]`. |
+| **Basis** | `CONFIRMED` — `RentalPlatform.API/Models/ApiResponse.cs` exposes only `Success`, `Data`, `Message`, `Errors`, `Pagination`; there is no code field. `ExceptionHandlingMiddleware.cs:45-72` maps four typed exceptions to statuses and discards everything else. The four exception types in `RentalPlatform.Business/Exceptions/` derive directly from `Exception` and share no base class. |
+| **Review lenses** | Engineering · Product |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-07-29 |
+| **Status** | **`OWNER APPROVED`** |
+
+**The narrowest repository-consistent carrier.** Because the four exception types share no base, "a `Code`
+property on the business exception base" has no base to attach to. The equivalent that changes least is a
+one-member interface, `IBusinessErrorCode { string? Code { get; } }`, implemented by all four through an
+**additive optional constructor argument**. Every existing constructor keeps its signature, so every
+existing throw site compiles untouched and the middleware needs one `is IBusinessErrorCode` test. Creating
+a common abstract base and reparenting four widely-thrown types would be a larger change for no additional
+capability.
+
+**Backward compatibility is a requirement, not an aspiration.** All existing response fields are preserved;
+every `CreateSuccess`/`CreateFailure` overload keeps its signature; `code` is absent or null everywhere it
+is not set. Human-readable `message` and `errors` continue to work exactly as they do now — the code is
+machine-readable *in addition to* the message, never instead of it.
+
+**Why `errors[0]` is rejected outright.** It is the obvious shortcut and it is wrong: `errors` is a
+human-readable array that clients render. Putting a machine token in it means either an operator eventually
+sees `CLIENT_PHONE_ALREADY_EXISTS` in a UI, or every consumer must learn to strip element zero. It also
+makes the code unrepresentable when there are no errors to report.
+
+**Scope of migration.** **Unrelated endpoints are not required to migrate.** They keep returning a null
+`code` until their owning ticket decides otherwise. **HB-02 errors must expose stable documented codes** —
+the complete set, with statuses aligned to the repository's existing exception mapping, is
+[HB-02 §14.4](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md#144-error-contract--machine-readable-codes-d-hb02-03).
+
+---
+
+## D-HB02-04 — Producing a `403` for an owner-override refusal
+
+| Field | Value |
+|---|---|
+| **Subject, verbatim** | *"How is `403 OWNER_OVERRIDE_FORBIDDEN` produced, given that `ExceptionHandlingMiddleware` has no `403` branch?"* It was a transport question about one specific error, not a question about ownership policy. |
+| **Decision** | **Not applicable to HB-02; nothing is built there.** HB-02 accepts no owner input at all ([D-HB02-OWN](#d-hb02-own--owner-attribution-boundary)), so an override can never be requested on that endpoint and no override refusal can arise. `ForbiddenBusinessException` and the middleware's `403` branch are **HB-05's**, introduced alongside the override that throws them. HB-02's own uncertainty path is `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` through the **existing** `ConflictException` branch. |
+| **Basis** | `CONFIRMED` — `ExceptionHandlingMiddleware.cs:45-72` has exactly four typed branches and no `403`. `ConflictException` → `409` already exists at `:53-56`. Every error HB-02 can produce is a `400`, `404` or `409`, so the existing switch is sufficient. |
+| **Review lenses** | Engineering · Security |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-07-29 |
+| **Status** | **`OWNER APPROVED`** |
+
+**Why the original recommendation was withdrawn.** It was correct for the contract as it stood, when the
+HB-02 request carried an `ownerAttribution` object with an override. Removing that object removes the
+condition. Building the reporting mechanism for a refusal that cannot occur would place HB-05 behaviour
+inside HB-02 — exactly what the ticket boundaries exist to prevent, and it would leave a `403` branch in the
+middleware that nothing throws.
+
+**Consequences.** HB-02 touches `ExceptionHandlingMiddleware` for one reason only — propagating the new
+`Code`. The status-mapping switch is unchanged, and a diff that adds a `403` branch is a stop condition. The
+`403` for a *missing* `bookings:record_historical` is unaffected: it comes from the authorization policy
+before the action body runs, carries an empty body, and needs no exception type.
+
+---
+
+## D-HB02-05 — Client reference contract
+
+| Field | Value |
+|---|---|
+| **Decision** | The canonical request contains **exactly one of `clientId` or `newClient`**. Both or neither ⇒ `400 CLIENT_REFERENCE_INVALID`. Unknown `clientId` ⇒ `404 CLIENT_NOT_FOUND`. A `newClient` whose normalised phone already belongs to an existing client ⇒ **no duplicate is created, no silent reuse, no merge** — `409 CLIENT_PHONE_ALREADY_EXISTS`, carrying `existingClientId` in safe internal error metadata, and the caller retries with that id. Phone normalisation and validation **follow existing repository behaviour**. Actor and audit fields can never be supplied by the caller. |
+| **Basis** | `CONFIRMED` — there is no match-or-create helper anywhere in the solution. `ClientService.cs:23` validates `^\+?\d{10,15}$`; `:198` normalises identity as `phone.TrimStart('+')`; `:72-76` refuses a duplicate with `ConflictException`. `GuestBookingService.cs:42-52` does the same. The database enforces `ux_clients_phone` UNIQUE (`db/migrations/0005_create_clients.sql:61`). The platform's existing answer to a known phone is therefore *refuse*, not *merge*. |
+| **Review lenses** | Product · Engineering |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-07-29 |
+| **Status** | **`OWNER APPROVED`** |
+
+**Why not silent match-and-reuse.** Attaching a historical booking to a client the operator did not
+explicitly choose is a quiet identity decision about a real person, made on the strength of a phone number
+that may have been recycled or mistyped. It is also irreversible in the audit trail. Refusing costs one
+extra round trip and makes the operator confirm who the guest is.
+
+**Why not silent create.** That is `RISK-12` — duplicate client records accumulating invisibly, splitting a
+guest's history across two identities.
+
+**Why the refusal returns `existingClientId`.** Without it the operator is in a dead end: told the phone
+exists, unable to proceed, with no way to find the record. The id is safe to return — it is an internal
+identifier already visible to any operator with `clients:read`, and it carries **no** name, phone or email.
+The refusal path never discloses guest PII.
+
+**Consequence.** HB-02 writes no phone-normalisation code. It calls the existing behaviour, so a future
+change to the platform's phone rules applies to the historical flow automatically.
+
+---
+
+## D-HB02-06 — `original_source` vocabulary
+
+| Field | Value |
+|---|---|
+| **Decision** | `original_source` is **database-backed and must not accept arbitrary free text**. It is a lookup table `booking_original_sources(code, label, is_active)`, with `bookings.original_source` a foreign key to `code`. Seeded with **exactly** `legacy_system`, `external_platform`, `offline_record`, `other`. An unknown **or inactive** code ⇒ `400 ORIGINAL_SOURCE_INVALID`. |
+| **Basis** | `CONFIRMED` — the repository was inspected for an existing booking-source, channel, origin or platform vocabulary. Exactly one exists: `ck_bookings_source CHECK (source IN ('direct','admin','phone','whatsapp','website'))` at `db/migrations/0016_create_bookings.sql:24`, mirrored at `db/migrations/0018_create_crm_leads.sql:23`, `BookingService.cs:23` and `CrmLeadService.cs:22`. There is **no** lookup table for it, and no other source-like vocabulary anywhere in the schema. |
+| **Review lenses** | Product · Finance · Engineering |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-07-29 |
+| **Status** | **`OWNER APPROVED`** |
+
+**Why the existing vocabulary is not reused.** It was checked first, as it should be, and it fails on three
+counts. It is a *contact-channel* taxonomy answering "how did this booking reach us?", whereas
+`original_source` is a *provenance* taxonomy answering "where did this record exist before we entered it?" —
+`admin` is the truthful channel for every historical row and a useless provenance value for all of them. It
+is structurally incapable of the required contract: a `CHECK` constraint holds a list of strings, with
+nowhere to put a human-readable label and nowhere to put an active/inactive flag. And widening it would make
+provenance values legal on *every* booking, including live ones, touching every existing consumer and every
+reporting view.
+
+**Why a table rather than a second `CHECK`.** The decision requires a stable code, a human-readable label,
+and active/inactive behaviour. Only a table provides all three. It also makes retirement a data change
+rather than a migration: setting `is_active = false` stops new use while leaving every historical row
+readable, which a `CHECK` cannot do without invalidating existing data. `ON DELETE RESTRICT` prevents a code
+from being deleted once referenced — provenance must stay readable forever.
+
+**Why no commercial platform names.** Adding named third-party brands would require a migration every time a
+commercial relationship changes, and no canonical repository vocabulary requires them. `external_platform`
+plus the existing `externalReference` field carries the same information without the churn.
+
+---
+
+## D-HB02-IDEM — Idempotency ownership and contract
+
+| Field | Value |
+|---|---|
+| **Decision** | **HB-02 owns `idempotency_keys` and the command's idempotency contract.** The canonical header is `Idempotency-Key` and it is **required** on the historical creation endpoint. Scope is **actor + command/endpoint + key**. A canonical request hash is persisted. Booking creation and idempotency completion are **atomic**. Same key + same request ⇒ the original successful `200` and the original booking identity. Same key + different request ⇒ `409 IDEMPOTENCY_KEY_REUSED`. An incomplete or in-progress request **fails deterministically and never creates a second booking**. **No automatic expiration in v1.** HB-03 still owns booking-level duplicate and availability-conflict protection. |
+| **Basis** | `CONFIRMED` — no idempotency infrastructure exists anywhere: a repository-wide grep for `idempotenc` across `*.cs` and `*.sql` returns only a comment in `db/migrations/0001_init_postgres_conventions_rollback.sql:31`. The [migration-ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix) already assigns `idempotency_keys` to HB-02 as object #12. |
+| **Review lenses** | Engineering · Operations |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-07-29 |
+| **Status** | **`OWNER APPROVED`** |
+
+**The conflict this resolves.** The matrix assigned the table to HB-02 while HB-03's text described it as
+deferred into "HB-04's migration" and treated the header as advisory in v1 — three different answers in one
+pack. **The matrix wins**, per [D-MIG-01](#d-mig-01--migration-ownership): idempotency is a property of
+HB-02's endpoint, and an endpoint that cannot be safely retried is not finished. Every statement that HB-02
+idempotency storage is optional, deferred, or owned by HB-03 is withdrawn.
+
+**Why required rather than optional.** An optional key leaves a duplicate window open by default, and the
+one caller that matters — the HB-06 wizard — can always send one. Requiring it means the safe path is the
+only path, and the failure when it is missing is immediate and explicit rather than a duplicate discovered
+during reconciliation.
+
+**Why the scope includes the actor.** Two operators independently generating the same key string must not
+collide, and one operator must never be able to replay another's request. Scoping by actor + endpoint + key
+makes squatting across endpoints and across users impossible by construction.
+
+**Why no expiry in v1.** A sweeper is a background job that deletes financial-adjacent audit rows. It needs
+a retention decision, an operational owner and its own failure modes, none of which HB-02 should invent.
+Keys are small and bounded by the number of historical bookings ever recorded. Adding retention later is
+additive.
+
+**The boundary with HB-03, stated plainly.** Idempotency answers *"is this the same request?"*. HB-03
+answers *"is this the same booking?"*. A retry of one request and two operators independently entering the
+same stay are different problems with different correct responses, and both checks run.
+
+---
+
+## D-HB02-AMT — Financial truth boundary
+
+| Field | Value |
+|---|---|
+| **Decision** | The canonical HB-02 request **requires `agreedAmount`**: the exact user-supplied historical agreed amount. It **must never default from the current unit price**. It may be **zero or positive**. It uses the repository's existing decimal precision and currency convention, and introduces **no currency redesign**. It is persisted **only** as the booking's required base agreed amount under the current schema and domain model. HB-02 creates **no** invoice, payment, payment evidence, fee, tax, discount, payout, or immutable extended financial snapshot. |
+| **Basis** | `CONFIRMED` — `BookingService.cs:213,231-232` computes `BaseAmount` and `FinalAmount` from current pricing, which for a past stay is the wrong number. Booking money is `DECIMAL(12,2)` with `ck_bookings_base_amount_non_negative` and `ck_bookings_final_amount_non_negative` (`db/migrations/0016_create_bookings.sql:11-12,28-29`), mirrored in EF at `BookingConfiguration.cs:56,61`. `>= 0` already permits zero. |
+| **Review lenses** | Finance · Engineering |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-07-29 |
+| **Status** | **`OWNER APPROVED`** |
+
+**Ownership, stated once so it stops being restated differently.** HB-02 owns **truthful capture of the raw
+`agreedAmount` needed to create the booking** — nothing more. [HB-04](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md)
+owns **the extended immutable historical financial snapshot and payment behaviour** — the dedicated
+`bookings.agreed_amount` column (matrix #14), its constraint, the repricing guard, and every payment
+concern. Two different things, two different migrations, one owner each.
+
+**Why the field cannot simply be deferred to HB-04.** A booking row cannot be inserted without an amount,
+and the amount the platform would compute is today's price for a stay that happened at a different price.
+HB-02 must therefore supply the truth at creation or write a known-false number and correct it later — which
+would mean a historical booking briefly carrying the wrong revenue figure.
+
+**Why zero is valid.** A recorded stay with no charge is a real case: a comped stay, an owner's own use, a
+goodwill arrangement. The existing constraint is `>= 0`, so zero needs no schema change and rejecting it
+would invent a rule the platform does not have.
+
+**Accepted residual risk.** Until HB-04's repricing guard ships, some other write path could in principle
+overwrite the captured amount. The main path already cannot — `BookingService.cs:385-387` refuses to update
+anything outside `Prospecting`/`Relevant`, and a historical booking is created `Completed`. HB-04 enumerates
+the remainder rather than treating the risk as closed. **Revisit trigger:** any write path is found that can
+mutate a `Completed` booking's amounts.
+
+---
+
+## D-HB02-OWN — Owner attribution boundary
+
+| Field | Value |
+|---|---|
+| **Decision** | HB-02 **does not accept an arbitrary client-supplied owner override**. It resolves the current unit owner from trusted repository state. When exactly one valid current owner is deterministically available, it uses and persists that attribution. It **never silently guesses** and **never uses an arbitrary request owner**. When ownership is absent, multiple, ambiguous, or requires historical correction, it rejects with **`409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`**. The canonical request exposes **no** unrestricted `ownerAttribution` or `ownerId` field. |
+| **Basis** | `CONFIRMED` — `BookingService.cs:225` snapshots `OwnerId = unit.OwnerId` and no existing endpoint accepts an owner id for a booking. There is no date-ranged ownership history table, so a unit that changed hands between the stay and the recording cannot be resolved automatically. |
+| **Review lenses** | Finance · Security · Product |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-07-29 |
+| **Status** | **`OWNER APPROVED`** |
+
+**Why removing the field is stronger than validating it.** An `ownerId` on the request must be checked
+against the unit's owner on every path, forever, and a missed check silently redirects money. A field that
+does not exist cannot be forged, cannot be mass-assigned, and cannot drift out of validation. This closes
+`RISK-11` for HB-02 by construction rather than by vigilance.
+
+**Why `409` rather than `400`.** The request is well-formed; the *state* is not resolvable. `409` is the
+repository's existing conflict semantic (`ConflictException` → `409`), which also means HB-02 needs no new
+exception type and no new middleware branch — see [D-HB02-04](#d-hb02-04--producing-a-403-for-an-owner-override-refusal).
+
+**What HB-05 adds, additively.** Explicit owner confirmation and the gated override: a separate permission
+(`bookings:override_owner`), a mandatory reason, previous and selected owner, actor and timestamp audit, and
+the payout implications. **The extension must be backward-compatible** — a request valid under this decision
+must remain valid after HB-05 ships, so HB-05's new fields are optional-with-safe-default or arrive with
+their own permission. This is consistent with [D-OWN-01](#d-own-01--owner-attribution) and
+[D-OWN-02](#d-own-02--owner-override); it settles only *which ticket* carries which half.
+
+**Accepted risk.** Until HB-05 ships, a unit that changed hands cannot have its historical stay recorded at
+all — the operator is blocked rather than given an override. That is the intended failure direction:
+blocking is visible and correctable, misattribution is neither. **Revisit trigger:** the
+`OWNER_ATTRIBUTION_REQUIRES_REVIEW` rate makes the pilot unworkable before HB-05 lands.
+
+---
+
+## D-HB02-CAL — Cairo business-date ownership
+
+| Field | Value |
+|---|---|
+| **Decision** | **HB-02 owns creation of the narrowest repository-consistent Cairo business-date/clock abstraction** necessary for deterministic validation of `check_out_date <= Cairo business date − 1`. The absence of a pre-existing shared resolver is **no longer a readiness blocker**. This does **not** authorize an application-wide time redesign. |
+| **Basis** | `CONFIRMED` — the expression exists in exactly one place and is private to a hosted service: `AutoCompleteBookingsJob.cs:70`, with the timezone lookup at `:137` (`Africa/Cairo`) and `:141` (`Egypt Standard Time` fallback). Nothing in `RentalPlatform.Business` or `RentalPlatform.Shared` exposes a business date. |
+| **Review lenses** | Engineering · Operations |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-07-29 |
+| **Status** | **`OWNER APPROVED`** |
+
+**What "narrowest" means, concretely.** A single injectable abstraction exposing the current Cairo business
+date and nothing else — no general clock, no `UtcNow` wrapper, no ambient time service. It reuses the exact
+timezone lookup already proven in the job, so the platform keeps one definition of the Cairo day.
+
+**What is explicitly not authorized.** Refactoring `AutoCompleteBookingsJob` onto the abstraction,
+introducing a general `ITimeProvider`, or touching any other date handling. Converging the job is HB-08's,
+alongside the rest of the observability work. HB-02 creates the abstraction and uses it; it does not migrate
+the codebase to it.
+
+**Why this unblocks readiness.** The earlier plan assumed HB-01 would deliver the resolver, and HB-01 is
+decision-only and ships no code — so the dependency could never have been satisfied. Naming HB-02 as the
+owner removes a phantom prerequisite. It also makes the boundary testable: an injected clock lets
+`−2 / −1 / today / +1` be asserted directly rather than by waiting for midnight.
+
+This implements [D-CAL-01](#d-cal-01--historical-completion-boundary), which fixes the *rule*. This decision
+fixes *who builds the mechanism*.
+
+---
+
 ## Deferred v1 decisions
 
 Each of these is a **deliberate scope decision**, not an unresolved approval.
@@ -482,8 +762,8 @@ This is the case the census must not paper over.
 | **Problem** | `db/init.sql` applies `0001` … `0056` and stops. `CONFIRMED` — the final `\i` is `0056_add_unit_portfolio_visibility.sql` at `db/init.sql:172`, while `db/migrations/0057_add_owner_contact_fields.sql` exists on disk. Any database bootstrapped from `init.sql` is therefore one migration behind a database built by replaying `db/migrations` in order. A second observation: `0057` ships `_verify.sql` but, unlike every migration from `0050` to `0056`, no `_rollback.sql`. |
 | **Owner** | A separate prerequisite implementation PR. **Not** HB-02, HB-04, HB-05, HB-08 or HB-09 — this is a pre-existing bootstrap defect and must not be folded into a feature migration |
 | **Review lenses** | Engineering · Operations |
-| **Status** | **Active technical prerequisite** |
-| **Blocks** | Migration ordering assumptions; the CI schema-parity gate; any claim that a CI or local schema matches production |
+| **Status** | **`COMPLETE` — merged.** `db/init.sql` now includes `0057` exactly once (commit `4d649d6`, merged as `9f7af2f`), and the chosen rollback answer was option (d): `db/migrations/0057_add_owner_contact_fields_rollback.md` documents that an automated rollback is unsafe, because both columns are mapped by current application code and may hold real owner contact data |
+| **Blocks** | *(discharged)* Formerly: migration ordering assumptions, the CI schema-parity gate, and any claim that a CI or local schema matches production. **HB-02 is no longer gated on it** |
 
 **Required outcome:** database bootstrap parity is restored, so a database built from `db/init.sql` matches
 one built by replaying `db/migrations` in order, and the parity is machine-checkable thereafter.

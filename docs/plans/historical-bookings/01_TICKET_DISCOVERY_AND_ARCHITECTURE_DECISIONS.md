@@ -412,7 +412,7 @@ removes.
 `CreateAsync`. `initialStatus` already exists and is legitimate; a `bypassPastDateValidation` boolean is
 not. The historical service composes `CreateAsync` and performs its own pre-validation.
 
-**11.2.6 API error contract.** Past-date rejection returns `400` with code `stay_dates_in_past` and an
+**11.2.6 API error contract.** Past-date rejection returns `400` with code `STAY_DATES_IN_PAST` and an
 operator-actionable message naming the historical flow as the correct route.
 
 **11.2.7 Rollout sequencing.** Hardening is implemented inside HB-08 and activated **last**, as step 9 of
@@ -430,9 +430,9 @@ operators currently rely on with nothing in its place. See §24.
 graph TD
     A[Any booking creation path] --> B[BookingService.ValidateStayDates]
     B --> C{checkOut > checkIn?}
-    C -->|no| R1[400 validation_error]
+    C -->|no| R1[400 VALIDATION_ERROR]
     C -->|yes| D{checkIn >= Cairo today?}
-    D -->|no| R2[400 stay_dates_in_past<br/>message points to historical flow]
+    D -->|no| R2[400 STAY_DATES_IN_PAST<br/>message points to historical flow]
     D -->|yes| E[existing checks continue unchanged]
     F[UpdateAsync date change] --> B
 ```
@@ -467,7 +467,7 @@ not asserted as required until that implementer confirms:
 **None in this ticket.** HB-01 introduces no endpoint and changes no response.
 
 The behavioural change it *specifies* — previously-accepted past-dated create/update requests returning
-`400 stay_dates_in_past` — is shipped by HB-08. It **is** a breaking change for any caller relying on the
+`400 STAY_DATES_IN_PAST` — is shipped by HB-08. It **is** a breaking change for any caller relying on the
 current permissiveness; see §23 and
 [HB-08 §24.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#241-ordering).
 
@@ -494,8 +494,8 @@ Specified by HB-01, enforced by HB-08.
 | Rule | Layer | Failure | Implemented by |
 |---|---|---|---|
 | `checkOut > checkIn` | unchanged (`BookingService.cs:463-467`) | 400 | already present |
-| `checkIn >= Cairo business today` (D-02) | `ValidateStayDates` | 400 `stay_dates_in_past` | HB-08 |
-| Same rule on date-changing updates (D-03) | `UpdatePendingAsync` | 400 `stay_dates_in_past` | HB-08 |
+| `checkIn >= Cairo business today` (D-02) | `ValidateStayDates` | 400 `STAY_DATES_IN_PAST` | HB-08 |
+| Same rule on date-changing updates (D-03) | `UpdatePendingAsync` | 400 `STAY_DATES_IN_PAST` | HB-08 |
 | `is_historical` bookings exempt from both | `UpdatePendingAsync` | n/a | HB-08, reading the column HB-02 creates |
 
 ---
@@ -526,7 +526,7 @@ Specified by HB-01, **executed by [PRE-00](DECISION_RATIFICATION_PACKET.md#pre-0
 
 Specified by HB-01, **emitted by HB-08**:
 
-- Metric `booking_create_rejected_total{reason="stay_dates_in_past"}` — **essential**, because it measures
+- Metric `booking_create_rejected_total{reason="STAY_DATES_IN_PAST"}` — **essential**, because it measures
   how often operators were relying on the open door, and validates or refutes assumption A-4 after
   activation.
 - Structured log on rejection: path, actor, requested dates. No PII.
@@ -633,7 +633,7 @@ coverage remains traceable.
 | AC-HB01-05 | The specification requires a behaviour-equivalence test proving `AutoCompleteBookingsJob` selects an identical booking set before and after the refactor. Runtime proof is `AC-HB08-26`. |
 | AC-HB01-06 | The ADR addendum exists, covers ADR-01…ADR-12 and D-01…D-06, and every entry carries a final status in the [decision record](DECISION_RATIFICATION_PACKET.md#adr-01--adr-12). |
 | AC-HB01-07 | Every §5.2 gap is either closed with evidence or re-labelled `BLOCKED` against a **named technical prerequisite**, never against an unassigned person. |
-| AC-HB01-08 | The observability contract for hardening — `booking_create_rejected_total{reason="stay_dates_in_past"}` plus a PII-free structured log — is specified, reviewed through the Operations lens, and handed to HB-08. |
+| AC-HB01-08 | The observability contract for hardening — `booking_create_rejected_total{reason="STAY_DATES_IN_PAST"}` plus a PII-free structured log — is specified, reviewed through the Operations lens, and handed to HB-08. |
 | AC-HB01-09 | The specified rejection message names the historical flow as the correct route, and the exact wording is fixed so HB-08 and the operator documentation cannot diverge. |
 | AC-HB01-10 | The historical data census is fully specified — required findings, aggregate-only output, and binding non-production read-only rules — and assigned to [PRE-00](DECISION_RATIFICATION_PACKET.md#pre-00--historical-data-census). Its **execution** is PRE-00's, not HB-01's. |
 

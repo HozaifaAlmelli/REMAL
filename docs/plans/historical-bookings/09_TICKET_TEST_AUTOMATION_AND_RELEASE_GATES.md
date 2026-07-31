@@ -426,8 +426,8 @@ and built by [HB-08 §26.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.
 ### 11.4 Concurrency test design
 
 The scenario: two operators record the same offline booking, same unit, same dates, simultaneously. Exactly
-one booking must exist and exactly one request must receive `409 historical_overlap_conflict` (or
-`historical_duplicate_booking`).
+one booking must exist and exactly one request must receive `409 HISTORICAL_OVERLAP_CONFLICT` (or
+`HISTORICAL_DUPLICATE_BOOKING`).
 
 ```mermaid
 sequenceDiagram
@@ -502,7 +502,7 @@ a seed.
 |---|---|---|
 | Admin users | (a) `bookings:write` only, (b) `+ bookings:record_historical`, (c) `+ bookings:override_owner`, (d) no booking permissions, (e) a deny-override user | Permission matrix (§16); `rbac_admin_user_permission_overrides` grant/deny both exercised |
 | Owners | Two, with different `CommissionRate` values, plus one mutated mid-test | Commission snapshot immutability (REQ-08, INV-14) |
-| Units | Active; **inactive but not deleted**; soft-deleted (`DeletedAt` set); one belonging to a second portfolio | ADR-12, REQ-17, `unit_deleted_unsupported`, cross-portfolio IDOR |
+| Units | Active; **inactive but not deleted**; soft-deleted (`DeletedAt` set); one belonging to a second portfolio | ADR-12, REQ-17, `UNIT_DELETED_UNSUPPORTED`, cross-portfolio IDOR |
 | Clients | Existing matchable; near-match (differing phone format); absent (match-or-create path) | RISK-12, V-20 |
 | Bookings | One per `BookingStatus` value — all ten: Prospecting, Relevant, NoAnswer, NotRelevant, Booked, Confirmed, CheckIn, Completed, Cancelled, LeftEarly | F-02: proves `Completed`/`LeftEarly` now conflict and the soft-hold statuses still behave |
 | Historical bookings | `is_historical = true`, various stay months, with and without `external_reference` | Historical-vs-historical overlap; partial unique index |
@@ -585,8 +585,8 @@ defined in [Master Plan §12](00_MASTER_PLAN.md#12-api-and-command-design):
 | Assertion target | Expected |
 |---|---|
 | `POST /api/internal/bookings/historical` | `200 OK` on the happy path, for a caller holding `bookings:record_historical` (repository-native envelope, `BookingsController.cs:114`) |
-| Error codes asserted verbatim | `validation_error`, `forbidden`, `not_found`, `historical_stay_not_complete`, `historical_overlap_conflict`, `historical_duplicate_booking`, `owner_attribution_required`, `owner_override_forbidden`, `unit_deleted_unsupported`, `stay_dates_in_past` |
-| `POST /api/internal/bookings` | Returns `400 stay_dates_in_past` for past stays once HB-08 activates the REQ-16 hardening |
+| Error codes asserted verbatim | `VALIDATION_ERROR`, `CLIENT_REFERENCE_INVALID`, `CLIENT_NOT_FOUND`, `CLIENT_PHONE_ALREADY_EXISTS`, `UNIT_NOT_FOUND`, `ADMIN_USER_NOT_FOUND`, `HISTORICAL_CHECKOUT_NOT_COMPLETED`, `ORIGINAL_SOURCE_INVALID`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `IDEMPOTENCY_REQUEST_IN_PROGRESS`, `OWNER_ATTRIBUTION_REQUIRES_REVIEW`, `EXTERNAL_REFERENCE_ALREADY_EXISTS`, `HISTORICAL_OVERLAP_CONFLICT`, `HISTORICAL_DUPLICATE_BOOKING`, `UNIT_DELETED_UNSUPPORTED`, `OWNER_ATTRIBUTION_REQUIRED`, `OWNER_OVERRIDE_FORBIDDEN`, `STAY_DATES_IN_PAST`. Codes are read from the `code` property of the response envelope, **never** from `errors[0]` ([D-HB02-03](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport)). A `403` from the authorization policy carries an empty body and no code |
+| `POST /api/internal/bookings` | Returns `400 STAY_DATES_IN_PAST` for past stays once HB-08 activates the REQ-16 hardening |
 
 Error-code assertions compare the **machine-readable code**, never the human message, so copy edits do not
 break the suite.
@@ -612,9 +612,9 @@ break the suite.
 | # | Attack | Setup | Required outcome | Invariant |
 |---|---|---|---|---|
 | S-01 | Permission bypass — no `bookings:record_historical` | Admin with `bookings:write` only | `403 forbidden`; **zero** rows written | INV-10 |
-| S-02 | Bypass via the normal endpoint | Past-dated `POST /api/internal/bookings` | `400 stay_dates_in_past`; no booking | INV-03, RISK-10 |
+| S-02 | Bypass via the normal endpoint | Past-dated `POST /api/internal/bookings` | `400 STAY_DATES_IN_PAST`; no booking | INV-03, RISK-10 |
 | S-03 | Explicit deny override beats a role grant | `rbac_admin_user_permission_overrides` with `deny` | `403 forbidden` | INV-10 |
-| S-04 | Owner override without `bookings:override_owner` | Holder of record permission only | `403 owner_override_forbidden`; owner unchanged | INV-14 |
+| S-04 | Owner override without `bookings:override_owner` | Holder of record permission only | `403 OWNER_OVERRIDE_FORBIDDEN`; owner unchanged | INV-14 |
 | S-05 | IDOR — unit outside the caller's portfolio | Valid GUID, foreign portfolio | `404 not_found` (not 403 — no existence disclosure) | INV-12 |
 | S-06 | IDOR — client outside scope | Valid foreign client GUID | `404 not_found` | INV-12 |
 | S-07 | Owner injection | `ownerId` for an owner unrelated to the unit | Rejected unless override-permitted **and** reasoned | INV-12, INV-17 |
@@ -622,7 +622,7 @@ break the suite.
 | S-09 | Mass assignment | Body carries `createdAt`, `updatedAt`, `isHistorical`, `bookingStatus`, `snapshotKazaAmount` | Ignored or rejected; server values win | INV-01 |
 | S-10 | Financial tampering | Client-supplied split that does not reconcile | Server recomputes; `snapshot_owner_amount + snapshot_kaza_amount = agreed_amount` holds | INV-15 |
 | S-11 | Negative / zero amounts | `agreed_amount <= 0`, payment `<= 0` | `400`; DB CHECK holds as a second line | V-15 |
-| S-12 | Soft-deleted unit | Unit with `DeletedAt` set | `400 unit_deleted_unsupported` | ADR-12 |
+| S-12 | Soft-deleted unit | Unit with `DeletedAt` set | `400 UNIT_DELETED_UNSUPPORTED` | ADR-12 |
 | S-13 | PII leakage | Trigger every rejection branch | No guest name, phone or email in any log, metric label or error body | Master §18 |
 
 S-08 and S-09 must assert on **persisted state**, not on the response body. A response that echoes the

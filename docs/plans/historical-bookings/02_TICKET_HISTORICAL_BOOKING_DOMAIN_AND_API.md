@@ -16,20 +16,27 @@
 | Title | Historical Booking Domain and API |
 | Priority | **P0** |
 | Type | Backend — domain model, application command, HTTP contract, authorization |
-| Status | Ready for review — blocked on [HB-01](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md) approval |
-| Dependencies | HB-01 (ADR-01 … ADR-12 ratified; D-01, D-06 answered) |
+| Status | **IMPLEMENTATION-READY.** Every HB-02 decision gate is `OWNER APPROVED`; no `DECISION REQUIRED`, `TBD` or unresolved alternative remains. **No merge gate is outstanding** — [`PRE-01`](DECISION_RATIFICATION_PACKET.md#pre-01--database-bootstrap-parity-for-migration-0057) and [`PRE-02`](DECISION_RATIFICATION_PACKET.md#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) are both merged |
+| Dependencies | [HB-01](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md) — complete; ADR-01 … ADR-12 decided. [`PRE-01`](DECISION_RATIFICATION_PACKET.md#pre-01--database-bootstrap-parity-for-migration-0057) — **satisfied, merged**. [`PRE-02`](DECISION_RATIFICATION_PACKET.md#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) — **satisfied, merged**; its real-PostgreSQL fixture is what HB-02's integration tests run on. [`PRE-00`](DECISION_RATIFICATION_PACKET.md#pre-00--historical-data-census) blocks only if the migration or backfill strategy turns out to depend on existing-row evidence, and blocks pilot approval regardless |
 | Dependents | HB-04, HB-05, HB-07 (and transitively HB-06, HB-08, HB-09) |
 | Risk level | **High** — introduces a new privileged write path into the booking aggregate |
 | Estimated complexity | **L** |
 | Implemented by | Sole Project Owner. Review lenses: Engineering · Security · Product |
 | Target branch | `feat/hb02-historical-booking-domain-api` |
-| Migration in this ticket? | **Yes** — the columns owned here (`is_historical`, `actual_booked_at`, `historical_entry_reason`, `original_source`, `external_reference`) plus the permission seed. Financial and owner columns belong to HB-04/HB-05 |
+| Migration in this ticket? | **Yes** — the provenance columns (`is_historical`, `actual_booked_at`, `historical_entry_reason`, `original_source`, `external_reference`), the `booking_original_sources` vocabulary table and its seed, the `idempotency_keys` table, and the `bookings:record_historical` permission seed. Financial columns belong to HB-04, owner columns and the `bookings:override_owner` seed to HB-05 |
 
 **Scope sentence.** HB-02 delivers the *skeleton of truth*: a dedicated command, a dedicated endpoint, a
 dedicated permission, the historical provenance columns, direct-to-`Completed` creation, one truthful audit
-row, and one transaction that everything else later hangs off. It deliberately does **not** own conflict
-detection (HB-03), money (HB-04), or owner attribution semantics (HB-05) — but it defines the contract slots
-those tickets fill.
+row, the idempotency contract for its own endpoint, and one transaction that everything else later hangs
+off. It deliberately does **not** own conflict detection (HB-03), the extended financial snapshot or
+payments (HB-04), or owner override (HB-05) — but it defines the contract slots those tickets fill.
+
+**Two boundaries are easy to misread, so they are stated once here and enforced throughout.** HB-02 captures
+the operator's raw `agreedAmount` because a booking cannot be created without an amount — it does **not**
+own the immutable financial snapshot, which is HB-04's
+([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary)). HB-02 resolves the *current* unit owner
+deterministically and refuses when ownership is uncertain — it accepts **no** owner field from the caller,
+and override is HB-05's ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)).
 
 ---
 
@@ -122,12 +129,17 @@ not repeated. This section records the **additional** evidence HB-02 needed and 
 | E-20 | `Unit`, `Client` and `Owner` all carry a global soft-delete query filter | `CONFIRMED` | `UnitConfiguration.cs:81`, `ClientConfiguration.cs:13`, `OwnerConfiguration.cs:13`. Distinguishing "not found" from "soft-deleted" requires `IgnoreQueryFilters()` |
 | E-21 | Services are registered scoped in `Program.cs` alongside the existing booking services | `CONFIRMED` | `Program.cs:283-285` |
 | E-22 | The `bookings` table has no historical, provenance, currency, fee, tax or commission column of any kind | `CONFIRMED` | `db/migrations/0016_create_bookings.sql:1-16`; `RentalPlatform.Data/Entities/Booking.cs` |
+| E-23 | A booking-source vocabulary **already exists**, but it is a *contact-channel* taxonomy fixed by a CHECK constraint with no label and no active/inactive concept | `CONFIRMED` | `db/migrations/0016_create_bookings.sql:24` — `ck_bookings_source CHECK (source IN ('direct','admin','phone','whatsapp','website'))`; duplicated at `db/migrations/0018_create_crm_leads.sql:23` and hard-coded at `BookingService.cs:23` and `CrmLeadService.cs:22`. There is **no** lookup table for it anywhere |
+| E-24 | Client phone identity is normalised by stripping a leading `+`, validated against `^\+?\d{10,15}$`, and a duplicate raises `ConflictException` | `CONFIRMED` | `ClientService.cs:23` (regex), `:198` (`NormalizePhoneIdentity(phone) => phone.TrimStart('+')`), `:72-76` (duplicate probe and throw). The database also enforces `ux_clients_phone` UNIQUE on the raw column (`db/migrations/0005_create_clients.sql:61`) |
+| E-25 | Booking money is `DECIMAL(12,2)` and already constrained non-negative | `CONFIRMED` | `db/migrations/0016_create_bookings.sql:11-12,28-29` — `base_amount`/`final_amount DECIMAL(12,2) NOT NULL` with `ck_bookings_base_amount_non_negative` and `ck_bookings_final_amount_non_negative` (`>= 0`); EF mirrors it at `BookingConfiguration.cs:56,61` (`decimal(12,2)`) |
+| E-26 | **No** idempotency infrastructure exists anywhere in the solution — no table, no header handling, no request-hash store | `CONFIRMED` | A repository-wide grep for `idempotenc` across `*.cs` and `*.sql` returns only a comment in `db/migrations/0001_init_postgres_conventions_rollback.sql:31`. `idempotency_keys` is therefore new in every sense |
+| E-27 | The Cairo business-date expression exists in exactly **one** place and is private to a hosted service — there is no shared, injectable resolver | `CONFIRMED` | `RentalPlatform.API/Services/AutoCompleteBookingsJob.cs:70`, `:137`, `:141`. Nothing in `RentalPlatform.Business` or `RentalPlatform.Shared` exposes it |
 
 ### 5.3 Gaps this ticket inherits
 
 | Gap | Label | Disposition in HB-02 |
 |---|---|---|
-| Client match-or-create algorithm and phone normalisation | Was `BLOCKED` in HB-01 §5.2 | **Partially closed** by E-14/E-15/E-16: the algorithm does not exist. The residual product decision is escalated as `D-HB02-05` |
+| Client match-or-create algorithm and phone normalisation | Was `BLOCKED` in HB-01 §5.2 | **Closed.** E-14/E-15/E-16/E-24 establish that no match-or-create exists and that the platform's existing answer to a known phone is a refusal. [`D-HB02-05`](DECISION_RATIFICATION_PACKET.md#d-hb02-05--client-reference-contract) is `OWNER APPROVED`: exactly-one-of `clientId` / `newClient`, and a known phone is refused with the existing id returned |
 | Portfolio/tenant scoping rules for units and owners | `BLOCKED` | Owned by [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md); HB-02 leaves the scoping call site as an explicit seam |
 | `OwnerPortalBookingService` creation semantics | `BLOCKED` | HB-01. Irrelevant to HB-02 — the historical command is admin-only |
 
@@ -140,7 +152,7 @@ not repeated. This section records the **additional** evidence HB-02 needed and 
 2. A new endpoint, `POST /api/internal/bookings/historical`, gated by the new policy
    `bookings:record_historical`, is its only HTTP surface.
 3. The command rejects anything that is not a fully completed stay under the Cairo boundary (ADR-03),
-   returning `400 historical_stay_not_complete`.
+   returning `400 HISTORICAL_CHECKOUT_NOT_COMPLETED`.
 4. It creates the booking **directly** in `Completed` via the existing `initialStatus` parameter (ADR-04,
    F-06) — never by walking the transition chain.
 5. It writes exactly **one** status-history row: `OldStatus = null`, `NewStatus = "completed"`,
@@ -165,14 +177,23 @@ not repeated. This section records the **additional** evidence HB-02 needed and 
 - `RecordHistoricalBookingCommand` + `HistoricalBookingService` + `IHistoricalBookingService`.
 - `HistoricalBookingsController` (or a new action on `BookingsController` — see `D-HB02-02`) exposing
   `POST /api/internal/bookings/historical`.
-- `PermissionKeys.BookingsRecordHistorical = "bookings:record_historical"` and
-  `PermissionKeys.BookingsOverrideOwner = "bookings:override_owner"`, with descriptors, policies and seed.
-- The Cairo completed-stay boundary evaluation, consuming HB-01's shared resolver.
-- Provenance columns and their CHECK constraints; the reason and original-source allow-lists.
+- `PermissionKeys.BookingsRecordHistorical = "bookings:record_historical"`, with its descriptor, policy and
+  seed. **`bookings:override_owner` is *not* introduced here** — it belongs to HB-05 with the override it
+  gates ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)).
+- **The narrowest Cairo business-date abstraction** the validation needs, created here and consumed by
+  everything downstream ([D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership)).
+- Provenance columns and their constraints; the `historical_entry_reason` allow-list; the
+  `booking_original_sources` vocabulary table, its seed and its foreign key.
+- **The idempotency contract for this endpoint** and the `idempotency_keys` table that backs it
+  ([D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract)).
+- **Deterministic resolution of the current unit owner**, and refusal when ownership is uncertain.
+- **Truthful capture of the operator-supplied `agreedAmount`** into the booking's existing amount columns,
+  never defaulted from current pricing.
 - `BookingHistoryEvents.HistoricalBookingRecorded` and the actor-resolution branch (E-18).
 - The transaction and advisory-lock boundary that HB-03/HB-04/HB-05 plug into.
-- Client resolution for the historical flow (per `D-HB02-05`).
-- Request/response DTOs, FluentValidation validator, error-code plumbing (per `D-HB02-03`).
+- Client resolution for the historical flow (per [`D-HB02-05`](DECISION_RATIFICATION_PACKET.md#d-hb02-05--client-reference-contract)).
+- Request/response DTOs, FluentValidation validator, and the machine-readable error-code transport
+  (per [`D-HB02-03`](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport)).
 - Structured audit event `booking.historical.recorded` and the creation/rejection metrics.
 - Backward-compatibility guarantees for all existing booking responses.
 
@@ -181,8 +202,8 @@ not repeated. This section records the **additional** evidence HB-02 needed and 
 | Excluded | Owner |
 |---|---|
 | Historical conflict detection including `Completed`/`LeftEarly`, duplicate detection, inactive-unit lookup | [HB-03](03_TICKET_AVAILABILITY_CONFLICTS_AND_DUPLICATE_PROTECTION.md) |
-| `agreed_amount`, the repricing guard, payment semantics, invoice consequences | [HB-04](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md) |
-| Owner review, override policy, commission snapshot columns, correction workflow | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) |
+| The immutable extended financial snapshot (`bookings.agreed_amount` and its constraint), the repricing guard, payment semantics, payment evidence, fees, taxes, discounts, invoice consequences | [HB-04](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md) |
+| Explicit owner confirmation, owner **override** and its `bookings:override_owner` permission, mandatory override reason, previous/selected owner audit, commission snapshot columns, payout implications, correction workflow | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) |
 | The portal wizard | [HB-06](06_TICKET_HISTORICAL_BOOKING_WIZARD_UI.md) |
 | The exhaustive side-effect assertion matrix | [HB-07](07_TICKET_NOTIFICATIONS_AUTOMATIONS_AND_INTEGRATIONS.md) |
 | Reporting stay-period dimension | [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) |
@@ -195,34 +216,99 @@ not repeated. This section records the **additional** evidence HB-02 needed and 
 
 | # | Assumption | Label | If false |
 |---|---|---|---|
-| A-HB02-1 | HB-01's shared Cairo business-date resolver exists and is injectable | `INFERRED` | HB-02 must create it, and HB-01 must consume it — do not write a second copy (`RISK-08`) |
+| A-HB02-1 | ~~HB-01's shared Cairo business-date resolver exists and is injectable~~ **Withdrawn.** E-27 proves no shared resolver exists. **HB-02 creates it** — see [D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership) | `CONFIRMED` — E-27 | n/a; the assumption has been replaced by an owned deliverable |
 | A-HB02-2 | `Completed` remains terminal, so nothing can later transition a historical booking | `CONFIRMED` — `BookingStatusTransitions.cs:18` | Re-open the audit-truthfulness design |
 | A-HB02-3 | Composing `CreateAsync` inside an outer transaction is safe | `CONFIRMED` by precedent — `GuestBookingService.cs:39-76` does exactly this via `CreateQuickAsync` | Inline the insert instead of composing |
-| A-HB02-4 | Single currency; fees and taxes fold into the agreed total | `PROPOSED` — [OQ-05](00_MASTER_PLAN.md#32-open-questions), [OQ-06](00_MASTER_PLAN.md#32-open-questions) | The request contract gains a currency field and HB-04 grows |
+| A-HB02-4 | Single currency; fees and taxes fold into the agreed total | `OWNER APPROVED` as a deferral — [OQ-05](DECISION_RATIFICATION_PACKET.md#oq-05--currency-model), [OQ-06](DECISION_RATIFICATION_PACKET.md#oq-06--fee-tax-and-discount-model) are both **`DEFERRED`** with recorded risk and revisit triggers | The request contract gains a currency field and HB-04 grows. Additive, so not a v1 blocker |
 | A-HB02-5 | The historical flow is admin-only; no client, owner-portal or storefront surface | `PROPOSED` | New authorization analysis required |
-| A-HB02-6 | Adding a nullable field to `ApiResponse` is backward-compatible for both portals | `INFERRED` — additive JSON property | Use the `errors[0]` carrier fallback in `D-HB02-03` |
+| A-HB02-6 | Adding a nullable field to `ApiResponse` is backward-compatible for both portals | `INFERRED` — additive JSON property; every existing field is preserved and every existing factory overload keeps its signature | Nothing in HB-02 changes: [`D-HB02-03`](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport) explicitly **forbids** the `errors[0]` carrier, so there is no fallback to fall back to. A genuine incompatibility would be a defect to fix, not a contract to renegotiate |
 
 ---
 
-## 10. Decision-required items
+## 10. Decisions
 
-Structured per the pack convention: none of these may be left implicit.
+**Every decision in this ticket is settled.** There is no `DECISION REQUIRED` item, no `TBD`, and no
+unresolved alternative anywhere in HB-02. Decision authority for every row is the **Sole Project Owner**
+(`Hozaifa Almelli`, 2026-07-29). The **Review lens** column names the perspectives applied — it is not a
+list of separate approvers.
 
-Decision authority for every row is the **Sole Project Owner** (2026-07-29). The **Review lens** column
-names the perspectives applied — it is not a list of separate approvers.
+Eight decisions were escalated to the [decision record](DECISION_RATIFICATION_PACKET.md) because they change
+a shared contract or a cross-ticket boundary; those carry a link. The remaining six are local to HB-02 and
+are recorded here in full.
 
-| ID | Decision | Reason it is open | Impact if unresolved | Recommended default | Review lens | Blocking? |
-|---|---|---|---|---|---|---|
-| D-HB02-01 | Confirm the concrete route as `POST /api/internal/bookings/historical` | [Master §12](00_MASTER_PLAN.md#12-api-and-command-design) writes `/api/internal/bookings/historical`, but the verified controller prefix is `api/internal/bookings` (E-1) | Portal client calls a 404 route | **Adopt `POST /api/internal/bookings/historical`**; treat the Master Plan string as shorthand and correct it there | Engineering | **Yes** |
-| D-HB02-02 | New `HistoricalBookingsController`, or a new action on `BookingsController`? | Both satisfy the routing; they differ in reviewability | Cosmetic drift, muddled ownership | **New `HistoricalBookingsController` with `[Route("api/internal/bookings")]` and `[HttpPost("historical")]`** — keeps the privileged path visually separate and gives HB-07 one file to assert against | Engineering | No |
-| D-HB02-03 | How does a machine-readable error code reach the client, given E-4? | The envelope has no code field | The whole [Master §12](00_MASTER_PLAN.md#12-api-and-command-design) error contract is undeliverable; the wizard cannot branch on failure type | **Add a nullable `Code` property to `ApiResponse`/`ApiResponse<T>` and a `Code` property on the business exception base**, populated by `ExceptionHandlingMiddleware`. Purely additive; existing consumers ignore it. Fallback if rejected: emit the code as `errors[0]` | Engineering | **Yes** |
-| D-HB02-04 | How is `403 owner_override_forbidden` produced, given there is no 403 branch (E-5)? | Policy-based 403s carry no body; the override check is a service-layer decision | Override refusals surface as 500 or as a misleading 400 | **Introduce `ForbiddenBusinessException` and map it to 403 in the middleware**; the service throws it when override is requested without `bookings:override_owner` | Engineering · Security | **Yes** |
-| D-HB02-05 | Client resolution: match-and-reuse an existing client by normalised phone, create a new one, or require an explicit `clientId`? | E-14/E-15/E-16 prove no match-or-create exists and that the closest behaviour *rejects* on duplicate phone | Either duplicate client records (`RISK-12`) or an operator dead-end when the guest already exists | **Two-field contract: the caller supplies either `clientId` (already resolved by the wizard's client search) or a `newClient` block. If `newClient`'s normalised phone already exists, return `409 client_already_exists` carrying the existing `clientId` so the wizard can re-submit with it.** No silent match, no silent duplicate | Product · Engineering | **Yes** |
-| D-HB02-06 | Ratify the `original_source` allow-list (§15.3) | Master §25 lists the allow-lists as *Proposed* | CHECK constraint churn after data exists | Adopt §15.3 as written | Product · Finance | **Yes** |
-| D-HB02-07 | Is `actual_booked_at` a `DATE` or a `TIMESTAMP`? | [Master §11](00_MASTER_PLAN.md#11-proposed-data-model) specifies `DATE` | Timezone ambiguity if it becomes a timestamp later | **Keep `DATE`** — it is a business fact about a day, and `DATE` inherits the timezone-free property of the stay dates | Engineering | No |
-| D-HB02-08 | Must `actual_booked_at` be `<= check_in_date`? | Agreeing a booking after the stay began is operationally possible but usually a typo | Silent data-quality erosion | **Enforce `actual_booked_at <= check_in_date` as a 400**, with the message naming the two dates. Revisit only if Ops produces a real counter-example | Product | No |
-| D-HB02-09 | Which role templates receive `bookings:record_historical`? | Inherited from HB-01 `D-05` | Either nobody can use the feature or everybody can | **SuperAdmin at migration time only**; further grants performed through the RBAC admin UI during pilot | Security · Operations | No |
-| D-HB02-10 | Does `bookings:record_historical` imply `bookings:write`? | The policies are independent claims (E-6) | A role may be able to record history but not read it back | **No implication. Grant `bookings:read` alongside it**; document the pairing in the rollout checklist | Security | No |
+### 10.1 Ratified decisions
+
+| ID | Subject | **Ratified decision** | Review lens | Status |
+|---|---|---|---|---|
+| [D-HB02-01](#d-hb02-01) | Concrete route | **`POST /api/internal/bookings/historical`.** The verified controller prefix is `api/internal/bookings` (E-1) and routes are lowercased globally (E-2). The Master Plan string is the same route, and [Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract) is the normative statement of it | Engineering | **`OWNER APPROVED`** |
+| [D-HB02-02](#d-hb02-02) | Controller placement | **New `HistoricalBookingsController` with `[Route("api/internal/bookings")]` and `[HttpPost("historical")]`.** Keeps the privileged path visually separate and gives HB-07 one file to assert against | Engineering | **`OWNER APPROVED`** |
+| [D-HB02-03](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport) | Machine-readable error transport | **Add an optional `Code` to the shared `ApiResponse` contract**, populated from coded business exceptions by `ExceptionHandlingMiddleware`. Every existing field is preserved; human-readable `message` remains; the code is **never** encoded inside `errors[0]`; unrelated endpoints are not required to migrate. Full contract in §14.4 | Engineering · Product | **`OWNER APPROVED`** |
+| [D-HB02-04](DECISION_RATIFICATION_PACKET.md#d-hb02-04--producing-a-403-for-an-owner-override-refusal) | Producing a `403` for an owner-override refusal | **Not applicable to HB-02, and therefore not built here.** HB-02 accepts no owner field at all ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)), so an override can never be *requested* on this endpoint and no override refusal can arise. `ForbiddenBusinessException` and the middleware's `403` branch move to **HB-05**, which owns the override. HB-02's own uncertainty path is `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` via the existing `ConflictException` branch — no new middleware branch is required. See §10.2 | Engineering · Security | **`OWNER APPROVED`** |
+| [D-HB02-05](DECISION_RATIFICATION_PACKET.md#d-hb02-05--client-reference-contract) | Client reference contract | **Exactly one of `clientId` or `newClient`.** Both or neither ⇒ `400 CLIENT_REFERENCE_INVALID`. Unknown `clientId` ⇒ `404 CLIENT_NOT_FOUND`. A `newClient` whose normalised phone already belongs to a client ⇒ `409 CLIENT_PHONE_ALREADY_EXISTS` carrying `existingClientId`; **no duplicate is created, and no silent reuse or merge occurs**. Full rules in §14.2 | Product · Engineering | **`OWNER APPROVED`** |
+| [D-HB02-06](DECISION_RATIFICATION_PACKET.md#d-hb02-06--original_source-vocabulary) | `original_source` vocabulary | **Database-backed lookup table `booking_original_sources(code, label, is_active)`, seeded with exactly `legacy_system`, `external_platform`, `offline_record`, `other`**, with `bookings.original_source` a foreign key to it. Free text is unrepresentable. An unknown *or inactive* code ⇒ `400 ORIGINAL_SOURCE_INVALID`. The existing `ck_bookings_source` channel vocabulary was inspected and is **not** reused — see §15.3 | Product · Finance · Engineering | **`OWNER APPROVED`** |
+| [D-HB02-07](#d-hb02-07) | `actual_booked_at` type | **`DATE`.** It is a business fact about a day, and `DATE` inherits the timezone-free property of the stay dates | Engineering | **`OWNER APPROVED`** |
+| [D-HB02-08](#d-hb02-08) | `actual_booked_at <= check_in_date`? | **Yes, enforced as `400 VALIDATION_ERROR`** with a message naming both dates. Revisited only if Operations produces a real counter-example | Product | **`OWNER APPROVED`** |
+| [D-HB02-09](#d-hb02-09) | Initial grant of `bookings:record_historical` | **SuperAdmin at migration time only**; further grants performed through the RBAC admin UI during the pilot | Security · Operations | **`OWNER APPROVED`** |
+| [D-HB02-10](#d-hb02-10) | Does it imply `bookings:write`? | **No implication.** Grant `bookings:read` alongside it and document the pairing in the rollout checklist | Security | **`OWNER APPROVED`** |
+| [D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract) | Idempotency ownership and contract | **HB-02 owns `idempotency_keys` and the command's idempotency contract.** The `Idempotency-Key` header is **required**. Full contract in §19 | Engineering · Operations | **`OWNER APPROVED`** |
+| [D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary) | Financial truth boundary | **HB-02 requires `agreedAmount` and persists it verbatim** into the booking's existing amount columns; it is never defaulted from current pricing. HB-02 creates no invoice, payment, payout, fee, tax, discount or extended snapshot. HB-04 owns all of those | Finance · Engineering | **`OWNER APPROVED`** |
+| [D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary) | Owner attribution boundary | **HB-02 resolves the current unit owner from trusted repository state and accepts no owner field from the caller.** Deterministic single owner ⇒ use and persist it. Absent, multiple, ambiguous, or needing historical correction ⇒ `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`. Override is HB-05's, added additively | Finance · Security · Product | **`OWNER APPROVED`** |
+| [D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership) | Cairo business-date ownership | **HB-02 creates the narrowest repository-consistent Cairo business-date abstraction** required for deterministic validation of `check_out_date <= Cairo business date − 1`. This is no longer a readiness blocker, and it is explicitly **not** an application-wide time redesign | Engineering · Operations | **`OWNER APPROVED`** |
+
+### 10.2 D-HB02-04 in full — the subject, and why it dissolves
+
+The original question was narrow and specific:
+
+> **How is `403 OWNER_OVERRIDE_FORBIDDEN` produced, given that `ExceptionHandlingMiddleware` has no `403`
+> branch (E-5)?**
+
+It was a *transport* question about one error, not a policy question about ownership. The recommended answer
+at the time was to introduce `ForbiddenBusinessException` and add a fifth branch to the middleware switch.
+
+That answer is now wrong for HB-02, for a reason that has nothing to do with transport:
+[D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary) removes the owner override from the HB-02 request
+contract entirely. There is no `ownerAttribution` object and no `ownerId` field. **An override cannot be
+requested on this endpoint, so an override refusal cannot occur on this endpoint**, and building the
+mechanism that reports one would be building HB-05's behaviour inside HB-02 — precisely what the ticket
+boundaries exist to prevent.
+
+The smallest repository-consistent resolution is therefore to build nothing:
+
+| Question | Resolution |
+|---|---|
+| Does HB-02 introduce `ForbiddenBusinessException`? | **No.** It is removed from §13 and from the task list |
+| Does HB-02 add a `403` branch to `ExceptionHandlingMiddleware`? | **No.** The middleware's four typed branches (E-5) are sufficient for every HB-02 error, because every HB-02 error is a `400`, `404` or `409` |
+| How does HB-02 report uncertain ownership, then? | `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`, thrown as `ConflictException`, which already maps to `409` at `ExceptionHandlingMiddleware.cs:53-56`. **No new exception type and no new middleware branch** |
+| Where does the `403` mechanism go? | **HB-05**, together with `bookings:override_owner`, the override field, the mandatory reason and the override audit. HB-05 introduces the exception type and the branch when it introduces the thing that throws it |
+| Is the `403` from a *missing* `bookings:record_historical` affected? | **No.** That `403` is produced by the authorization policy before the action body runs; it carries an empty body and needs no exception type and no code (E-6) |
+
+**Consequence for the middleware diff.** HB-02 touches `ExceptionHandlingMiddleware` for exactly one reason
+— propagating the new `Code` (D-HB02-03). The status-mapping switch is unchanged.
+
+### 10.3 Decision detail for the locally-owned rows
+
+<a id="d-hb02-01"></a>**D-HB02-01 — route.** [Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract)
+is normative and already carries this route and `200 OK`. Nothing in HB-02 diverges from it.
+
+<a id="d-hb02-02"></a>**D-HB02-02 — controller placement.** A separate controller costs one file and buys a
+single, greppable location for the privileged path. HB-07 asserts against that file; a security reviewer
+reads one attribute list rather than scanning `BookingsController`.
+
+<a id="d-hb02-07"></a>**D-HB02-07 — `actual_booked_at` is `DATE`.** Consistent with `check_in_date` and
+`check_out_date`, both `DATE` (`db/migrations/0016_create_bookings.sql`), and with
+[Master §11](00_MASTER_PLAN.md#11-proposed-data-model). A timestamp would reintroduce the timezone question
+that ADR-03 exists to settle.
+
+<a id="d-hb02-08"></a>**D-HB02-08 — `actual_booked_at <= check_in_date`.** Agreeing a booking after the stay
+began is operationally possible but overwhelmingly a typo. Rejecting it costs an operator one correction;
+accepting it silently corrupts the agreement-date dimension that Finance will reconcile against.
+
+<a id="d-hb02-09"></a>**D-HB02-09 — initial grant.** Seeding only SuperAdmin means the endpoint is live but
+unusable by anyone else until a deliberate grant. That is the pilot control described in §24.
+
+<a id="d-hb02-10"></a>**D-HB02-10 — no implied `bookings:write`.** Policies are independent claims (E-6). A
+role that can record history but cannot read bookings back is a usability trap, so `bookings:read` is
+granted alongside — but as a *documented pairing*, not as an implication in code.
 
 ---
 
@@ -331,12 +417,32 @@ var completedAfterCheckoutCutoff = DateOnly.FromDateTime(cairoNow).AddDays(-1);
 | Rule | Where | Why there |
 |---|---|---|
 | Resolve the Cairo business date **once** per request | `HistoricalBookingService`, first statement of the handler | A single evaluation makes the midnight-boundary case deterministic (`RISK-08`, `SC-DATE-07`) |
-| `checkOutDate <= cairoToday.AddDays(-1)` else `400 historical_stay_not_complete` | `HistoricalBookingService`, before any I/O | Free of side effects; fails fast; keeps the rule out of per-DTO validators where it would drift |
+| `checkOutDate <= cairoToday.AddDays(-1)` else `400 HISTORICAL_CHECKOUT_NOT_COMPLETED` | `HistoricalBookingService`, before any I/O | Free of side effects; fails fast; keeps the rule out of per-DTO validators where it would drift |
 | `checkOutDate > checkInDate` | FluentValidation **and** `BookingService.ValidateStayDates` (`:463-467`) | Already enforced twice, plus `ck_bookings_valid_stay_range` |
 | Never use `DateTime.Now` / `DateTime.Today` | Everywhere | Container local time is not Cairo (NAC-HB01-08) |
 
-The boundary must come from HB-01's shared resolver (A-HB02-1). Two copies of this expression is the single
-most likely way this feature develops a silent off-by-one.
+**HB-02 creates the resolver** ([D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership)). E-27 proves
+none exists: the expression lives once, privately, inside a hosted service. The narrowest thing that makes
+the validation deterministic and testable is a single injectable abstraction in `RentalPlatform.Business`
+exposing the current Cairo business date:
+
+```csharp
+// PROPOSED — the whole abstraction. Nothing else changes.
+public interface IBusinessClock
+{
+    DateOnly CairoToday();      // DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Cairo))
+}
+```
+
+| Constraint on the abstraction | Why |
+|---|---|
+| It exposes the **business date only** — no general clock, no `Now`, no `UtcNow` wrapper | The decision authorises the narrowest thing that makes validation deterministic, explicitly **not** an application-wide time redesign |
+| It reuses the identical timezone lookup already proven at `AutoCompleteBookingsJob.cs:137,141` (`Africa/Cairo`, falling back to `Egypt Standard Time`) | One definition of the Cairo day, not two |
+| `AutoCompleteBookingsJob` is **not** refactored to consume it in HB-02 | That job is on the explicitly-unchanged list in §13. Converging the job onto the shared abstraction is HB-08's, alongside the rest of the observability work |
+| It is injected, never `static` | The boundary tests in §29 set the business date directly rather than waiting for midnight |
+
+Two copies of this expression is the single most likely way this feature develops a silent off-by-one, which
+is why the abstraction is a deliverable rather than a convenience.
 
 ### 11.5 Transaction ownership (REQ-19 / INV-05)
 
@@ -345,20 +451,31 @@ most likely way this feature develops a silent off-by-one.
 transaction**. Proposed ordering, following the `GuestBookingService.cs:39-76` precedent:
 
 ```
+cairoToday = clock.CairoToday()                       -- once, BEFORE the transaction (D-HB02-CAL)
+boundary + shape checks                               -- side-effect free, fail fast
+
 BEGIN TRANSACTION                                     (IUnitOfWork.BeginTransactionAsync)
   AcquireTransactionAdvisoryLockAsync("booking-unit:{unitId:N}")   -- same key as the normal flow
+  claim the idempotency key                           (D-HB02-IDEM; in-transaction INSERT)
   resolve unit            (HB-03 owns inactive/soft-deleted rules)
   duplicate scan          (HB-03)
   historical conflict scan incl. Completed + LeftEarly (HB-03)
   resolve client          (D-HB02-05)
-  resolve owner + snapshot (HB-05)
+  resolve current unit owner, or refuse               (D-HB02-OWN)
+  validate original_source is known AND active        (D-HB02-06)
   BookingService.CreateAsync(initialStatus: Completed, ...)        -- flushes (E-12)
-  apply historical columns + protected amount (HB-04)
+  apply provenance columns + the operator's agreedAmount (D-HB02-AMT)
   rewrite the history row's note                                   (§11.3 option a)
-  insert payment if supplied (HB-04)
+  complete the idempotency record with the booking id (D-HB02-IDEM)
   SaveChangesAsync
 COMMIT
 ```
+
+Two orderings inside that block are load-bearing rather than stylistic. The **idempotency key is claimed
+first**, immediately after the lock, so that a replay is detected before any scan runs and before any row is
+written; and the **idempotency record is completed in the same transaction as the booking insert**, so a
+rolled-back attempt leaves no key behind and the retry is clean (D-HB02-IDEM). Neither may be reordered for
+convenience.
 
 The advisory-lock key **must** be the identical string used by the normal flow
 (`$"booking-unit:{unitId:N}"`, `BookingService.cs:332`) and by `BookingLifecycleService`. A different key
@@ -373,32 +490,39 @@ graph TD
         HC["HistoricalBookingsController<br/>POST api/internal/bookings/historical"]
         VAL["RecordHistoricalBookingRequestValidator<br/>(FluentValidation)"]
         POL["Policy bookings:record_historical<br/>Program.cs:220-227"]
-        MW["ExceptionHandlingMiddleware<br/>+ ForbiddenBusinessException (D-HB02-04)"]
+        MW["ExceptionHandlingMiddleware<br/>+ Code propagation (D-HB02-03)"]
     end
     subgraph Business
         HS["HistoricalBookingService<br/>owns transaction + boundary"]
-        CAL["Cairo business-date resolver<br/>(shared, from HB-01)"]
+        CAL["IBusinessClock — Cairo business date<br/>(created here, D-HB02-CAL)"]
         BS["BookingService.CreateAsync<br/>reused unchanged"]
         CS["ClientService<br/>reused (D-HB02-05)"]
         H3["HB-03 conflict + duplicate checks"]
-        H4["HB-04 amount + payment"]
-        H5["HB-05 owner + commission"]
+        OWN["Current-owner resolution<br/>(D-HB02-OWN)"]
+        IDM["Idempotency claim + completion<br/>(D-HB02-IDEM)"]
+        H4["HB-04 snapshot + payment (later)"]
+        H5["HB-05 owner override (later)"]
     end
     subgraph Data
         BK[("bookings<br/>+ provenance columns")]
         BH[("booking_status_history")]
-        PM[("payments")]
+        SRC[("booking_original_sources<br/>vocabulary")]
+        IDK[("idempotency_keys")]
     end
 
     HC --> VAL --> HS
     POL -.gates.-> HC
     HS -.throws.-> MW
     HS --> CAL
-    HS --> H3 & H4 & H5
+    HS --> H3
+    HS --> OWN & IDM
     HS --> CS
     HS --> BS --> BK
     BS --> BH
-    H4 --> PM
+    HS --> SRC
+    IDM --> IDK
+    H4 -.later.-> BK
+    H5 -.later.-> BK
 ```
 
 ---
@@ -413,7 +537,7 @@ sequenceDiagram
     participant AZ as Policy bookings:record_historical
     participant FV as FluentValidation
     participant HS as HistoricalBookingService
-    participant CAL as Cairo date resolver
+    participant CAL as IBusinessClock (Cairo)
     participant DB as PostgreSQL
     participant BS as BookingService.CreateAsync
 
@@ -421,31 +545,35 @@ sequenceDiagram
     API->>AZ: perm claim check (subjectType=admin)
     AZ-->>API: 403 forbidden if absent
     API->>FV: shape validation (dates, enums, lengths)
-    FV-->>API: 400 validation_error if invalid
+    FV-->>API: 400 VALIDATION_ERROR if invalid
     API->>HS: RecordHistoricalBookingCommand(+ actorAdminUserId from claims)
     HS->>CAL: cairoToday (resolved once)
     CAL-->>HS: DateOnly
     HS->>HS: checkOut <= cairoToday - 1 ?
-    HS-->>API: 400 historical_stay_not_complete
+    HS-->>API: 400 HISTORICAL_CHECKOUT_NOT_COMPLETED
     HS->>HS: actualBookedAt <= checkIn ? (D-HB02-08)
     HS->>DB: BEGIN
     HS->>DB: pg_advisory_xact_lock("booking-unit:{unitId:N}")
+    HS->>DB: claim Idempotency-Key + request hash (D-HB02-IDEM)
+    DB-->>HS: replay ⇒ original 200 · hash mismatch ⇒ 409 IDEMPOTENCY_KEY_REUSED
     HS->>DB: unit lookup (HB-03: inactive OK, soft-deleted rejected)
     HS->>DB: duplicate + historical-overlap scans (HB-03)
-    DB-->>HS: 409 historical_duplicate_booking / historical_overlap_conflict
+    DB-->>HS: 409 HISTORICAL_DUPLICATE_BOOKING / HISTORICAL_OVERLAP_CONFLICT
     HS->>DB: client resolve or create (D-HB02-05)
-    HS->>HS: owner attribution + commission snapshot (HB-05)
+    HS->>DB: resolve current unit owner (D-HB02-OWN)
+    DB-->>HS: 409 OWNER_ATTRIBUTION_REQUIRES_REVIEW if not deterministic
+    HS->>DB: original_source known AND active ? (D-HB02-06)
     HS->>BS: CreateAsync(initialStatus: Completed, source, ...)
     BS->>DB: INSERT bookings (CreatedAt = UtcNow)
     BS->>DB: INSERT booking_status_history (Notes = "Booking created")
     BS->>DB: SaveChanges (flush, not commit)
-    HS->>DB: apply provenance columns + agreed amount (HB-04)
+    HS->>DB: apply provenance columns + operator agreedAmount (D-HB02-AMT)
     HS->>DB: rewrite history note to HistoricalBookingRecorded
-    HS->>DB: INSERT payment (PaidAt = historical) [optional, HB-04]
+    HS->>DB: complete idempotency record with booking id (D-HB02-IDEM)
     HS->>DB: COMMIT
     HS-->>API: booking aggregate
     API-->>OP: 200 ApiResponse<HistoricalBookingResponse>
-    Note over HS,DB: No TransitionAsync call ⇒ no invoice, no notification.<br/>Status is Completed ⇒ AutoCompleteBookingsJob never selects it.
+    Note over HS,DB: No TransitionAsync call ⇒ no invoice, no notification.<br/>Status is Completed ⇒ AutoCompleteBookingsJob never selects it.<br/>No payment, payout, fee, tax or discount is written by this command.
 ```
 
 ---
@@ -462,22 +590,29 @@ sequenceDiagram
 | `RentalPlatform.API/Validators/HistoricalBookingValidators.cs` | Shape validation, enum allow-lists | **New** |
 | `RentalPlatform.API/Authorization/PermissionKeys.cs` | Two constants **and** two descriptors (E-7) | Edit |
 | `RentalPlatform.API/Models/ApiResponse.cs` | Nullable `Code` (D-HB02-03) | Edit |
-| `RentalPlatform.API/Middleware/ExceptionHandlingMiddleware.cs` | Code propagation; `ForbiddenBusinessException` → 403 (D-HB02-04) | Edit |
+| `RentalPlatform.API/Middleware/ExceptionHandlingMiddleware.cs` | `Code` propagation only (D-HB02-03). **The status-mapping switch is unchanged** — no `403` branch is added here (D-HB02-04, §10.2) | Edit |
 | `RentalPlatform.API/Controllers/BookingsController.cs` | `ResolveHistoryActor` branch (E-18); optionally surface `isHistorical` in existing responses | Edit |
 | `RentalPlatform.API/Program.cs` | DI registration next to `:283-285` | Edit |
 | `RentalPlatform.Business/Services/HistoricalBookingService.cs` | The command handler and transaction owner | **New** |
 | `RentalPlatform.Business/Interfaces/IHistoricalBookingService.cs` | Interface | **New** |
 | `RentalPlatform.Business/Models/RecordHistoricalBookingCommand.cs` | Command + result records | **New** |
-| `RentalPlatform.Business/Exceptions/ForbiddenBusinessException.cs` | Typed 403 | **New** |
-| `RentalPlatform.Business/Exceptions/` (existing types) | Add a `Code` property to the base | Edit |
+| ~~`RentalPlatform.Business/Exceptions/ForbiddenBusinessException.cs`~~ | **Not created in HB-02.** Moves to HB-05 with the override that throws it (D-HB02-04, §10.2) | — |
+| `RentalPlatform.Business/Exceptions/IBusinessErrorCode.cs` | The one-member interface carrying `Code` | **New** |
+| `RentalPlatform.Business/Exceptions/` (the four existing types) | Implement `IBusinessErrorCode` via an additive optional `code` argument; **every existing constructor keeps its signature** (D-HB02-03) | Edit |
+| `RentalPlatform.Business/Time/IBusinessClock.cs` + implementation | The Cairo business-date abstraction (D-HB02-CAL) | **New** |
+| `RentalPlatform.Business/Services/HistoricalIdempotencyStore.cs` | Claim/complete/replay against `idempotency_keys` (D-HB02-IDEM) | **New** |
+| `RentalPlatform.Data/Entities/IdempotencyKey.cs` + configuration | Entity for the new table | **New** |
+| `RentalPlatform.Data/Entities/BookingOriginalSource.cs` + configuration | Entity for the vocabulary table (D-HB02-06) | **New** |
 | `RentalPlatform.Shared/Constants/BookingHistoryEvents.cs` | `HistoricalBookingRecorded` | Edit |
-| `RentalPlatform.Shared/Constants/` (new) | `HistoricalEntryReasons`, `HistoricalOriginalSources` allow-lists | **New** |
+| `RentalPlatform.Shared/Constants/HistoricalEntryReasons.cs` | The reason allow-list (§15.2) | **New** |
+| `RentalPlatform.Shared/Constants/HistoricalErrorCodes.cs` | The `UPPER_SNAKE_CASE` code constants in §14.4 | **New** |
 | `RentalPlatform.Data/Entities/Booking.cs` | Five provenance properties | Edit |
 | `RentalPlatform.Data/Configurations/BookingConfiguration.cs` | Column mappings + max lengths | Edit |
-| `db/migrations/00NN_add_historical_booking_columns.sql` (+ `_verify`, `_rollback`) | Provenance columns, CHECKs, partial indexes, permission seed | **New** |
+| `db/migrations/00NN_add_historical_booking_columns.sql` (+ `_verify`, `_rollback`) | Provenance columns, CHECKs, `booking_original_sources` + seed + FK, `idempotency_keys`, the `bookings:record_historical` seed | **New** |
 | `RentalPlatform.Tests/` | Unit + service tests per §29 | Edit |
 
-**Explicitly unchanged:** `BookingService.CreateAsync` body, `UnitAvailabilityService`,
+**Explicitly unchanged:** `ck_bookings_source` and the `bookings.source` channel vocabulary (NAC-HB02-08),
+`BookingService.CreateAsync` body, `UnitAvailabilityService`,
 `BookingLifecycleService`, `AutoCompleteBookingsJob`, `NotificationDispatchService`, `InvoiceService`,
 `OwnerPayoutService`, and every existing validator. If a diff touches any of these, treat it as a stop
 condition (§36).
@@ -494,35 +629,118 @@ condition (§36).
 | Policy | `bookings:record_historical` |
 | Auth subject | `subjectType=admin` only (E-6) |
 | Success | `200 OK`, `ApiResponse<HistoricalBookingResponse>` (E-3) |
-| Idempotency | Optional `Idempotency-Key` request header — see §19 |
+| Idempotency | **`Idempotency-Key` request header — REQUIRED.** A client-generated UUID. See §19 ([D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract)) |
 | Content type | `application/json`, camelCase (per middleware serializer options) |
 
 ### 14.2 Request contract — `RecordHistoricalBookingRequest`
 
+**This table is the canonical HB-02 request.** Every example, scenario, acceptance criterion and wizard
+mapping in this pack must agree with it.
+
 | Field | Type | Req. | Constraint | Owner |
 |---|---|---|---|---|
 | `unitId` | `Guid` | Yes | Non-empty; must resolve (inactive permitted, soft-deleted rejected) | HB-02 / HB-03 |
-| `clientId` | `Guid?` | Cond. | Exactly one of `clientId` / `newClient` | HB-02 |
-| `newClient` | `object?` | Cond. | `{ name, phone, email? }`; phone 10–15 digits, optional leading `+` (mirrors `BookingValidators.cs` guest rule) | HB-02 |
+| `clientId` | `Guid?` | **Exactly one of** | Mutually exclusive with `newClient` — see the client rules below | HB-02 |
+| `newClient` | `object?` | **`clientId` / `newClient`** | `{ name, phone, email? }`; phone validated and normalised by the existing repository behaviour (E-24) | HB-02 |
 | `checkInDate` | `DateOnly` | Yes | `< checkOutDate` | HB-02 |
-| `checkOutDate` | `DateOnly` | Yes | `<= cairoToday − 1` | HB-02 |
+| `checkOutDate` | `DateOnly` | Yes | `<= cairoToday − 1` (D-CAL-01) | HB-02 |
 | `guestCount` | `int` | Yes | `> 0`, `<= unit.MaxGuests` (`BookingService.cs:184-186` → 400) | HB-02 |
 | `actualBookedAt` | `DateOnly` | Yes | Not in the future; `<= checkInDate` (D-HB02-08) | HB-02 |
 | `historicalEntryReason` | `string` | Yes | Allow-list §15.2 | HB-02 |
-| `historicalEntryNote` | `string?` | Cond. | Required and ≥ 10 chars when reason is `other`; max 1000 | HB-02 |
-| `originalSource` | `string` | Yes | Allow-list §15.3 | HB-02 |
+| `historicalEntryNote` | `string?` | Cond. | Required and >= 10 chars when reason is `other`; max 1000 | HB-02 |
+| `originalSource` | `string` | Yes | Must be a **known and active** code in `booking_original_sources` (§15.3) | HB-02 |
 | `externalReference` | `string?` | No | Max 100; trimmed; unique among historical bookings when present | HB-02 / HB-03 |
-| `agreedAmount` | `decimal` | Yes | `>= 0`, 2dp | **HB-04** |
-| ~~`payment`~~ | — | **Absent** | **Not part of this contract.** [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) is `OWNER APPROVED` for a separate privileged command, so no payment object is accepted here. Sending one is an unknown field and is rejected. The shape it would have had is specified in [HB-04 §11.4](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#114-historical-payment-recording) | **HB-04** |
-| `ownerAttribution` | `object` | Yes | `{ confirmedOwnerId, overrideReason?, overrideNote? }`; explicit confirmation is mandatory (INV-17) | **HB-05** |
+| `agreedAmount` | `decimal` | **Yes** | The **exact operator-supplied historical agreed amount**. `>= 0` (zero is valid), `decimal(12,2)` per E-25. **Never defaulted from current unit pricing.** See the financial boundary below | **HB-02** |
 | `assignedAdminUserId` | `Guid?` | No | Must be an active admin (`BookingService.cs:167-173`) | HB-02 |
 | `internalNotes` | `string?` | No | Free text; **never** a carrier for structured data (ADR-06) | HB-02 |
 
-**Fields deliberately absent from the request** (mass-assignment control, INV-01/INV-11/INV-12):
-`createdAt`, `updatedAt`, `bookingStatus`, `ownerId` as a bare field, `createdByAdminUserId`, `isHistorical`,
-`baseAmount`, and any commission or split value. Status is always `Completed`; the actor always comes from
-`ClaimTypes.NameIdentifier` (`BookingsController.cs:244-251` precedent); `is_historical` is always `true` on
-this route; the owner arrives only inside `ownerAttribution`, where HB-05's rules apply.
+Plus one required header:
+
+| Header | Req. | Constraint |
+|---|---|---|
+| `Idempotency-Key` | **Yes** | Client-generated UUID. Absent or malformed ⇒ `400 IDEMPOTENCY_KEY_REQUIRED` (§19) |
+
+#### Client rules (D-HB02-05) — normative
+
+| Situation | Status | Code | Behaviour |
+|---|---|---|---|
+| Both `clientId` **and** `newClient` supplied | `400` | `CLIENT_REFERENCE_INVALID` | Nothing is created |
+| **Neither** supplied | `400` | `CLIENT_REFERENCE_INVALID` | Nothing is created |
+| `clientId` supplied and unknown | `404` | `CLIENT_NOT_FOUND` | Nothing is created |
+| `clientId` supplied and valid | `200` | — | The existing client is reused; **no** client row is created |
+| `newClient` with a phone not already held | `200` | — | One client is created inside the command's transaction |
+| `newClient` whose **normalised phone already belongs to an existing client** | `409` | `CLIENT_PHONE_ALREADY_EXISTS` | **No duplicate is created. The client is not silently reused and not merged.** `existingClientId` is returned in safe internal error metadata, and the caller must retry with that `clientId` |
+
+Phone normalisation and validation are **the existing repository behaviour, reused rather than reimplemented**
+(E-24): validate against `^\+?\d{10,15}$`, compare identity with the leading `+` stripped. HB-02 introduces
+no second phone rule.
+
+Returning `existingClientId` is deliberate and is the reason the refusal is usable rather than a dead end.
+It is safe to return: it is an internal identifier already visible to any operator holding `clients:read`,
+and it carries **no** name, phone or email. The refusal path never discloses guest PII.
+
+#### Fields deliberately absent from the request
+
+Mass-assignment control, INV-01 / INV-11 / INV-12:
+
+| Absent field | Why | Where it lives instead |
+|---|---|---|
+| `createdAt`, `updatedAt` | Real system time only | — |
+| `bookingStatus` | Always `Completed` on this route | — |
+| `isHistorical` | Always `true` on this route | — |
+| `createdByAdminUserId` | The actor always comes from `ClaimTypes.NameIdentifier` (`BookingsController.cs:244-251` precedent) | — |
+| `ownerId`, `ownerAttribution` | **HB-02 accepts no owner input of any kind** ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)). The owner is resolved server-side from the unit | Explicit confirmation and override arrive **additively** with [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) |
+| `payment`, `paymentEvidence` | [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) is `OWNER APPROVED` for a **separate privileged command** | [HB-04 §11.4](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#114-historical-payment-recording) |
+| `fees`, `taxes`, `discounts`, `currency` | [OQ-05](DECISION_RATIFICATION_PACKET.md#oq-05--currency-model) and [OQ-06](DECISION_RATIFICATION_PACKET.md#oq-06--fee-tax-and-discount-model) are **`DEFERRED`**; the total is the truth in v1 | HB-04, if the deferrals are revisited |
+| `baseAmount`, `finalAmount`, `snapshot*`, any commission or split value | Derived or owned downstream | HB-02 derives them from `agreedAmount`; HB-05 owns the split |
+
+An unknown field is rejected rather than ignored.
+
+#### The financial truth boundary (D-HB02-AMT) — normative
+
+`agreedAmount` is in the HB-02 request for one reason only: **a booking cannot be created without an
+amount.** `BookingService.CreateAsync` computes `BaseAmount` and `FinalAmount` from current pricing
+(`BookingService.cs:213,231-232`), which for a historical stay is the *wrong* number — today's price, not the
+price that was agreed. HB-02 must therefore supply the truth explicitly.
+
+| HB-02 **does** | HB-02 **does not** |
+|---|---|
+| Require `agreedAmount` on the request | Create or issue an **invoice** |
+| Persist it **verbatim**, with no recomputation, into the booking's existing required amount columns (`base_amount`, `final_amount` — `DECIMAL(12,2)`, `>= 0`, E-25) | Create a **payment** or accept payment evidence |
+| Accept zero as a legitimate value | Record **fees, taxes or discounts** |
+| Use the repository's existing decimal precision and currency convention unchanged | Create a **payout** |
+| — | Write an **immutable extended financial snapshot** |
+| — | Introduce a currency column, a currency field, or any currency redesign |
+
+**Ownership, stated once.** HB-02 owns *truthful capture of the raw `agreedAmount` needed to create the
+booking*. [HB-04](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md) owns *the extended immutable
+historical financial snapshot* — the dedicated `bookings.agreed_amount` column (matrix #14), its constraint,
+the repricing guard, and all payment behaviour. These are two different things and the matrix keeps them in
+two different migrations.
+
+The exposure this leaves open in HB-02 is bounded and known: until HB-04's guard ships, a repricing write
+path could in principle overwrite the captured amount. E-13 shows the *main* path cannot —
+`UpdatePendingAsync` refuses anything outside `Prospecting`/`Relevant`, and a historical booking is created
+`Completed`. HB-04 enumerates the remainder rather than treating the risk as closed.
+
+#### The owner attribution boundary (D-HB02-OWN) — normative
+
+| Situation | HB-02 behaviour |
+|---|---|
+| Exactly one valid current owner is deterministically available from trusted repository state | **Use and persist that attribution.** `BookingService.cs:225` already snapshots `OwnerId = unit.OwnerId` and never accepts an owner from caller input — HB-02 keeps that property |
+| Ownership is **absent** | `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` |
+| Ownership is **multiple or ambiguous** | `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` |
+| The unit changed hands and the stay needs **historical correction** | `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` |
+| The caller supplies an owner id | Impossible — there is no such field, and an unknown field is rejected |
+
+**Never silently guess. Never use an arbitrary request owner.** Refusing is visible and correctable;
+guessing credits money to the wrong person invisibly (D-OWN-01).
+
+HB-05 later adds explicit owner confirmation and the gated override — a distinct permission, a mandatory
+reason, previous and selected owner, actor and timestamp audit, and the payout implications. **That
+extension must be additive and backward-compatible:** a request valid under this section must remain valid
+after HB-05 ships, and HB-05's new fields must be optional-with-safe-default or arrive alongside their own
+permission.
 
 ### 14.3 Response contract — `HistoricalBookingResponse`
 
@@ -534,38 +752,85 @@ Superset of the existing `BookingDetailsResponse` shape (`BookingsController.cs:
 | `actualBookedAt` | `DateOnly?` | The agreement date |
 | `historicalEntryReason` | `string?` | Allow-list value |
 | `historicalEntryNote` | `string?` | Echo of the supplied note |
-| `originalSource` | `string?` | Allow-list value |
+| `originalSource` | `string?` | The vocabulary **code** |
+| `originalSourceLabel` | `string?` | The human-readable label from `booking_original_sources` (§15.3), so the wizard need not carry its own copy |
 | `externalReference` | `string?` | Echo |
+| `agreedAmount` | `decimal` | The operator-supplied amount as persisted — HB-02 |
 | `recordedAt` | `DateTime` | Equals `createdAt`; named explicitly so the wizard never implies it is the stay date |
 | `recordedByAdminUserId` | `Guid` | The audit actor |
-| `agreedAmount` | `decimal?` | HB-04 |
-| `snapshotCommissionRate` / `snapshotOwnerAmount` / `snapshotKazaAmount` | `decimal?` | HB-05 |
-| `ownerOverrideApplied` | `bool` | HB-05 |
-| `recordedPayment` | `object?` | `{ paymentId, amount, method, paidAt }` when a payment was created — HB-04 |
+| `ownerId` | `Guid` | The **server-resolved** current unit owner. Echoed so the operator can see what was attributed, never to be sent back |
+| `idempotencyKey` | `string` | Echo of the accepted header, so a replay is recognisable in the response itself |
 | `statusHistoryEventId` | `Guid` | The single truthful audit row, so the PR and the wizard can both point at it |
 
-### 14.4 Error contract
+Fields **not** present in v1, each arriving with the ticket that owns it:
+`snapshotCommissionRate` / `snapshotOwnerAmount` / `snapshotKazaAmount` and `ownerOverrideApplied` (HB-05);
+`recordedPayment` (HB-04). Adding them later is additive.
 
-Codes are fixed by [Master §12](00_MASTER_PLAN.md#12-api-and-command-design); the delivery mechanism is
-D-HB02-03.
+### 14.4 Error contract — machine-readable codes (D-HB02-03)
 
-| Condition | Status | Code | Thrown by | Owner |
-|---|---|---|---|---|
-| DTO shape / allow-list / length failure | 400 | `validation_error` | FluentValidation | HB-02 |
-| Missing `bookings:record_historical` | 403 | `forbidden` | Policy (empty body) | HB-02 |
-| Unit, client or admin not found | 404 | `not_found` | `NotFoundException` | HB-02 |
-| Checkout not yet past the Cairo boundary | 400 | `historical_stay_not_complete` | `BusinessValidationException` | HB-02 |
-| Overlap incl. `Completed`/`LeftEarly` | 409 | `historical_overlap_conflict` | `ConflictException` | HB-03 |
-| Exact or acknowledged-probable duplicate | 409 | `historical_duplicate_booking` | `ConflictException` | HB-03 |
-| Owner not confirmed / unresolvable | 400 | `owner_attribution_required` | `BusinessValidationException` | HB-05 |
-| Override requested without `bookings:override_owner` | 403 | `owner_override_forbidden` | `ForbiddenBusinessException` (D-HB02-04) | HB-05 |
-| Unit is soft-deleted | 400 | `unit_deleted_unsupported` | `BusinessValidationException` | HB-03 |
-| `newClient` phone already belongs to a client | 409 | `client_already_exists` | `ConflictException` | HB-02 (D-HB02-05) |
-| Stay dates in the past on the **normal** endpoint | 400 | `stay_dates_in_past` | HB-01 | HB-01 |
+#### Transport
 
-`client_already_exists` is the only code HB-02 adds beyond the ratified set; it exists solely because
-E-15/E-16 prove the platform's current answer to a known phone is a 409, and the wizard needs the existing
-`clientId` back in order to recover.
+| Aspect | Ratified design |
+|---|---|
+| Carrier | An **optional `Code` property on the shared `ApiResponse` / `ApiResponse<T>` contract** (`RentalPlatform.API/Models/ApiResponse.cs`). Nullable string, serialised camelCase as `code`, omitted or null on success |
+| Population | `ExceptionHandlingMiddleware` reads it from the thrown exception and passes it to `ApiResponse.CreateFailure`. The existing status-mapping switch is **unchanged** (§10.2) |
+| Source of the code | Coded business exceptions: a one-member interface `IBusinessErrorCode { string? Code { get; } }` implemented by the four existing exception types (`BusinessValidationException`, `ConflictException`, `NotFoundException`, `UnauthorizedBusinessException`) through an **additive optional constructor argument**. This is the narrowest repository-consistent equivalent of a coded exception base — the four types share no base class today, and reparenting them would be a wider change than the contract needs |
+| Backward compatibility | **All existing response fields are preserved** (`success`, `data`, `message`, `errors`, `pagination`). Every existing `CreateSuccess`/`CreateFailure` overload keeps its signature, so every existing throw site and every existing endpoint compiles and serialises unchanged, with `code` simply absent |
+| Human-readable messages | **Unaffected.** `message` and `errors` continue to carry human-readable text exactly as they do now. The code is machine-readable *in addition to*, never *instead of*, the message |
+| **Prohibited** | **The code must not be encoded inside `errors[0]`.** That carrier was considered and is explicitly rejected: it overloads a human-readable array with machine semantics, and any consumer that renders `errors` would render the code to an operator |
+| Migration obligation for other endpoints | **None.** Unrelated endpoints are not required to migrate. They keep returning a null `code` until their owning ticket chooses otherwise |
+| HB-02's obligation | **HB-02 errors must expose stable, documented codes** — the complete set below |
+
+#### The HB-02 code set
+
+Format is `UPPER_SNAKE_CASE`. Statuses follow the repository's existing exception mapping (E-5) exactly:
+`BusinessValidationException` → `400`, `NotFoundException` → `404`, `ConflictException` → `409`. **HB-02
+needs no `403` with a body and adds no middleware branch.**
+
+| Code | Status | Thrown as | Condition |
+|---|---|---|---|
+| `VALIDATION_ERROR` | `400` | `BusinessValidationException` | DTO shape, length, range or reason-allow-list failure; `actualBookedAt` in the future or after `checkInDate` (D-HB02-08) |
+| `CLIENT_REFERENCE_INVALID` | `400` | `BusinessValidationException` | Both or neither of `clientId` / `newClient` |
+| `CLIENT_NOT_FOUND` | `404` | `NotFoundException` | `clientId` does not resolve |
+| `CLIENT_PHONE_ALREADY_EXISTS` | `409` | `ConflictException` | `newClient` phone already belongs to a client; carries `existingClientId` |
+| `UNIT_NOT_FOUND` | `404` | `NotFoundException` | `unitId` does not resolve |
+| `ADMIN_USER_NOT_FOUND` | `404` | `NotFoundException` | `assignedAdminUserId` supplied but not an active admin |
+| `HISTORICAL_CHECKOUT_NOT_COMPLETED` | `400` | `BusinessValidationException` | `checkOutDate > cairoToday − 1` (D-CAL-01) — includes a stay ending today, a future stay, and an in-progress stay |
+| `ORIGINAL_SOURCE_INVALID` | `400` | `BusinessValidationException` | `originalSource` is unknown **or** is a known code whose row is `is_active = false` (D-HB02-06) |
+| `IDEMPOTENCY_KEY_REQUIRED` | `400` | `BusinessValidationException` | `Idempotency-Key` header absent or malformed |
+| `IDEMPOTENCY_KEY_REUSED` | `409` | `ConflictException` | Same key, different canonical request hash |
+| `IDEMPOTENCY_REQUEST_IN_PROGRESS` | `409` | `ConflictException` | A claim for this key exists but never completed; deterministic refusal, never a second booking (§19) |
+| `OWNER_ATTRIBUTION_REQUIRES_REVIEW` | `409` | `ConflictException` | Current unit ownership is absent, multiple, ambiguous, or requires historical correction (D-HB02-OWN) |
+| `EXTERNAL_REFERENCE_ALREADY_EXISTS` | `409` | `ConflictException` | `externalReference` collides with the partial unique index; translated, never surfaced as a 500 |
+
+Two `403`s exist on this route and neither carries a code, because neither is produced by an exception:
+
+| Situation | Status | Body |
+|---|---|---|
+| Caller lacks `bookings:record_historical` | `403` | Empty — produced by the authorization policy before the action body runs (E-6) |
+| Caller is not an admin subject | `403` | Empty — same mechanism (`subjectType=admin`) |
+
+#### Codes owned by later tickets
+
+These are **not** produced by HB-02 as specified here. They are listed so the wizard's error map is complete
+and so no ticket invents a second name for the same condition.
+
+| Code | Status | Owner | Condition |
+|---|---|---|---|
+| `HISTORICAL_OVERLAP_CONFLICT` | `409` | [HB-03](03_TICKET_AVAILABILITY_CONFLICTS_AND_DUPLICATE_PROTECTION.md) | Overlap including `Completed` / `LeftEarly` |
+| `HISTORICAL_DUPLICATE_BOOKING` | `409` | HB-03 | Exact or acknowledged-probable duplicate |
+| `UNIT_DELETED_UNSUPPORTED` | `400` | HB-03 | Unit is soft-deleted |
+| `OWNER_OVERRIDE_FORBIDDEN` | `403` | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) | Override requested without `bookings:override_owner`. **HB-05 introduces the exception type and the middleware branch that produce it** (§10.2) |
+| `STAY_DATES_IN_PAST` | `400` | [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) | Past stay dates on the **normal** endpoint, once REQ-16 hardening is activated |
+
+#### Relationship to the earlier lowercase names
+
+Earlier drafts of this pack wrote these codes in lowercase (`VALIDATION_ERROR`,
+`HISTORICAL_CHECKOUT_NOT_COMPLETED`, `CLIENT_PHONE_ALREADY_EXISTS`, `OWNER_ATTRIBUTION_REQUIRED`). Those were prose
+labels in planning documents, never a shipped contract — **no deployed consumer reads them, because the
+envelope has no code field at all today (E-4)**. Renaming them now costs nothing and is the last moment at
+which it costs nothing. The `UPPER_SNAKE_CASE` set above is canonical; the lowercase forms are retired and
+must not be reintroduced.
 
 ---
 
@@ -579,19 +844,23 @@ E-15/E-16 prove the platform's current answer to a known phone is a 409, and the
 and owner columns to HB-05 (#18–#28); each ticket writes its own migration and they are applied in that
 order. There is no "coordinated" migration.
 
+Object **#13** is now the `bookings:record_historical` seed **only**. `bookings:override_owner` moved to
+HB-05 with the override it gates ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)).
+
 | Column / object | Type | Null | Default | Constraint / index | Matrix # |
 |---|---|---|---|---|---|
 | `bookings.is_historical` | `BOOLEAN` | NOT NULL | `false` | `CREATE INDEX ix_bookings_is_historical ON bookings(is_historical) WHERE is_historical` | #1, #6 |
 | `bookings.actual_booked_at` | `DATE` | NULL | — | `ck_bookings_actual_booked_at_requires_historical`: `actual_booked_at IS NULL OR is_historical` | #2, #8 |
 | `bookings.historical_entry_reason` | `VARCHAR(50)` | NULL | — | `ck_bookings_historical_entry_reason` — allow-list §15.2 | #3, #9 |
-| `bookings.original_source` | `VARCHAR(50)` | NULL | — | `ck_bookings_original_source` — allow-list §15.3 | #4, #10 |
+| `bookings.original_source` | `VARCHAR(50)` | NULL | — | **FK** `fk_bookings_original_source` → `booking_original_sources(code)` `ON DELETE RESTRICT` — §15.3 | #4, #10 |
+| `booking_original_sources` | table | — | — | `code VARCHAR(50) PK, label VARCHAR(100) NOT NULL, is_active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL`, seeded with the four codes in §15.3 | #10 |
 | `bookings.external_reference` | `VARCHAR(100)` | NULL | — | `CREATE UNIQUE INDEX CONCURRENTLY ux_bookings_external_reference ON bookings(external_reference) WHERE external_reference IS NOT NULL` — consumed by HB-03's duplicate detection | #5, #7 |
-| `idempotency_keys` | table | — | — | `key TEXT PK, endpoint TEXT, request_hash TEXT, response_status INT, booking_id UUID NULL, created_at TIMESTAMP`. Owned here because idempotency is a property of this endpoint (§19); HB-03 depends on it | #12 |
+| `idempotency_keys` | table | — | — | `key TEXT, endpoint TEXT, actor_admin_user_id UUID, request_hash TEXT, response_status INT NULL, booking_id UUID NULL, created_at TIMESTAMP, completed_at TIMESTAMP NULL`, primary key `(actor_admin_user_id, endpoint, key)` — the scope in §19. **Owned by HB-02** because idempotency is a property of this endpoint; HB-03 depends on it, and it is **not** deferred, optional, or HB-03's to create | #12 |
 
 Because `ux_bookings_external_reference` is created `CONCURRENTLY`, it must live in a migration file that
 does **not** open a transaction. Split it from the transactional DDL rather than dropping `CONCURRENTLY`.
 
-Coherence constraint (`PROPOSED`): `ck_bookings_historical_fields_coherent` —
+Coherence constraint: `ck_bookings_historical_fields_coherent` —
 `(is_historical AND actual_booked_at IS NOT NULL AND historical_entry_reason IS NOT NULL AND original_source IS NOT NULL) OR (NOT is_historical)`.
 This makes a half-populated historical row unrepresentable at the storage layer, not merely discouraged.
 
@@ -614,24 +883,63 @@ Ratified in the brief; `PROPOSED` as a `VARCHAR(50)` CHECK and a `HistoricalEntr
 | `accounting_reconciliation` | Discovered during a finance reconciliation | No |
 | `other` | Anything else | **Yes** — `historicalEntryNote`, ≥ 10 characters |
 
-### 15.3 `original_source` allow-list (D-HB02-06)
+### 15.3 `original_source` vocabulary (D-HB02-06)
 
-`PROPOSED`. Deliberately a *separate* vocabulary from `bookings.source`: F-08 fixes that column to
-`direct`/`admin`/`phone`/`whatsapp`/`website`, a **system channel** dimension, and widening it would touch
-every existing consumer and every reporting view. `original_source` is a **provenance** dimension.
+**`OWNER APPROVED`: database-backed, never free text.**
 
-| Value | Meaning |
+#### Why the existing vocabulary is not reused
+
+The repository was inspected first, as the decision requires. A booking-source vocabulary **does** exist
+(E-23): `ck_bookings_source CHECK (source IN ('direct','admin','phone','whatsapp','website'))` at
+`db/migrations/0016_create_bookings.sql:24`, duplicated for CRM leads at
+`db/migrations/0018_create_crm_leads.sql:23` and hard-coded at `BookingService.cs:23` and
+`CrmLeadService.cs:22`. It is the only source-like vocabulary in the schema; there is no channel, origin or
+platform lookup table anywhere.
+
+It is **not semantically suitable**, for three independent reasons:
+
+| Reason | Detail |
 |---|---|
-| `walk_in` | Guest arrived in person |
-| `phone_offline` | Agreed by phone, never entered live |
-| `whatsapp_offline` | Agreed over WhatsApp, never entered live |
-| `referral` | Referred by another guest, owner or partner |
-| `external_platform` | Third-party booking channel |
-| `owner_direct` | The unit owner arranged it directly |
-| `repeat_guest_direct` | Returning guest contacting KAZA directly |
-| `other` | Anything else — reuses `historicalEntryNote` for detail |
+| Different dimension | `bookings.source` answers *"through which contact channel did this booking reach us?"* — it is a **channel** taxonomy. `original_source` answers *"where did this record originate before it was entered here?"* — a **provenance** taxonomy. `admin` is a truthful channel for every historical row and a useless provenance value for all of them |
+| Structurally incapable of the required contract | The decision requires a stable code, a **human-readable label**, and **active/inactive behaviour**. A `CHECK` constraint carries a list of strings: no label column, no `is_active` column, nowhere to put either |
+| Widening it is destructive | Adding provenance values to `ck_bookings_source` would make them legal on *every* booking, including live ones, and would touch every existing consumer and every reporting view. NAC-HB02-08 forbids it |
 
-`bookings.source` on a historical record is set to `"admin"` (a permitted value, `CONFIRMED` at
+So no suitable canonical vocabulary exists, and HB-02 ratifies and seeds a new one.
+
+#### The vocabulary
+
+Backed by the table `booking_original_sources`, with `bookings.original_source` a foreign key to its `code`
+column. Arbitrary free text is therefore **unrepresentable at the storage layer**, not merely validated
+against. Seeded with exactly these four rows and no others:
+
+| `code` (stable) | `label` (human-readable) | `is_active` at seed | Meaning |
+|---|---|---|---|
+| `legacy_system` | Legacy system | `true` | Carried over from a system KAZA used before this platform |
+| `external_platform` | External platform | `true` | Originated on a third-party booking channel and never mirrored into KAZA |
+| `offline_record` | Offline record | `true` | Agreed offline — in person, by phone, over a messaging app — and never entered live. The canonical case |
+| `other` | Other | `true` | Anything else. Reuses `historicalEntryNote` for detail |
+
+**No individual commercial platform name is added.** Naming specific third-party brands would create a
+vocabulary that needs a migration every time a commercial relationship changes, and the repository has no
+canonical source vocabulary that requires them. `external_platform` plus `externalReference` carries the
+same information without the churn.
+
+#### Active / inactive behaviour
+
+| Rule | Behaviour |
+|---|---|
+| A code with `is_active = true` | Accepted on new historical bookings; offered by the HB-06 wizard |
+| A code with `is_active = false` | **Rejected on new bookings** with `400 ORIGINAL_SOURCE_INVALID`; **not** offered by the wizard; **existing rows that already reference it remain valid and readable** |
+| A code absent from the table | `400 ORIGINAL_SOURCE_INVALID` — indistinguishable from inactive to the caller, deliberately |
+| Deleting a row | Prevented by `ON DELETE RESTRICT` once any booking references it. Retirement is `is_active = false`, never deletion — historical provenance must stay readable forever |
+
+Retiring a code is therefore a data change, not a migration, and it never invalidates history. That is the
+property a `CHECK` constraint cannot provide and the reason the table exists.
+
+The service validates *known **and** active* in one lookup inside the transaction (§11.5); the foreign key
+is the backstop that makes free text impossible even for a direct database write.
+
+`bookings.source` on a historical record remains `"admin"` (a permitted value, `CONFIRMED` at
 `db/migrations/0016_create_bookings.sql:24`), because the record genuinely entered the system through an
 admin action. `original_source` carries the business truth. Reporting reads `original_source` when
 `is_historical` — see [Master §19](00_MASTER_PLAN.md#19-reporting-impact-matrix) and HB-08.
@@ -643,15 +951,15 @@ admin action. `original_source` carries the business truth. Reporting reads `ori
 ```sql
 -- PSEUDOCODE — final SQL is written during implementation, not here.
 INSERT INTO rbac_role_template_permissions (role_template_id, permission_key, created_at)
-VALUES ('<SuperAdmin template id>', 'bookings:record_historical', CURRENT_TIMESTAMP),
-       ('<SuperAdmin template id>', 'bookings:override_owner',    CURRENT_TIMESTAMP)
+VALUES ('<SuperAdmin template id>', 'bookings:record_historical', CURRENT_TIMESTAMP)
 ON CONFLICT (role_template_id, permission_key) DO NOTHING;
+-- bookings:override_owner is NOT seeded here. It is HB-05's, with the override it gates.
 
 UPDATE admin_users SET updated_at = CURRENT_TIMESTAMP
 WHERE role_template_id = '<SuperAdmin template id>';
 ```
 
-Both keys fit `permission_key VARCHAR(50)` (`db/migrations/0053_create_dynamic_rbac.sql:22`) at 26 and 23
+The key fits `permission_key VARCHAR(50)` (`db/migrations/0053_create_dynamic_rbac.sql:22`) at 26
 characters. The `UPDATE admin_users` is not cosmetic: `Program.cs:203-214` fails authentication when the
 token's recorded `updated_at` ticks diverge from the row, which is precisely the mechanism that forces
 affected admins to obtain a token carrying the new `perm` claim (E-8).
@@ -664,12 +972,14 @@ affected admins to obtain a token carrying the new `perm` claim (E-8).
 |---|---|---|
 | Route gate | `[Authorize(Policy = PermissionKeys.BookingsRecordHistorical)]` on the action | E-6; INV-10 |
 | Permission registration | Constant **and** descriptor added to `PermissionKeys` — `All` derives from `Descriptors` (E-7), and a missing descriptor silently yields no policy, which ASP.NET surfaces as a 500 on first request | E-7 |
-| Override gate | `bookings:override_owner` checked in the service, throwing `ForbiddenBusinessException` → 403 `owner_override_forbidden` (D-HB02-04). Separate permission so recording history does not imply re-assigning revenue | REQ-07; HB-05 |
+| Owner resolution | The current unit owner is resolved **server-side** from trusted repository state; there is no owner field on the request. Uncertain ownership is refused with `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`, never guessed ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)) | INV-12, INV-17; D-OWN-01 |
+| Override gate | **Not present in HB-02.** No override can be requested, so none can be refused. `bookings:override_owner`, `ForbiddenBusinessException` and the `403` branch are all HB-05's (§10.2) | REQ-07; HB-05 |
+| Idempotency-key scoping | Keys are scoped to **actor + endpoint + key** (§19), so one operator's key can never replay or collide with another's, and the key namespace cannot be squatted across endpoints | INV-08 |
 | Actor identity | Read from `ClaimTypes.NameIdentifier`; never accepted from the body | INV-11; `BookingsController.cs:244-251` |
 | Mass assignment | Dedicated DTO; §14.2 exclusion list; no `AutoMapper`-style projection onto the entity | INV-01, INV-12 |
-| IDOR | `unitId`, `clientId`, `confirmedOwnerId` resolved server-side. Portfolio scoping is the seam HB-05 fills; until then the service must not accept an owner id that does not match either `unit.OwnerId` or an override-permitted value | INV-12; `RISK-11` |
-| Soft-delete leakage | Global filters (E-20) mean a soft-deleted unit is invisible by default; the `unit_deleted_unsupported` distinction requires a deliberate `IgnoreQueryFilters()` probe — it must **not** widen the general lookup | ADR-12; HB-03 |
-| Financial tampering | The client supplies `agreedAmount` only; owner/KAZA split is computed and validated server-side | HB-04/HB-05 |
+| IDOR | `unitId` and `clientId` are resolved server-side; the owner is **never** accepted from input at all, which removes the class of attack rather than validating against it. Portfolio scoping remains the seam HB-05 fills | INV-12; `RISK-11` |
+| Soft-delete leakage | Global filters (E-20) mean a soft-deleted unit is invisible by default; the `UNIT_DELETED_UNSUPPORTED` distinction requires a deliberate `IgnoreQueryFilters()` probe — it must **not** widen the general lookup | ADR-12; HB-03 |
+| Financial tampering | The caller supplies `agreedAmount` only — a single scalar, persisted verbatim and constrained `>= 0` by the existing `ck_bookings_*_non_negative` constraints (E-25). No fee, tax, discount, split, payment or payout value is accepted on this route ([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary)) | HB-04/HB-05 |
 | Audit immutability | Status history is append-only; nothing in this ticket adds an update or delete path to it | REQ-12 |
 | Logging | Structured, correlation-id bearing, **no PII** — no guest name, phone or email in logs or metric labels | [Master §18](00_MASTER_PLAN.md#18-security-and-compliance-review) |
 | Residual risk while REQ-16 hardening is unshipped | `bookings:write` still permits silent backdating on the normal endpoint. HB-02 **reduces** but does not close `RISK-10`; only the hardening — specified in HB-01 §11.2, shipped by [HB-08 §26.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#261-req-16-hardening-tasks--the-last-commits-on-this-branch) — closes it. Security accepts this window explicitly under [D-HARD-01](DECISION_RATIFICATION_PACKET.md#d-hard-01--normal-flow-hardening) | §23, §34 |
@@ -683,28 +993,31 @@ V-H-08 onward runs inside the transaction and under the advisory lock.
 
 | ID | Rule | Layer | Failure | Master ref |
 |---|---|---|---|---|
-| V-H-01 | Required fields present; enums in allow-list; lengths within bounds | FluentValidation | 400 `validation_error` | V-16, V-17 |
-| V-H-02 | Exactly one of `clientId` / `newClient` | FluentValidation | 400 `validation_error` | V-20 |
-| V-H-03 | `historicalEntryNote` present (≥10 chars) when reason is `other` | FluentValidation | 400 `validation_error` | V-16 |
+| V-H-00 | `Idempotency-Key` header present and well-formed | Controller, before anything else | 400 `IDEMPOTENCY_KEY_REQUIRED` | V-16 |
+| V-H-01 | Required fields present; enums in allow-list; lengths within bounds; `agreedAmount >= 0` | FluentValidation | 400 `VALIDATION_ERROR` | V-16, V-17 |
+| V-H-02 | Exactly one of `clientId` / `newClient` | FluentValidation | 400 `CLIENT_REFERENCE_INVALID` | V-20 |
+| V-H-03 | `historicalEntryNote` present (>=10 chars) when reason is `other` | FluentValidation | 400 `VALIDATION_ERROR` | V-16 |
 | V-H-04 | `checkOutDate > checkInDate` | Validator + `BookingService.ValidateStayDates:463-467` + `ck_bookings_valid_stay_range` | 400 | V-02 |
-| V-H-05 | `checkOutDate <= cairoToday − 1` | `HistoricalBookingService` | 400 `historical_stay_not_complete` | V-01 |
-| V-H-06 | `actualBookedAt` not in the future and `<= checkInDate` | `HistoricalBookingService` (D-HB02-08) | 400 `validation_error` | — |
-| V-H-07 | `paidAt` (if supplied) not in the future | Validator | 400 | V-13 |
-| V-H-08 | Unit resolves; soft-deleted rejected; inactive permitted | Service (HB-03) | 404 / 400 `unit_deleted_unsupported` | V-03, V-04 |
+| V-H-05 | `checkOutDate <= cairoToday − 1`, with `cairoToday` from `IBusinessClock` | `HistoricalBookingService` | 400 `HISTORICAL_CHECKOUT_NOT_COMPLETED` | V-01 |
+| V-H-06 | `actualBookedAt` not in the future and `<= checkInDate` | `HistoricalBookingService` (D-HB02-08) | 400 `VALIDATION_ERROR` | — |
+| V-H-07 | Idempotency key claimed; replay returns the original, hash mismatch refused | Service, first statement inside the lock | 200 replay / 409 `IDEMPOTENCY_KEY_REUSED` / 409 `IDEMPOTENCY_REQUEST_IN_PROGRESS` | V-13 |
+| V-H-08 | Unit resolves; soft-deleted rejected; inactive permitted | Service (HB-03) | 404 `UNIT_NOT_FOUND` / 400 `UNIT_DELETED_UNSUPPORTED` | V-03, V-04 |
 | V-H-09 | `guestCount > 0` and `<= unit.MaxGuests` | Validator + `BookingService.cs:184-186` | 400 | V-05 |
-| V-H-10 | No overlap against the historical conflict set | Service (HB-03) | 409 `historical_overlap_conflict` | V-06 |
+| V-H-10 | No overlap against the historical conflict set | Service (HB-03) | 409 `HISTORICAL_OVERLAP_CONFLICT` | V-06 |
 | V-H-11 | No date-block conflict | Service (HB-03) | 409 | V-07 |
-| V-H-12 | Not an exact duplicate; probable duplicate acknowledged | Service (HB-03) | 409 `historical_duplicate_booking` | V-08, V-09 |
-| V-H-13 | `externalReference` unique when present | Service + partial unique index | 409 | V-18 |
-| V-H-14 | Client resolves, or `newClient` is creatable | Service (D-HB02-05) | 400 / 409 `client_already_exists` | V-20 |
-| V-H-15 | `assignedAdminUserId`, if supplied, is an active admin | `BookingService.cs:167-173` | 404 | — |
-| V-H-16 | Owner confirmed, in scope, override permitted and reasoned | Service (HB-05) | 400 / 403 | V-10, V-11, V-12 |
-| V-H-17 | Amounts non-negative; payment `> 0` | Validator + `ck_payments_amount_positive` | 400 | V-15 |
-| V-H-18 | Caller holds `bookings:record_historical` | Policy, before the action body | 403 | V-21 |
+| V-H-12 | Not an exact duplicate; probable duplicate acknowledged | Service (HB-03) | 409 `HISTORICAL_DUPLICATE_BOOKING` | V-08, V-09 |
+| V-H-13 | `externalReference` unique when present | Service + partial unique index | 409 `EXTERNAL_REFERENCE_ALREADY_EXISTS` | V-18 |
+| V-H-14 | Client resolves, or `newClient` is creatable | Service (D-HB02-05) | 404 `CLIENT_NOT_FOUND` / 409 `CLIENT_PHONE_ALREADY_EXISTS` | V-20 |
+| V-H-15 | `assignedAdminUserId`, if supplied, is an active admin | `BookingService.cs:167-173` | 404 `ADMIN_USER_NOT_FOUND` | — |
+| V-H-16 | `originalSource` is a **known and active** code in `booking_original_sources` | Service + FK (D-HB02-06) | 400 `ORIGINAL_SOURCE_INVALID` | V-17 |
+| V-H-17 | Current unit owner resolves to exactly one valid owner | Service (D-HB02-OWN) | 409 `OWNER_ATTRIBUTION_REQUIRES_REVIEW` | V-10, V-11, V-12 |
+| V-H-19 | `agreedAmount >= 0` and persisted verbatim, never recomputed | Validator + `ck_bookings_base_amount_non_negative` (E-25) | 400 `VALIDATION_ERROR` | V-15 |
+| V-H-18 | Caller holds `bookings:record_historical` | Policy, before the action body | 403, empty body, no code | V-21 |
 
-`BLOCKED` — V-19 (currency) cannot be specified while no currency column exists anywhere
-([OQ-05](00_MASTER_PLAN.md#32-open-questions)). v1 proceeds single-currency; the request contract carries no
-currency field, so adding one later is additive rather than breaking.
+Master's V-19 (currency) is **not** blocked and **not** open: [OQ-05](DECISION_RATIFICATION_PACKET.md#oq-05--currency-model)
+is `DEFERRED` with a recorded risk and revisit trigger. v1 proceeds single-currency, the request contract
+carries no currency field, and adding one later is additive rather than breaking. Payment validation
+(Master V-13/V-14) is not evaluated on this route at all, because no payment is accepted here.
 
 ---
 
@@ -725,26 +1038,69 @@ currency field, so adding one later is additive rather than breaking.
 | Optimistic concurrency | `xmin` row version (E-19) applies to updates; creation is insert-only, so the advisory lock is the real serialisation mechanism | `RISK-09` |
 | Post-commit work | **None.** No queue, no dispatch, no callback | F-04; INV-07 |
 
-Rollback proof obligation: an integration test must inject a failure at the payment insert and assert that
-zero rows exist in `bookings`, `booking_status_history` and `payments` for that request (`SC-TXN-01`).
-`BLOCKED` on [OQ-09](00_MASTER_PLAN.md#32-open-questions) — EF Core InMemory raises
-`TransactionIgnoredWarning` and cannot execute `ExecuteSqlInterpolatedAsync`, so this test requires a real
-relational provider. HB-09 owns provisioning it; HB-02 must not claim the coverage until it exists.
+Rollback proof obligation: an integration test must inject a failure after the booking insert and assert
+that zero rows exist in `bookings` and `booking_status_history`, **and that no idempotency key survives**,
+for that request (`SC-TXN-01`). This is **no longer blocked**: EF Core InMemory still raises
+`TransactionIgnoredWarning` and cannot execute `ExecuteSqlInterpolatedAsync`, but
+[`PRE-02`](DECISION_RATIFICATION_PACKET.md#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) has delivered the reusable real-PostgreSQL
+fixture, and HB-02 writes this test on that tier. Because the idempotency claim is written inside the same
+transaction (§19.1), the rollback assertion doubles as the proof that a crashed attempt leaves a clean key
+for retry.
 
 ---
 
 ## 19. Idempotency and concurrency
 
+### 19.1 The idempotency contract (D-HB02-IDEM) — normative
+
+**HB-02 owns `idempotency_keys` and this endpoint's idempotency contract.** This resolves a conflict in
+earlier drafts, where the [migration-ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix)
+assigned the table to HB-02 (#12) while HB-03's text described it as deferred into "HB-04's migration" and
+treated the header as advisory. **The matrix wins.** Every statement that HB-02 idempotency storage is
+optional, deferred, or owned by HB-03 is withdrawn.
+
+| Property | Ratified value |
+|---|---|
+| Canonical header | **`Idempotency-Key`** |
+| Requirement | **Required** on the historical creation endpoint. Absent or malformed ⇒ `400 IDEMPOTENCY_KEY_REQUIRED` |
+| Scope of a key | **actor + command/endpoint + idempotency key.** Primary key `(actor_admin_user_id, endpoint, key)` — one operator's key can never collide with, or replay, another's |
+| Request fingerprint | A **canonical request hash** is persisted with the claim: a stable serialisation of the request body (property order normalised, whitespace collapsed, decimals in fixed scale), hashed with SHA-256 |
+| Atomicity | **Booking creation and idempotency completion occur atomically** — the claim, the booking insert, the history row and the completion all happen inside the single transaction of §11.5 |
+| Retention | **No automatic expiration in v1.** Keys are kept indefinitely; there is no sweeper, no TTL, and no pruning job. A retention policy is a later operational decision, and adding one is additive |
+| Relationship to HB-03 | **HB-03 still owns booking-level duplicate and availability-conflict protection.** Idempotency answers *"is this the same request?"*; HB-03 answers *"is this the same booking?"* They are different questions and both run |
+
+### 19.2 Replay behaviour
+
+| Situation | Status | Code | Result |
+|---|---|---|---|
+| First use of a key | `200` | — | The booking is created; the key is recorded complete with the booking id |
+| **Same key, same request** (hash matches a completed claim) | `200` | — | **The original successful response and the original booking identity are returned.** Nothing new is created |
+| **Same key, different request** (hash differs) | `409` | `IDEMPOTENCY_KEY_REUSED` | Nothing is created. The key is never silently re-pointed at a different booking |
+| **Same key, claim exists but never completed** | `409` | `IDEMPOTENCY_REQUEST_IN_PROGRESS` | **Fails deterministically. A second booking is never created.** See below |
+
+**The incomplete-claim case is the one that matters.** A claim row can exist without a completion only if a
+concurrent request holds the row's lock, or if a process died between claim and commit.
+
+| Cause | What happens | Why no second booking can appear |
+|---|---|---|
+| A concurrent request is still in flight | The second caller blocks on the same `booking-unit:{unitId:N}` advisory lock, then finds a **completed** claim and replays the original `200` | The lock serialises them; the claim is completed before the lock is released |
+| A process died before commit | The transaction rolled back, so **the claim row rolled back with it** — the key was never persisted, and a retry is clean | The claim is written inside the same transaction as the booking (§11.5). A partial state is not representable |
+| A claim survives visibly incomplete | `409 IDEMPOTENCY_REQUEST_IN_PROGRESS`, deterministically, on every retry until an operator resolves it | Refusing is the safe direction: the only alternative is guessing whether the original committed |
+
+The failure mode is therefore *deterministic refusal*, never a duplicate and never a silent success. That
+ordering — claim first, complete in the same transaction — is why §11.5 forbids reordering those steps.
+
+### 19.3 Concurrency
+
 | Concern | Design | Label |
 |---|---|---|
-| Double-click / retry | Optional `Idempotency-Key` request header. When present, a repeat within the retention window returns the original `200` and the original booking id, creating nothing | `PROPOSED` |
-| Storage for the key | `DECISION REQUIRED` folded into HB-03: either a dedicated table or a deterministic derivation from `(unitId, clientId, checkIn, checkOut, agreedAmount, externalReference)`. Recommended default: rely on HB-03's exact-duplicate rule and treat the header as advisory in v1 | `DECISION REQUIRED` |
-| Existing 30-second window | `RecentDuplicateWindow` (`BookingService.cs:19`) filters on `BookingStatus == Prospecting` (`:344`) and therefore **never matches** a historical `Completed` booking. It is a double-click guard for the quick-create path, not a business duplicate rule | `CONFIRMED` |
-| Two operators, same unit and dates | Serialised by `pg_advisory_xact_lock` on the shared key; the loser sees `409 historical_overlap_conflict` from HB-03's scan, which now runs inside the lock | `PROPOSED` |
+| Existing 30-second window | `RecentDuplicateWindow` (`BookingService.cs:19`) filters on `BookingStatus == Prospecting` (`:344`) and therefore **never matches** a historical `Completed` booking. It is a double-click guard for the quick-create path, not a business duplicate rule, and it is not reused here | `CONFIRMED` |
+| Two operators, same unit and dates | Serialised by `pg_advisory_xact_lock` on the shared key; the loser sees `409 HISTORICAL_OVERLAP_CONFLICT` from HB-03's scan, which runs inside the lock | `PROPOSED` |
 | Historical vs normal creation racing | Same key ⇒ same lock ⇒ mutually exclusive. This is the reason the key must not be "improved" | `PROPOSED` |
-| Cairo midnight during the request | `cairoToday` resolved once, before `BEGIN`; a request cannot see two different business dates | `PROPOSED`, `RISK-08` |
-| Client creation race | Two concurrent `newClient` submissions with the same phone: the second fails on `ClientService`'s duplicate check (`ClientService.cs:73-76`) inside its own transaction and rolls the whole command back | `CONFIRMED` |
-| `externalReference` race | Serialised by the partial unique index; a concurrent insert raises a unique violation that must be translated to `409`, not surfaced as a 500 | `PROPOSED` |
+| Cairo midnight during the request | `cairoToday` is resolved **once**, from `IBusinessClock`, before `BEGIN`; a request cannot see two different business dates | `PROPOSED`, `RISK-08` |
+| Client creation race | Two concurrent `newClient` submissions with the same phone: the second fails on `ClientService`'s duplicate check (`ClientService.cs:72-76`) inside the ambient transaction and rolls the whole command back, surfacing as `409 CLIENT_PHONE_ALREADY_EXISTS` | `CONFIRMED` |
+| `externalReference` race | Serialised by the partial unique index; a concurrent insert raises a unique violation that must be translated to `409 EXTERNAL_REFERENCE_ALREADY_EXISTS`, not surfaced as a 500 | `PROPOSED` |
+| Owner resolution race | The owner is read inside the transaction under the lock, so a concurrent unit-ownership change cannot be interleaved between the read and the insert | `PROPOSED` |
 
 ---
 
@@ -865,18 +1221,22 @@ Ordered so that each step is independently reviewable and leaves the build green
 
 | # | Task | Done when |
 |---|---|---|
-| 1 | Confirm HB-01 is merged and the shared Cairo resolver is injectable | The resolver type is referenced from `RentalPlatform.Business` without duplication |
-| 2 | Resolve D-HB02-01 … D-HB02-06 in writing; record the outcomes in this file | Six decisions have named deciders and dates |
-| 3 | Add `HistoricalEntryReasons` and `HistoricalOriginalSources` constants to `RentalPlatform.Shared/Constants/` | Values match §15.2 / §15.3 exactly, and a unit test asserts the C# lists match the SQL CHECK lists |
+| 1 | Re-confirm `db/init.sql` ↔ `db/migrations` parity still holds at branch time (`PRE-01` restored it) | `db/init.sql` includes migration `0057` exactly once, and the new HB-02 migration is added to **both** `db/init.sql` and `infra/db/init.prod.sql` |
+| 1b | Add `IBusinessClock` and its Cairo implementation, reusing the timezone lookup proven at `AutoCompleteBookingsJob.cs:137,141` ([D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership)) | Injectable; unit-testable without waiting for midnight; `AutoCompleteBookingsJob` untouched |
+| 2 | ~~Resolve D-HB02-01 … D-HB02-06 in writing~~ **Already done.** Read §10 and the [decision record](DECISION_RATIFICATION_PACKET.md) before writing code | No decision work remains; every gate is `OWNER APPROVED` |
+| 3 | Add `HistoricalEntryReasons` and `HistoricalErrorCodes` constants to `RentalPlatform.Shared/Constants/` | Reason values match §15.2 exactly and a unit test asserts the C# list matches the SQL CHECK list. **No `HistoricalOriginalSources` constants class** — that vocabulary is database-backed and read from `booking_original_sources`, never mirrored in code ([D-HB02-06](DECISION_RATIFICATION_PACKET.md#d-hb02-06--original_source-vocabulary)) |
 | 4 | Add `BookingHistoryEvents.HistoricalBookingRecorded` | Constant present; existing two constants untouched |
-| 5 | Write the migration + `_verify` + `_rollback`: five columns, CHECKs `NOT VALID` then validated, partial indexes, permission seed, `UPDATE admin_users` | `_verify.sql` passes against a fresh and a populated database |
+| 5 | Write the migration + `_verify` + `_rollback`: five provenance columns, CHECKs `NOT VALID` then validated, partial indexes, `booking_original_sources` + its four seed rows + the FK, `idempotency_keys`, the `bookings:record_historical` seed, `UPDATE admin_users` | `_verify.sql` passes against a fresh and a populated database, and asserts exactly four seeded source codes |
 | 6 | Extend `Booking` entity and `BookingConfiguration` with the five properties | Column names and max lengths match the migration; existing mappings unchanged |
-| 7 | Add `PermissionKeys.BookingsRecordHistorical` / `BookingsOverrideOwner` **and** their `PermissionDescriptor` entries | `PermissionKeys.All.Count` increases by 2; a test asserts every constant appears in `Descriptors` (guards E-7) |
-| 8 | Add `Code` to the business exception base and to `ApiResponse`; propagate in `ExceptionHandlingMiddleware` (D-HB02-03) | Existing error responses still serialise identically apart from the new nullable property |
-| 9 | Add `ForbiddenBusinessException` and its 403 branch (D-HB02-04) | A service-thrown forbidden maps to 403 with a body, not 500 |
+| 7 | Add `PermissionKeys.BookingsRecordHistorical` **and** its `PermissionDescriptor` entry. **Not** `BookingsOverrideOwner` — that is HB-05's | `PermissionKeys.All.Count` increases by exactly 1; a test asserts every constant appears in `Descriptors` (guards E-7) |
+| 8 | Add `IBusinessErrorCode`, implement it on the four existing exception types via additive optional constructor arguments, add the optional `Code` to `ApiResponse`/`ApiResponse<T>`, and propagate it in `ExceptionHandlingMiddleware` (D-HB02-03) | Existing error responses serialise identically apart from the new nullable property; **every existing constructor and factory overload keeps its signature**; the middleware's status switch is unchanged |
+| 9 | ~~Add `ForbiddenBusinessException` and its 403 branch~~ **Not in HB-02** (D-HB02-04, §10.2) | Nothing to do. If a diff adds a `403` branch to the middleware, treat it as a stop condition |
+| 9b | Add `idempotency_keys` entity + `HistoricalIdempotencyStore` with claim / complete / replay (D-HB02-IDEM) | Replay returns the original booking; hash mismatch returns `409 IDEMPOTENCY_KEY_REUSED`; an incomplete claim returns `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` |
 | 10 | Define `RecordHistoricalBookingCommand` and its result record | No `CreatedAt`, `BookingStatus` or bare `OwnerId` field |
-| 11 | Implement `HistoricalBookingService`: boundary check, transaction, advisory lock, seams for HB-03/04/05, `CreateAsync(initialStatus: Completed)`, provenance application, history-note rewrite | The §12 sequence executes end to end with the HB-03/04/05 seams stubbed |
-| 12 | Implement client resolution per D-HB02-05, reusing `ClientService` and its phone normalisation rather than copying it | A duplicate phone returns `409 client_already_exists` carrying the existing id |
+| 11 | Implement `HistoricalBookingService`: boundary check, transaction, advisory lock, idempotency claim, current-owner resolution, active-source lookup, `CreateAsync(initialStatus: Completed)`, provenance + `agreedAmount` application, history-note rewrite, idempotency completion | The §11.5 ordering executes end to end with the HB-03/04/05 seams stubbed |
+| 11b | Persist `agreedAmount` verbatim into the booking's amount columns, overriding the pricing computation ([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary)) | A unit priced at 500 with `agreedAmount = 300` persists **300**; `agreedAmount = 0` persists **0** |
+| 11c | Resolve the current unit owner, or refuse with `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)) | No owner field exists on the DTO; an ambiguous owner is refused, never guessed |
+| 12 | Implement client resolution per D-HB02-05, reusing `ClientService` and its existing phone normalisation (E-24) rather than copying it | Both/neither → `400 CLIENT_REFERENCE_INVALID`; unknown id → `404 CLIENT_NOT_FOUND`; duplicate phone → `409 CLIENT_PHONE_ALREADY_EXISTS` carrying `existingClientId`, with nothing created |
 | 13 | Add the request DTO and FluentValidation validator (V-H-01 … V-H-04, V-H-07, V-H-17) | Validator is registered and exercised by an API test |
 | 14 | Add `HistoricalBookingsController` with the policy attribute and actor extraction | `403` when the claim is absent; `200` when present |
 | 15 | Add the response DTO and its mapper | Every field in §14.3 is populated |
@@ -884,8 +1244,8 @@ Ordered so that each step is independently reviewable and leaves the build green
 | 17 | Register the service in `Program.cs` beside `:283-285` | Resolves at startup; a smoke test hits the route |
 | 18 | Emit the audit event and the three metrics (§20) | Signals visible locally; no PII in any label |
 | 19 | Write the tests in §29 that do not depend on a relational provider | Green |
-| 20 | Write the transaction/lock tests, or record them as `BLOCKED` on [OQ-09](00_MASTER_PLAN.md#32-open-questions) with HB-09 named | Either passing tests or an explicit, owned deferral |
-| 21 | Update this file's decision table with the ratified answers and open a follow-up note for HB-03/04/05 on the seams | Downstream tickets can start without re-reading the code |
+| 20 | Write the transaction, advisory-lock, constraint and idempotency tests on the [`PRE-02`](DECISION_RATIFICATION_PACKET.md#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) real-PostgreSQL tier | Passing tests. **No deferral is available** — the fixture exists, so `BLOCKED` is no longer an acceptable answer here |
+| 21 | Hand the seam signatures to HB-03, HB-04 and HB-05 | Downstream tickets can start without re-reading the code. §10 needs no update — it is already ratified |
 
 ---
 
@@ -896,27 +1256,44 @@ Ordered so that each step is independently reviewable and leaves the build green
 | AC-HB02-01 | **Given** an admin holding `bookings:record_historical`, **when** they `POST /api/internal/bookings/historical` with a stay whose checkout is before the current Cairo business date, **then** the API returns `200` and a booking exists with `booking_status = 'completed'` and `is_historical = true`. |
 | AC-HB02-02 | **Given** the same request, **when** it succeeds, **then** `bookings.created_at` and `updated_at` are within seconds of real system time and are **not** equal to `actual_booked_at` or to any stay date. |
 | AC-HB02-03 | **Given** a successful historical creation, **when** the status history is read, **then** it contains **exactly one** row, with `old_status = null`, `new_status = 'completed'`, `changed_by_admin_user_id` = the authenticated admin, `changed_at` ≈ now, and `notes = BookingHistoryEvents.HistoricalBookingRecorded`. |
-| AC-HB02-04 | **Given** a stay whose checkout is the current Cairo business date, **when** submitted, **then** `400 historical_stay_not_complete` is returned and nothing is persisted. |
-| AC-HB02-05 | **Given** a stay entirely in the future, **when** submitted to the historical endpoint, **then** `400 historical_stay_not_complete` is returned with a message directing the operator to the normal flow. |
-| AC-HB02-06 | **Given** a stay that started in the past and has not ended, **when** submitted, **then** `400 historical_stay_not_complete` is returned (ADR-02; [OQ-04](00_MASTER_PLAN.md#32-open-questions)). |
+| AC-HB02-04 | **Given** a stay whose checkout is the current Cairo business date, **when** submitted, **then** `400 HISTORICAL_CHECKOUT_NOT_COMPLETED` is returned and nothing is persisted. |
+| AC-HB02-05 | **Given** a stay entirely in the future, **when** submitted to the historical endpoint, **then** `400 HISTORICAL_CHECKOUT_NOT_COMPLETED` is returned with a message directing the operator to the normal flow. |
+| AC-HB02-06 | **Given** a stay that started in the past and has not ended, **when** submitted, **then** `400 HISTORICAL_CHECKOUT_NOT_COMPLETED` is returned (ADR-02). |
 | AC-HB02-07 | **Given** an admin **without** `bookings:record_historical`, **when** they call the endpoint, **then** `403` is returned and no row is created. |
-| AC-HB02-08 | **Given** a request omitting `historicalEntryReason` or `originalSource`, **when** submitted, **then** `400 validation_error` is returned. |
-| AC-HB02-09 | **Given** `historicalEntryReason = "other"` with no note (or a note under 10 characters), **when** submitted, **then** `400 validation_error` is returned. |
-| AC-HB02-10 | **Given** a value outside the reason or source allow-list, **when** submitted, **then** `400 validation_error` is returned, and an equivalent direct database insert is rejected by the CHECK constraint. |
-| AC-HB02-11 | **Given** a successful creation, **then** `bookings.source = 'admin'` and `bookings.original_source` holds the operator-selected provenance value. |
-| AC-HB02-12 | **Given** `actualBookedAt` after `checkInDate`, **when** submitted, **then** `400 validation_error` naming both dates is returned (D-HB02-08). |
-| AC-HB02-13 | **Given** a successful creation, **then** the `bookings`, `booking_status_history` and (when supplied) `payments` rows all become visible in the same commit; no intermediate state is observable from another session. |
-| AC-HB02-14 | **Given** a forced failure after the booking insert, **when** the command aborts, **then** zero rows exist in all three tables for that request. |
+| AC-HB02-08 | **Given** a request omitting `historicalEntryReason` or `originalSource`, **when** submitted, **then** `400 VALIDATION_ERROR` is returned. |
+| AC-HB02-09 | **Given** `historicalEntryReason = "other"` with no note (or a note under 10 characters), **when** submitted, **then** `400 VALIDATION_ERROR` is returned. |
+| AC-HB02-10 | **Given** a value outside the **reason** allow-list, **when** submitted, **then** `400 VALIDATION_ERROR` is returned, and an equivalent direct database insert is rejected by `ck_bookings_historical_entry_reason`. (The **source** vocabulary is covered by AC-HB02-32 … AC-HB02-34, which assert the foreign key rather than a CHECK.) |
+| AC-HB02-11 | **Given** a successful creation, **then** `bookings.source = 'admin'` (unchanged) and `bookings.original_source` holds the operator-selected code from `booking_original_sources`. |
+| AC-HB02-12 | **Given** `actualBookedAt` after `checkInDate`, **when** submitted, **then** `400 VALIDATION_ERROR` naming both dates is returned (D-HB02-08). |
+| AC-HB02-13 | **Given** a successful creation, **then** the `bookings`, `booking_status_history` and `idempotency_keys` rows all become visible in the same commit; no intermediate state is observable from another session. |
+| AC-HB02-14 | **Given** a forced failure after the booking insert, **when** the command aborts, **then** zero rows exist in `bookings`, `booking_status_history` **and `idempotency_keys`** for that request, leaving the key free for a clean retry. |
 | AC-HB02-15 | **Given** a successful creation, **then** the `notifications` table gains no row attributable to it and no invoice row is created ([D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy)). |
 | AC-HB02-16 | **Given** a historical booking exists, **when** `AutoCompleteBookingsJob` runs, **then** the booking is not selected and no additional history row appears. |
-| AC-HB02-17 | **Given** `newClient` whose normalised phone already belongs to a client, **when** submitted, **then** `409 client_already_exists` is returned including the existing `clientId`, and no new client is created. |
+| AC-HB02-17 | **Given** `newClient` whose normalised phone already belongs to a client, **when** submitted, **then** `409 CLIENT_PHONE_ALREADY_EXISTS` is returned carrying `existingClientId`, no new client is created, **and the existing client is neither reused nor merged** — no booking exists after the call. |
 | AC-HB02-18 | **Given** a valid `clientId`, **when** submitted, **then** the existing client is reused and no client row is created. |
 | AC-HB02-19 | **Given** two concurrent requests for the same unit and overlapping dates, **when** both run, **then** exactly one succeeds and the other receives a `409`. |
 | AC-HB02-20 | **Given** a request carrying an `externalReference` already used by another historical booking, **when** submitted, **then** `409` is returned rather than a 500. |
-| AC-HB02-21 | **Given** any failure path, **then** the response body carries the machine-readable code from §14.4 (D-HB02-03) and no stack trace. |
-| AC-HB02-22 | **Given** the deployed migration, **then** `PermissionKeys.All` contains both new keys, a policy exists for each, and a SuperAdmin token issued after the migration carries both `perm` claims. |
+| AC-HB02-21 | **Given** any exception-produced failure path, **then** the response body carries the machine-readable `code` from §14.4 in the `code` property — **not** inside `errors[0]` — alongside a human-readable `message`, and no stack trace. |
+| AC-HB02-22 | **Given** the deployed migration, **then** `PermissionKeys.All` contains `bookings:record_historical`, a policy exists for it, a SuperAdmin token issued after the migration carries the `perm` claim, and **`bookings:override_owner` is absent** (it arrives with HB-05). |
 | AC-HB02-23 | **Given** an existing non-historical booking, **when** any existing booking endpoint is called, **then** its response is byte-identical to pre-change output except for additive properties. |
 | AC-HB02-24 | **Given** a historical booking whose recording admin is later deactivated, **when** its status history is rendered, **then** the row is still identified as a creation entry (E-18). |
+| AC-HB02-25 | **Given** a request supplying both `clientId` and `newClient`, or neither, **when** submitted, **then** `400 CLIENT_REFERENCE_INVALID` is returned and nothing is persisted. |
+| AC-HB02-26 | **Given** a `clientId` that does not resolve, **when** submitted, **then** `404 CLIENT_NOT_FOUND` is returned and nothing is persisted. |
+| AC-HB02-27 | **Given** a request with no `Idempotency-Key` header, or a malformed one, **when** submitted, **then** `400 IDEMPOTENCY_KEY_REQUIRED` is returned and nothing is persisted. |
+| AC-HB02-28 | **Given** a successful creation, **when** the identical request is replayed with the same `Idempotency-Key`, **then** `200` is returned carrying **the original booking id**, and the `bookings` row count is unchanged. |
+| AC-HB02-29 | **Given** a used `Idempotency-Key`, **when** a request with a **different** body is sent under it, **then** `409 IDEMPOTENCY_KEY_REUSED` is returned and no second booking is created. |
+| AC-HB02-30 | **Given** an idempotency claim that exists without a completion, **when** the key is retried, **then** `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` is returned deterministically on every attempt and no second booking is ever created. |
+| AC-HB02-31 | **Given** two different admins using the **same** key string on the same endpoint, **when** both submit different valid requests, **then** both succeed — keys are scoped to actor + endpoint + key. |
+| AC-HB02-32 | **Given** an `originalSource` code absent from `booking_original_sources`, **when** submitted, **then** `400 ORIGINAL_SOURCE_INVALID` is returned. |
+| AC-HB02-33 | **Given** a code present in `booking_original_sources` with `is_active = false`, **when** submitted, **then** `400 ORIGINAL_SOURCE_INVALID` is returned; **and** an existing booking already referencing that code remains readable and valid. |
+| AC-HB02-34 | **Given** the seeded vocabulary, **then** `booking_original_sources` contains exactly `legacy_system`, `external_platform`, `offline_record` and `other`, each with a non-empty label, and a direct insert of any other value into `bookings.original_source` is rejected by the foreign key. |
+| AC-HB02-35 | **Given** a unit whose current price differs from the submitted `agreedAmount`, **when** the booking is created, **then** the persisted amount equals the submitted `agreedAmount` exactly — **not** the computed price. |
+| AC-HB02-36 | **Given** `agreedAmount = 0`, **when** submitted, **then** the request succeeds and zero is persisted; **given** a negative amount, **then** `400 VALIDATION_ERROR` is returned. |
+| AC-HB02-37 | **Given** any successful historical creation, **then** no row is created in `invoices`, `invoice_items`, `payments` or `owner_payouts`, and no fee, tax or discount value is written anywhere. |
+| AC-HB02-38 | **Given** a unit with exactly one current owner, **when** a historical booking is created, **then** `bookings.owner_id` equals `unit.owner_id` and the response echoes it. |
+| AC-HB02-39 | **Given** a unit whose current ownership is absent, multiple or ambiguous, **when** submitted, **then** `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` is returned and nothing is persisted. |
+| AC-HB02-40 | **Given** a request body carrying `ownerId` or `ownerAttribution`, **when** submitted, **then** the field is rejected as unknown and can under no circumstances influence the persisted owner. |
+| AC-HB02-41 | **Given** a checkout equal to `cairoToday − 1`, **then** the request succeeds; **given** `cairoToday`, **then** `400 HISTORICAL_CHECKOUT_NOT_COMPLETED`. The business date comes from `IBusinessClock` and is resolved once per request. |
 
 ## 28. Negative acceptance criteria
 
@@ -932,7 +1309,7 @@ Ordered so that each step is independently reviewable and leaves the build green
 | NAC-HB02-08 | `bookings.source` is widened, or `ck_bookings_source` is altered. |
 | NAC-HB02-09 | Structured historical data is stored in `internal_notes` (ADR-06). |
 | NAC-HB02-10 | The advisory-lock key diverges from `booking-unit:{unitId:N}`. |
-| NAC-HB02-11 | The Cairo boundary expression is duplicated rather than taken from HB-01's shared resolver. |
+| NAC-HB02-11 | The Cairo boundary expression is duplicated anywhere rather than taken from the single `IBusinessClock` abstraction HB-02 owns ([D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership)). |
 | NAC-HB02-12 | `DateTime.Now` or `DateTime.Today` appears in new code. |
 | NAC-HB02-13 | The audit actor is read from the request body rather than the authenticated principal. |
 | NAC-HB02-14 | `OwnerId`, `BookingStatus`, `CreatedAt` or `IsHistorical` is bindable from the request DTO. |
@@ -942,6 +1319,24 @@ Ordered so that each step is independently reviewable and leaves the build green
 | NAC-HB02-18 | `BookingService.CreateAsync`'s existing behaviour changes for any current caller. |
 | NAC-HB02-19 | A permission constant is added without its descriptor (silently yielding no policy). |
 | NAC-HB02-20 | The endpoint is exposed to client, owner-portal or storefront principals. |
+| NAC-HB02-21 | The machine-readable code is emitted inside `errors[0]`, or any existing `ApiResponse` field is renamed, removed or changed in type. |
+| NAC-HB02-22 | An unrelated endpoint is forced to migrate to the coded-error contract as part of this ticket. |
+| NAC-HB02-23 | A `403` branch is added to `ExceptionHandlingMiddleware`, or `ForbiddenBusinessException` is introduced, by HB-02. |
+| NAC-HB02-24 | `bookings:override_owner` is defined, seeded or referenced as an HB-02 deliverable. |
+| NAC-HB02-25 | An owner id, owner-attribution object or override flag is accepted from the request body. |
+| NAC-HB02-26 | An owner is guessed, defaulted arbitrarily, or silently selected when ownership is absent, multiple or ambiguous. |
+| NAC-HB02-27 | `agreedAmount` is defaulted, recomputed, or overwritten from current unit pricing on this path. |
+| NAC-HB02-28 | HB-02 creates an invoice, payment, payment evidence, fee, tax, discount, payout, or an extended immutable financial snapshot. |
+| NAC-HB02-29 | A currency column, currency field or currency conversion is introduced. |
+| NAC-HB02-30 | A duplicate client is created, or an existing client is silently reused or merged, when a `newClient` phone already exists. |
+| NAC-HB02-31 | Guest name, phone or email is returned in the `CLIENT_PHONE_ALREADY_EXISTS` error payload. |
+| NAC-HB02-32 | The historical endpoint accepts a request without a valid `Idempotency-Key`. |
+| NAC-HB02-33 | A replayed key creates a second booking, or is silently re-pointed at a different booking. |
+| NAC-HB02-34 | Idempotency storage is described or implemented as optional, deferred, advisory, or owned by HB-03. |
+| NAC-HB02-35 | An automatic expiry, TTL or pruning job for `idempotency_keys` is introduced in v1. |
+| NAC-HB02-36 | `original_source` accepts free text, or its vocabulary is mirrored as a hard-coded C# allow-list instead of being read from the database. |
+| NAC-HB02-37 | A row is deleted from `booking_original_sources`, or an individual commercial platform name is added to it. |
+| NAC-HB02-38 | A second Cairo business-date expression is written, or `IBusinessClock` grows beyond the business date into a general clock abstraction. |
 
 ---
 
@@ -950,21 +1345,27 @@ Ordered so that each step is independently reviewable and leaves the build green
 | Layer | Tests |
 |---|---|
 | **Unit** | Boundary: checkout at `cairoToday−2`, `−1`, `today`, `+1`; a request straddling Cairo midnight resolves one date only; DST transition inside the stay changes nothing (`DateOnly`) |
-| **Unit** | Reason/source allow-lists: every valid value accepted; unknown rejected; `other` without a note rejected; C# constants and SQL CHECK lists agree |
+| **Unit** | Reason allow-list: every valid value accepted; unknown rejected; `other` without a note rejected; C# constants and the SQL CHECK list agree |
+| **Unit** | `IBusinessClock` is injected and stubbed: the boundary is asserted at `−2`, `−1`, `today` and `+1` without waiting for real time |
+| **Unit** | Canonical request hashing is stable under property reordering and whitespace, and differs when any value differs |
 | **Unit** | `actualBookedAt` rules: future rejected, after check-in rejected, equal to check-in accepted |
 | **Unit** | Command construction ignores any attempt to set `CreatedAt`, `BookingStatus`, `OwnerId` |
 | **Service** | Happy path writes booking + one history row with the exact field values in §11.3 |
 | **Service** | Every rejection branch in §14.4 returns the right exception type |
-| **Service** | Client resolution: existing `clientId` reused; new client created; duplicate phone → `409` with the existing id |
-| **Integration (real Postgres)** | Transaction rollback (`SC-TXN-01`), advisory-lock serialisation, CHECK-constraint enforcement, partial unique index on `external_reference`. `BLOCKED` on [OQ-09](00_MASTER_PLAN.md#32-open-questions) — EF InMemory raises `TransactionIgnoredWarning` and cannot run `ExecuteSqlInterpolatedAsync` |
+| **Service** | Client resolution: both/neither → `400 CLIENT_REFERENCE_INVALID`; unknown id → `404 CLIENT_NOT_FOUND`; valid id reused with no insert; duplicate phone → `409 CLIENT_PHONE_ALREADY_EXISTS` carrying the existing id and creating nothing |
+| **Service** | Owner resolution: single owner attributed; absent/ambiguous → `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` |
+| **Service** | `agreedAmount` persisted verbatim against a differently-priced unit; zero accepted; negative rejected |
+| **Service** | `original_source`: active accepted, inactive rejected, unknown rejected, existing rows referencing an inactive code still readable |
+| **Service** | Idempotency: first use, identical replay, hash-mismatch replay, incomplete claim, and cross-actor key reuse |
+| **Integration (real Postgres)** | Transaction rollback (`SC-TXN-01`), advisory-lock serialisation, CHECK-constraint enforcement, the `booking_original_sources` foreign key, the `idempotency_keys` primary key, and the partial unique index on `external_reference`. **Unblocked** — [`PRE-02`](DECISION_RATIFICATION_PACKET.md#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) delivers the real-PostgreSQL fixture, and HB-02 writes its tests on that tier |
 | **Integration** | `AutoCompleteBookingsJob` run before and after a historical booking selects an identical set |
 | **API** | Route, 200 envelope shape, all §14.4 status/code pairs, camelCase serialisation, `403` with no body from the policy |
 | **API** | Contract test asserting no request field can set an excluded property |
 | **Frontend** | None in this ticket — HB-06 owns the wizard. A thin `curl`/REST-client script is sufficient evidence here |
 | **E2E** | Deferred to HB-06/HB-09 |
 | **Concurrency** | Two simultaneous identical historical submissions: exactly one `200`, one `409`; two simultaneous submissions for overlapping dates on one unit: same outcome; a historical and a normal create racing on one unit |
-| **Security** | Missing permission → 403; permission present but `bookings:override_owner` absent and override requested → 403; cross-portfolio unit/owner ids rejected; body-supplied `createdByAdminUserId` ignored; body-supplied `bookingStatus` ignored |
-| **Accounting** | Deferred to HB-04/HB-05. HB-02 asserts only that `agreedAmount` reaches persistence unmodified and that no payout row is created implicitly |
+| **Security** | Missing permission → `403` with an empty body; body-supplied `ownerId`, `ownerAttribution`, `createdByAdminUserId`, `bookingStatus` and `isHistorical` all rejected as unknown fields; another actor's idempotency key cannot be replayed; the `CLIENT_PHONE_ALREADY_EXISTS` payload contains no PII |
+| **Accounting** | The extended snapshot and payments are HB-04/HB-05. HB-02 asserts that `agreedAmount` reaches persistence **unmodified**, and that zero rows appear in `invoices`, `invoice_items`, `payments` and `owner_payouts` |
 | **Regression** | `POST /api/internal/bookings`, `/quick`, CRM conversion, guest checkout, owner portal, status transitions, availability, existing reports — all unchanged. Full existing suite (33 tests, `CONFIRMED`) green |
 | **Manual** | `SC-DATE-01` … `SC-DATE-09`, `SC-SEC-02`, `SC-SEC-09`, `SC-SEC-10`, `SC-AUDIT-01` … `SC-AUDIT-04`, `SC-TXN-01` … `SC-TXN-03`, `SC-REG-01` … `SC-REG-04` |
 
@@ -973,12 +1374,16 @@ Ordered so that each step is independently reviewable and leaves the build green
 ## 30. PM checklist
 
 - [ ] Scope confirmed against [Master §27](00_MASTER_PLAN.md#27-ticket-summary-table)
-- [ ] D-HB02-01 … D-HB02-06 answered in writing (the four blocking ones especially)
-- [ ] Reason allow-list (§15.2) approved by Operations
-- [ ] Original-source allow-list (§15.3) approved by Product and Finance
-- [ ] Permission names and initial grants approved by Security (D-HB02-09, D-HB02-10)
-- [ ] HB-01 merged and its ADRs ratified
-- [ ] *Finance lens:* confirm HB-02 persists an operator-entered amount that HB-04 will protect
+- [x] Every HB-02 decision ratified — §10 and the [decision record](DECISION_RATIFICATION_PACKET.md)
+- [x] Reason allow-list (§15.2) settled — *Operations lens*
+- [x] `original_source` vocabulary (§15.3) settled as a database-backed table — *Product · Finance lenses*
+- [x] Permission name and initial grant settled (D-HB02-09, D-HB02-10) — *Security lens*
+- [x] HB-01 complete; its ADRs decided
+- [x] *Finance lens:* HB-02 persists the operator-entered `agreedAmount` verbatim; HB-04 owns the immutable
+      snapshot and the repricing guard ([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary))
+- [x] [`PRE-01`](DECISION_RATIFICATION_PACKET.md#pre-01--database-bootstrap-parity-for-migration-0057) merged — bootstrap parity restored
+- [x] [`PRE-02`](DECISION_RATIFICATION_PACKET.md#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) merged — real-PostgreSQL test tier available
+- [ ] *Operations lens:* [`PRE-00`](DECISION_RATIFICATION_PACKET.md#pre-00--historical-data-census) census run, or explicitly carried as an outstanding deployment-readiness gate before the pilot
 - [ ] Support informed that historical bookings appear in today's revenue bucket until HB-08 ships
 - [ ] Rollback limitation understood: safe only before the first historical booking (§34)
 - [ ] Observability signals (§20) accepted by whoever owns the dashboards
@@ -987,28 +1392,41 @@ Ordered so that each step is independently reviewable and leaves the build green
 
 ## 31. Definition of Ready
 
-1. HB-01 merged; ADR-01 … ADR-12 ratified; `D-01` (boundary) and `D-06` (column names) answered.
-2. The shared Cairo business-date resolver exists and is injectable (A-HB02-1).
-3. D-HB02-01, D-HB02-03, D-HB02-04, D-HB02-05 and D-HB02-06 are answered — the blocking five.
-4. The next free migration number is confirmed against `db/migrations` at branch time.
-5. A test environment with a real PostgreSQL instance, or an explicit, owned deferral of the integration
-   tests to HB-09 ([OQ-09](00_MASTER_PLAN.md#32-open-questions)).
-6. The seam signatures in §11.5 are fixed, so HB-03, HB-04 and HB-05 can start
-   immediately afterwards.
+1. **Satisfied.** HB-01 complete; ADR-01 … ADR-12 decided; `D-01` (boundary) and `D-06` (column names)
+   answered.
+2. **Satisfied.** The Cairo business-date abstraction is no longer a prerequisite — HB-02 owns and creates
+   it ([D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership)). Its absence is explicitly **not** a readiness blocker.
+3. **Satisfied.** Every D-HB02 decision is `OWNER APPROVED` (§10). None is blocking, because none is open.
+4. **Satisfied.** A real PostgreSQL test environment exists — [`PRE-02`](DECISION_RATIFICATION_PACKET.md#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) is merged.
+5. **Satisfied.** [`PRE-01`](DECISION_RATIFICATION_PACKET.md#pre-01--database-bootstrap-parity-for-migration-0057) is merged, so a fresh bootstrap and the migration history agree
+   before HB-02 adds a migration on top.
+6. At branch time: confirm the next free migration number against `db/migrations`, and add the new
+   migration to **both** bootstrap files so the parity `PRE-01` restored is not immediately broken again.
+
+**Every Definition-of-Ready item is satisfied. HB-02 may start.**
+
+The seam signatures in §11.5 are fixed, so HB-03, HB-04 and HB-05 can start immediately afterwards.
 
 ## 32. Definition of Done
 
-1. AC-HB02-01 … AC-HB02-24 pass, or are explicitly deferred with a named owner and a linked ticket.
-2. NAC-HB02-01 … NAC-HB02-20 are verified, each by an assertion rather than by inspection.
+1. AC-HB02-01 … AC-HB02-41 pass, or are explicitly deferred with a named owner and a linked ticket.
+2. NAC-HB02-01 … NAC-HB02-38 are verified, each by an assertion rather than by inspection.
 3. Migration applied forward with `_verify.sql` passing; `_rollback.sql` exercised on a scratch database.
-4. Both permissions appear in `PermissionKeys.All`, have policies, and are seeded.
+4. `bookings:record_historical` appears in `PermissionKeys.All`, has a policy, and is seeded.
+   `bookings:override_owner` is **absent** — it is HB-05's.
 5. The full existing test suite is green with no modification to unrelated tests.
 6. The single-history-row property is asserted, not assumed.
 7. Zero notifications and zero invoices are asserted for a historical creation.
 8. `AutoCompleteBookingsJob` provably ignores historical bookings.
 9. Structured audit event and all three metrics are emitted and observed locally.
-10. §10 is updated in place with the ratified decisions and their deciders.
-11. Seam documentation handed to HB-03, HB-04 and HB-05.
+10. The idempotency contract is proven end to end on real PostgreSQL: replay, hash mismatch, incomplete
+    claim, cross-actor isolation, and rollback leaving no key.
+11. `booking_original_sources` holds exactly the four seeded codes, the foreign key rejects anything else,
+    and an inactive code is refused for new bookings while remaining readable on existing ones.
+12. `agreedAmount` is proven to persist verbatim against a differently-priced unit, and zero rows exist in
+    `invoices`, `payments` and `owner_payouts`.
+13. The owner is proven to come from the unit and never from the request, with ambiguity refused.
+14. Seam documentation handed to HB-03, HB-04 and HB-05.
 
 ---
 
@@ -1017,7 +1435,7 @@ Ordered so that each step is independently reviewable and leaves the build green
 | Risk | HB-02 exposure | Mitigation |
 |---|---|---|
 | `RISK-10` bypass via the normal endpoint | **High until REQ-16 hardening is activated in HB-08.** The new permission is advisory while `bookings:write` still permits backdating | Accepted for the duration of the programme under [D-HARD-01](DECISION_RATIFICATION_PACKET.md#d-hard-01--normal-flow-hardening). Size the exposure with HB-01's read-only census before the pilot; detect ongoing normal-flow backdating through HB-08's off-diagonal reconciliation rows; monitor `booking_create_rejected_total` once activated |
-| `RISK-08` Cairo boundary off-by-one | Direct | Single shared resolver; resolve once per request; explicit `−2/−1/0/+1` boundary tests |
+| `RISK-08` Cairo boundary off-by-one | Direct | The single `IBusinessClock` abstraction HB-02 owns; resolved once per request; explicit `−2/−1/0/+1` boundary tests with the clock stubbed |
 | `RISK-09` partial transaction | Direct | Service owns the transaction; forced-failure rollback test; coherence CHECK constraint |
 | `RISK-12` client duplication | Direct | D-HB02-05: no silent create, no silent match; `409` carrying the existing id |
 | `RISK-06` notification replay | Low | Structural impossibility (§21), asserted by HB-07 |
@@ -1069,7 +1487,13 @@ This limitation must appear verbatim in the release checklist, matching
 Stop and report rather than proceeding if:
 
 - HB-01 is not merged, or its ADRs are not ratified in writing.
-- Any of the four blocking decisions (D-HB02-01, D-HB02-03, D-HB02-04, D-HB02-05) is unanswered.
+- A diff adds a `403` branch to `ExceptionHandlingMiddleware`, introduces `ForbiddenBusinessException`, or
+  defines `bookings:override_owner` — all three are HB-05's ([D-HB02-04](#102-d-hb02-04-in-full--the-subject-and-why-it-dissolves)).
+- A diff adds an owner field to the request DTO, or an invoice, payment, payout, fee, tax or discount write
+  to the historical path.
+- A diff mirrors the `original_source` vocabulary as a hard-coded C# list instead of reading the table.
+- The new migration is added to `db/init.sql` but not to `infra/db/init.prod.sql`, or vice versa — that
+  re-creates the exact defect [`PRE-01`](DECISION_RATIFICATION_PACKET.md#pre-01--database-bootstrap-parity-for-migration-0057) was raised to fix.
 - The repository has diverged from §5.2 — in particular if the route prefix, `initialStatus`, the advisory
   lock key, or the exception→status switch differs from what is cited here.
 - Making the tests pass would require changing `BookingService.CreateAsync`'s behaviour for existing callers.
