@@ -587,6 +587,7 @@ today — and are retired.
 | Client reference not exactly one of `clientId` / `newClient` | 400 | `CLIENT_REFERENCE_INVALID` | HB-02 |
 | `clientId` not found | 404 | `CLIENT_NOT_FOUND` | HB-02 |
 | `newClient` phone already held | 409 | `CLIENT_PHONE_ALREADY_EXISTS` | HB-02 |
+| `newClient` phone held by an inactive or soft-deleted non-selectable client | 409 | `CLIENT_PHONE_REQUIRES_REVIEW` | HB-02 |
 | Unit not found | 404 | `UNIT_NOT_FOUND` | HB-02 |
 | Assigned admin not found | 404 | `ADMIN_USER_NOT_FOUND` | HB-02 |
 | Stay not yet complete | 400 | `HISTORICAL_CHECKOUT_NOT_COMPLETED` | HB-02 |
@@ -596,13 +597,16 @@ today — and are retired.
 | Key claimed but never completed | 409 | `IDEMPOTENCY_REQUEST_IN_PROGRESS` | HB-02 |
 | Current unit ownership absent, multiple or ambiguous | 409 | `OWNER_ATTRIBUTION_REQUIRES_REVIEW` | HB-02 |
 | `externalReference` already used | 409 | `EXTERNAL_REFERENCE_ALREADY_EXISTS` | HB-02 |
-| Overlap incl. historical | 409 | `HISTORICAL_OVERLAP_CONFLICT` | HB-03 |
+| Overlap incl. historical | 409 | `HISTORICAL_OVERLAP_CONFLICT` | HB-02 |
 | Exact duplicate | 409 | `HISTORICAL_DUPLICATE_BOOKING` | HB-03 |
-| Soft-deleted unit | 400 | `UNIT_DELETED_UNSUPPORTED` | HB-03 |
+| Soft-deleted unit | 400 | `UNIT_DELETED_UNSUPPORTED` | HB-02 |
 | Explicit owner confirmation absent (HB-05's added field) | 400 | `OWNER_ATTRIBUTION_REQUIRED` | HB-05 |
 | Owner override without permission | 403 | `OWNER_OVERRIDE_FORBIDDEN` | HB-05 |
 | Owner correction attempted against a settled payout | 409 | `OWNER_CORRECTION_SETTLEMENT_LOCKED` | HB-05 |
 | Past stay dates on the **normal** endpoint | 400 | `STAY_DATES_IN_PAST` | HB-08 |
+
+HB-02 owns the initial `HISTORICAL_OVERLAP_CONFLICT` transport. HB-03 owns the later expansion of
+overlap and duplicate-detection behaviour, including the full historical conflict set.
 
 `OWNER_ATTRIBUTION_REQUIRED` (HB-05, `400`, *the operator did not confirm*) and
 `OWNER_ATTRIBUTION_REQUIRES_REVIEW` (HB-02, `409`, *the system cannot determine the owner*) are **two

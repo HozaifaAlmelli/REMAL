@@ -17,6 +17,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.StaticFiles;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using RentalPlatform.Business.Time;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -281,6 +282,10 @@ builder.Services.AddScoped<IDateBlockService, DateBlockService>();
 builder.Services.AddScoped<IDateBlockApprovalService, DateBlockApprovalService>();
 builder.Services.AddScoped<IUnitAvailabilityService, UnitAvailabilityService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<IHistoricalIdempotencyStore, HistoricalIdempotencyStore>();
+builder.Services.AddScoped<IHistoricalBookingService, HistoricalBookingService>();
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton<IBusinessClock, CairoBusinessClock>();
 builder.Services.AddScoped<IGuestBookingService, GuestBookingService>();
 builder.Services.AddScoped<IBookingLifecycleService, BookingLifecycleService>();
 builder.Services.AddScoped<ICrmLeadService, CrmLeadService>();

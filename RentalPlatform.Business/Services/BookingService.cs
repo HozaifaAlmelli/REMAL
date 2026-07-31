@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
+using RentalPlatform.Business.Models;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Constants;
@@ -140,7 +141,8 @@ public class BookingService : IBookingService
         BookingStatus? initialStatus = null,
         bool requirePortfolioVisibility = false,
         bool rejectSoftHoldOverlaps = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        BookingCreationOptions? creationOptions = null)
     {
         // --- Input validation ---
         ValidateStayDates(checkInDate, checkOutDate);
@@ -151,25 +153,39 @@ public class BookingService : IBookingService
         var client = await _unitOfWork.Clients.FirstOrDefaultAsync(
             c => c.Id == clientId && c.IsActive && c.DeletedAt == null, cancellationToken);
         if (client == null)
-            throw new NotFoundException($"Active client with ID {clientId} not found");
+            throw creationOptions?.ClientNotFoundErrorCode is null
+                ? new NotFoundException($"Active client with ID {clientId} not found")
+                : new NotFoundException(
+                    $"Active client with ID {clientId} not found",
+                    creationOptions.ClientNotFoundErrorCode);
 
+        var allowInactiveUnit = creationOptions?.AllowInactiveUnit == true;
         var unit = await _unitOfWork.Units.FirstOrDefaultAsync(
             u => u.Id == unitId
-                && u.IsActive
+                && (u.IsActive || allowInactiveUnit)
                 && (!requirePortfolioVisibility || u.IsVisibleInPortfolio)
                 && u.DeletedAt == null,
             cancellationToken);
         if (unit == null)
-            throw new NotFoundException(requirePortfolioVisibility
+        {
+            var message = requirePortfolioVisibility
                 ? $"Public unit with ID {unitId} not found"
-                : $"Active unit with ID {unitId} not found");
+                : $"Active unit with ID {unitId} not found";
+            throw creationOptions?.UnitNotFoundErrorCode is null
+                ? new NotFoundException(message)
+                : new NotFoundException(message, creationOptions.UnitNotFoundErrorCode);
+        }
 
         if (assignedAdminUserId.HasValue)
         {
             var adminExists = await _unitOfWork.AdminUsers.ExistsAsync(
                 a => a.Id == assignedAdminUserId.Value && a.IsActive, cancellationToken);
             if (!adminExists)
-                throw new NotFoundException($"Active admin user with ID {assignedAdminUserId.Value} not found");
+                throw creationOptions?.AdminUserNotFoundErrorCode is null
+                    ? new NotFoundException($"Active admin user with ID {assignedAdminUserId.Value} not found")
+                    : new NotFoundException(
+                        $"Active admin user with ID {assignedAdminUserId.Value} not found",
+                        creationOptions.AdminUserNotFoundErrorCode);
         }
 
         if (createdByAdminUserId.HasValue)
@@ -177,24 +193,48 @@ public class BookingService : IBookingService
             var creatorExists = await _unitOfWork.AdminUsers.ExistsAsync(
                 a => a.Id == createdByAdminUserId.Value && a.IsActive, cancellationToken);
             if (!creatorExists)
-                throw new NotFoundException($"Active admin user with ID {createdByAdminUserId.Value} not found");
+                throw creationOptions?.AdminUserNotFoundErrorCode is null
+                    ? new NotFoundException($"Active admin user with ID {createdByAdminUserId.Value} not found")
+                    : new NotFoundException(
+                        $"Active admin user with ID {createdByAdminUserId.Value} not found",
+                        creationOptions.AdminUserNotFoundErrorCode);
         }
 
         // --- Guest count vs unit capacity ---
         if (guestCount > unit.MaxGuests)
-            throw new BusinessValidationException(
-                $"Guest count ({guestCount}) exceeds unit maximum capacity ({unit.MaxGuests})");
+        {
+            var message = $"Guest count ({guestCount}) exceeds unit maximum capacity ({unit.MaxGuests})";
+            throw creationOptions?.GuestCapacityErrorCode is null
+                ? new BusinessValidationException(message)
+                : new BusinessValidationException(message, creationOptions.GuestCapacityErrorCode);
+        }
 
         // --- Translate booking dates to pricing range (checkout - 1 day) ---
         var pricingStartDate = checkInDate;
         var pricingEndDate = checkOutDate.AddDays(-1);
 
         // --- Operational availability check (date blocks) ---
-        var availability = await _availabilityService.CheckOperationalAvailabilityAsync(
-            unitId, pricingStartDate, pricingEndDate, cancellationToken: cancellationToken);
+        UnitAvailabilityResult availability;
+        try
+        {
+            availability = await _availabilityService.CheckOperationalAvailabilityAsync(
+                unitId,
+                pricingStartDate,
+                pricingEndDate,
+                cancellationToken: cancellationToken,
+                allowInactiveUnit: creationOptions?.AllowInactiveUnit == true);
+        }
+        catch (NotFoundException exception) when (creationOptions?.UnitNotFoundErrorCode is not null)
+        {
+            throw new NotFoundException(exception.Message, creationOptions.UnitNotFoundErrorCode);
+        }
         if (!availability.IsAvailable)
-            throw new ConflictException(
-                $"Unit {unitId} is not operationally available for the requested dates: {availability.Reason}");
+        {
+            var message = $"Unit {unitId} is not operationally available for the requested dates: {availability.Reason}";
+            throw creationOptions?.OperationalConflictErrorCode is null
+                ? new ConflictException(message)
+                : new ConflictException(message, creationOptions.OperationalConflictErrorCode);
+        }
 
         if (rejectSoftHoldOverlaps)
         {
@@ -207,7 +247,13 @@ public class BookingService : IBookingService
         }
 
         // --- Confirmed booking overlap check ---
-        await EnsureNoConfirmedOverlap(unitId, checkInDate, checkOutDate, excludeBookingId: null, cancellationToken);
+        await EnsureNoConfirmedOverlap(
+            unitId,
+            checkInDate,
+            checkOutDate,
+            excludeBookingId: null,
+            cancellationToken,
+            creationOptions?.ConfirmedOverlapErrorCode);
 
         // --- Pricing snapshot ---
         var pricing = await _availabilityService.CalculatePricingAsync(
@@ -490,7 +536,8 @@ public class BookingService : IBookingService
         DateOnly checkInDate,
         DateOnly checkOutDate,
         Guid? excludeBookingId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? errorCode = null)
     {
         var holdingStatuses = BookingStatusTransitions.HoldingStatuses;
         var query = _unitOfWork.Bookings.Query()
@@ -506,8 +553,12 @@ public class BookingService : IBookingService
 
         var hasOverlap = await query.AnyAsync(cancellationToken);
         if (hasOverlap)
-            throw new ConflictException(
-                $"The requested dates overlap with an existing booking on unit {unitId}");
+        {
+            var message = $"The requested dates overlap with an existing booking on unit {unitId}";
+            throw errorCode is null
+                ? new ConflictException(message)
+                : new ConflictException(message, errorCode);
+        }
     }
 
     private async Task EnsureNoActiveAvailabilityHoldOverlap(

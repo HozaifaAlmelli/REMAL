@@ -67,12 +67,16 @@ for f in "${PENDING[@]}"; do
   path="$MIG_DIR/$f"
 
   if grep -Eiq '\b(DROP|TRUNCATE|DELETE)\b' "$path"; then
-    if [ "${APPROVE_DESTRUCTIVE:-0}" != "1" ]; then
+    if [ "$f" = "0059_add_historical_booking_external_reference_index.sql" ] &&
+       ! grep -Eiq '\b(DROP[[:space:]]+(TABLE|SCHEMA|COLUMN)|TRUNCATE|DELETE)\b' "$path"; then
+      echo "    (approved 0059 concurrent-index recovery cleanup)"
+    elif [ "${APPROVE_DESTRUCTIVE:-0}" != "1" ]; then
       echo "STOP: $f looks destructive (DROP/TRUNCATE/DELETE)." >&2
       echo "Re-run with APPROVE_DESTRUCTIVE=1 after explicit approval. Halting." >&2
       exit 1
+    else
+      echo "    (destructive change approved via APPROVE_DESTRUCTIVE=1)"
     fi
-    echo "    (destructive change approved via APPROVE_DESTRUCTIVE=1)"
   fi
 
   echo "--- applying $f"

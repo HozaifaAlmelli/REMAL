@@ -174,5 +174,10 @@
 \echo '=== Running migration 0057: add owner contact fields ==='
 \i /docker-entrypoint-initdb.d/migrations/0057_add_owner_contact_fields.sql
 
-\echo '=== All migrations completed successfully ==='
+\echo '=== Running migration 0058: add historical booking domain ==='
+\i /docker-entrypoint-initdb.d/migrations/0058_add_historical_booking_domain.sql
 
+\echo '=== Running migration 0059: add historical booking external reference index ==='
+\i /docker-entrypoint-initdb.d/migrations/0059_add_historical_booking_external_reference_index.sql
+
+\echo '=== All migrations completed successfully ==='

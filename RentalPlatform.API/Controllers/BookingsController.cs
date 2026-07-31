@@ -176,6 +176,7 @@ public class BookingsController : ControllerBase
             FinalAmount = booking.FinalAmount,
             Source = booking.Source,
             CreatedAt = booking.CreatedAt,
+            IsHistorical = booking.IsHistorical,
             IsAgedSoftHold = IsAgedSoftHold(booking),
             SoftHoldAgeDays = GetSoftHoldAgeDays(booking)
         };
@@ -204,6 +205,7 @@ public class BookingsController : ControllerBase
             InternalNotes = booking.InternalNotes,
             CreatedAt = booking.CreatedAt,
             UpdatedAt = booking.UpdatedAt,
+            IsHistorical = booking.IsHistorical,
             IsAgedSoftHold = IsAgedSoftHold(booking),
             SoftHoldAgeDays = GetSoftHoldAgeDays(booking)
         };
@@ -264,11 +266,16 @@ public class BookingsController : ControllerBase
 
         var isCreationEntry =
             history.OldStatus == null &&
-            string.Equals(
-                history.Notes,
-                BookingHistoryEvents.BookingCreated,
-                StringComparison.Ordinal);
+            (string.Equals(
+                 history.Notes,
+                 BookingHistoryEvents.BookingCreated,
+                 StringComparison.Ordinal) ||
+             string.Equals(
+                 history.Notes,
+                 BookingHistoryEvents.HistoricalBookingRecorded,
+                 StringComparison.Ordinal));
         if (isCreationEntry &&
+            string.Equals(history.Notes, BookingHistoryEvents.BookingCreated, StringComparison.Ordinal) &&
             string.Equals(history.Booking?.Source, "website", StringComparison.OrdinalIgnoreCase))
         {
             return ("Online booking", "online");

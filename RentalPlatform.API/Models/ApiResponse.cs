@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace RentalPlatform.API.Models;
 
@@ -8,6 +9,10 @@ public class ApiResponse<T>
     public T? Data { get; set; }
     public string? Message { get; set; }
     public string[]? Errors { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Code { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, object?>? Metadata { get; set; }
     public PaginationMeta? Pagination { get; set; }
 
     public static ApiResponse<T> CreateSuccess(T data, string? message = null, PaginationMeta? pagination = null)
@@ -30,6 +35,18 @@ public class ApiResponse<T>
             Message = message,
             Errors = errors ?? Array.Empty<string>()
         };
+    }
+
+    public static ApiResponse<T> CreateFailure(
+        string? message,
+        string[]? errors,
+        string? code,
+        IReadOnlyDictionary<string, object?>? metadata = null)
+    {
+        var response = CreateFailure(message, errors);
+        response.Code = code;
+        response.Metadata = metadata;
+        return response;
     }
 }
 
@@ -55,5 +72,17 @@ public class ApiResponse : ApiResponse<object>
             Message = message,
             Errors = errors ?? Array.Empty<string>()
         };
+    }
+
+    public static new ApiResponse CreateFailure(
+        string? message,
+        string[]? errors,
+        string? code,
+        IReadOnlyDictionary<string, object?>? metadata = null)
+    {
+        var response = CreateFailure(message, errors);
+        response.Code = code;
+        response.Metadata = metadata;
+        return response;
     }
 }

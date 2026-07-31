@@ -28,6 +28,8 @@ public class UnitOfWork : IUnitOfWork
     public IRepository<DateBlock> DateBlocks { get; }
     public IRepository<Booking> Bookings { get; }
     public IRepository<BookingStatusHistory> BookingStatusHistories { get; }
+    public IRepository<BookingOriginalSource> BookingOriginalSources { get; }
+    public IRepository<IdempotencyKey> IdempotencyKeys { get; }
     public IRepository<CrmLead> CrmLeads { get; }
     public IRepository<CrmNote> CrmNotes { get; }
     public IRepository<CrmAssignment> CrmAssignments { get; }
@@ -84,6 +86,8 @@ public class UnitOfWork : IUnitOfWork
         DateBlocks = new Repository<DateBlock>(_context);
         Bookings = new Repository<Booking>(_context);
         BookingStatusHistories = new Repository<BookingStatusHistory>(_context);
+        BookingOriginalSources = new Repository<BookingOriginalSource>(_context);
+        IdempotencyKeys = new Repository<IdempotencyKey>(_context);
         CrmLeads = new Repository<CrmLead>(_context);
         CrmNotes = new Repository<CrmNote>(_context);
         CrmAssignments = new Repository<CrmAssignment>(_context);
