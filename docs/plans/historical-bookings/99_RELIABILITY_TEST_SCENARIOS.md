@@ -154,7 +154,7 @@ All fixtures are sanitized (no real guest or owner PII). Prices are fixture valu
 | `U-ACTIVE-2` | true | null | `O-BETA` | 2 | 900.00 | Capacity and second-unit checks |
 | `U-SEASONAL-1` | true | null | `O-ALPHA` | 6 | 1200.00 | Has `SeasonalPricing` rows covering the historical window, so the live reference price provably differs from the agreed amount (F-07) |
 | `U-INACTIVE-1` | **false** | null | `O-ALPHA` | 4 | 1400.00 | Inactive-but-not-deleted — must be **allowed** for historical entry (REQ-17, ADR-12) |
-| `U-DELETED-1` | false | **set** | `O-BETA` | 3 | 1100.00 | Soft-deleted — must be **rejected** (`unit_deleted_unsupported`) |
+| `U-DELETED-1` | false | **set** | `O-BETA` | 3 | 1100.00 | Soft-deleted — must be **rejected** (`UNIT_DELETED_UNSUPPORTED`) |
 | `U-BUSY-1` | true | null | `O-ALPHA` | 4 | 1500.00 | Pre-loaded with `Completed`, `LeftEarly`, `Cancelled` and `NotRelevant` bookings for the overlap matrix |
 | `U-BLOCKED-1` | true | null | `O-BETA` | 2 | 950.00 | Has a `DateBlock` covering the historical window (`UnitAvailabilityService.cs:39,83`) |
 | `U-OTHER-PF-1` | true | null | `O-GAMMA` | 2 | 800.00 | Outside `A-HIST`'s portfolio — IDOR target |
@@ -586,7 +586,7 @@ row.
 | **Test data** | `check_in = D0 − 2`, `check_out = D0 + 2` |
 | **Steps** | 1. Submit `H-CREATE`. |
 | **Expected — UI** | The wizard blocks submission at step 2 with copy explaining that only completed stays can be recorded in v1 |
-| **Expected — API** | `400` with code `historical_stay_not_complete` |
+| **Expected — API** | `400` with code `HISTORICAL_CHECKOUT_NOT_COMPLETED` |
 | **Expected — DB** | No row written anywhere |
 | **Expected — Audit** | n/a — nothing is created, so there is no booking event to audit; the rejection is logged, not audited |
 | **Expected — Financial** | n/a — rejection precedes any financial write |
@@ -606,7 +606,7 @@ row.
 | **Test data** | `check_in = FUT-IN`, `check_out = FUT-OUT` |
 | **Steps** | 1. Submit `H-CREATE`. |
 | **Expected — UI** | Blocked at step 2; the message routes the operator to the **normal** booking flow |
-| **Expected — API** | `400 historical_stay_not_complete` |
+| **Expected — API** | `400 HISTORICAL_CHECKOUT_NOT_COMPLETED` |
 | **Expected — DB** | No row written |
 | **Expected — Audit** | n/a — no entity created |
 | **Expected — Financial** | n/a — no financial write |
@@ -626,7 +626,7 @@ row.
 | **Test data** | `check_in = D0 − 3`, `check_out = EDGE-OUT-TODAY (D0)` |
 | **Steps** | 1. Submit `H-CREATE`. |
 | **Expected — UI** | Blocked, with copy stating the stay is not finished until the checkout day has fully passed |
-| **Expected — API** | `400 historical_stay_not_complete` |
+| **Expected — API** | `400 HISTORICAL_CHECKOUT_NOT_COMPLETED` |
 | **Expected — DB** | No row written |
 | **Expected — Audit** | n/a — nothing created |
 | **Expected — Financial** | n/a — rejection precedes any financial write |
@@ -646,7 +646,7 @@ row.
 | **Test data** | Case A `check_in = D0 − 5`, `check_out = D0 − 8`. Case B `check_in = check_out = D0 − 5` |
 | **Steps** | 1. Submit case A to `H-CREATE`. 2. Submit case B. 3. Repeat both against `N-CREATE`. |
 | **Expected — UI** | The checkout control has `min = check_in + 1`; manual entry is rejected inline |
-| **Expected — API** | `400 validation_error` in all four submissions |
+| **Expected — API** | `400 VALIDATION_ERROR` in all four submissions |
 | **Expected — DB** | No row written. Defence in depth: even if the service were bypassed, `ck_bookings_valid_stay_range CHECK (check_out_date > check_in_date)` (`db/migrations/0016_create_bookings.sql:26`) refuses the insert |
 | **Expected — Audit** | n/a — nothing created |
 | **Expected — Financial** | n/a — rejection precedes any financial write |
@@ -666,7 +666,7 @@ row.
 | **Test data** | `check_in = D0`, `check_out = D0 + 1` |
 | **Steps** | 1. Submit to `H-CREATE` as `A-HIST`. 2. Submit the same dates to `N-CREATE` as `A-PLAIN`. |
 | **Expected — UI** | The historical wizard blocks; the normal booking form accepts |
-| **Expected — API** | Step 1 → `400 historical_stay_not_complete`. Step 2 → `200 OK` (same-day check-in remains legal under the D-02 recommended default in [HB-01 §10](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#10-decisions)) |
+| **Expected — API** | Step 1 → `400 HISTORICAL_CHECKOUT_NOT_COMPLETED`. Step 2 → `200 OK` (same-day check-in remains legal under the D-02 recommended default in [HB-01 §10](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#10-decisions)) |
 | **Expected — DB** | Exactly one booking row, created by step 2, with `is_historical = false` |
 | **Expected — Audit** | Step 2 writes the ordinary `BookingCreated` history row with the caller's starting status |
 | **Expected — Financial** | Step 2 prices from live pricing, exactly as today |
@@ -726,7 +726,7 @@ row.
 | **Test data** | `checkInDate = "2026-07-20T23:00:00-05:00"`, `checkOutDate = "2026-07-23T01:00:00+09:00"`, `actualBookedAt = "2026-07-19T22:30:00Z"`, plus a `createdAt` field that must be ignored |
 | **Steps** | 1. POST the payload to `H-CREATE`. 2. Read the stored row. |
 | **Expected — UI** | n/a — the portal always sends plain dates; this scenario targets hostile or naive API clients |
-| **Expected — API** | Either `400 validation_error` for a non-date value, **or** `200` with server-authoritative coercion to `DateOnly`. The contract must pick one and document it. A silent timezone shift that changes the calendar day is a **failure** either way |
+| **Expected — API** | Either `400 VALIDATION_ERROR` for a non-date value, **or** `200` with server-authoritative coercion to `DateOnly`. The contract must pick one and document it. A silent timezone shift that changes the calendar day is a **failure** either way |
 | **Expected — DB** | If accepted: `check_in_date = 2026-07-20`, `check_out_date = 2026-07-23`, matching the literal date parts. `created_at` is server time; the client-supplied `createdAt` is discarded |
 | **Expected — Audit** | `changed_at` is server UTC, never client-supplied |
 | **Expected — Financial** | Night count derived from the coerced dates |
@@ -746,7 +746,7 @@ row.
 | **Test data** | Case A `actual_booked_at = D0 + 1`. Case B `actual_booked_at = D0 − 2` with `check_in = D0 − 8` (agreed after the stay started). Case C `actual_booked_at = AGREED-AT` (valid control) |
 | **Steps** | 1. Submit each case to `H-CREATE`. |
 | **Expected — UI** | The agreement-date control caps at `D0` and warns when the date falls after check-in |
-| **Expected — API** | A → `400 validation_error`. B → `400 validation_error`. C → `200 OK` |
+| **Expected — API** | A → `400 VALIDATION_ERROR`. B → `400 VALIDATION_ERROR`. C → `200 OK` |
 | **Expected — DB** | Only case C persists |
 | **Expected — Audit** | Case C writes one history row with the agreement date recorded in the audit event |
 | **Expected — Financial** | n/a for A and B — rejected before any financial write; C behaves as `SC-HAPPY-01` |
@@ -754,7 +754,7 @@ row.
 | **Expected — Notification** | Count unchanged |
 | **Expected — Reporting** | Case C's agreement date is available as a reporting attribute distinct from both the stay and recorded dimensions |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Which case produced which code. `DECISION REQUIRED` — whether case B is a hard `400` or a soft warning. **Reason:** a booking genuinely agreed mid-stay is unusual but not impossible. **Impact:** a hard rule may block a legitimate record. **Recommended default:** hard `400` in v1, relaxable later. **Decider:** Product owner (OQ-01). **Blocking:** no |
+| **Diagnostics** | Which case produced which code. **Settled — hard `400 VALIDATION_ERROR`, naming both dates** ([D-HB02-08](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md#101-ratified-decisions)). A booking agreed mid-stay is overwhelmingly a typo, and accepting it silently corrupts the agreement-date dimension Finance reconciles against. Revisited only if Operations produces a real counter-example |
 
 ---
 
@@ -794,7 +794,7 @@ row.
 | **Test data** | Identical unit and dates, **different** client `C-EXISTING-2` (so this is not a duplicate test) |
 | **Steps** | 1. `H-CREATE` with the identical unit and dates. |
 | **Expected — UI** | Inline, persistent conflict surface naming the conflicting dates — not a transient toast |
-| **Expected — API** | `409 historical_overlap_conflict` |
+| **Expected — API** | `409 HISTORICAL_OVERLAP_CONFLICT` |
 | **Expected — DB** | **No** second booking row. Count on `U-ACTIVE-1` for that window remains 1 |
 | **Expected — Audit** | No new history row |
 | **Expected — Financial** | Nothing written |
@@ -814,7 +814,7 @@ row.
 | **Test data** | New stay `STAY-IN − 2 … STAY-IN + 1` |
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | Conflict surface |
-| **Expected — API** | `409 historical_overlap_conflict` |
+| **Expected — API** | `409 HISTORICAL_OVERLAP_CONFLICT` |
 | **Expected — DB** | No new row |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -834,7 +834,7 @@ row.
 | **Test data** | New stay `STAY-OUT − 1 … STAY-OUT + 2` |
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | Conflict surface |
-| **Expected — API** | `409 historical_overlap_conflict` |
+| **Expected — API** | `409 HISTORICAL_OVERLAP_CONFLICT` |
 | **Expected — DB** | No new row |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -854,7 +854,7 @@ row.
 | **Test data** | New stay `STAY-IN − 3 … STAY-OUT + 3`, fully containing the existing one |
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | Conflict surface |
-| **Expected — API** | `409 historical_overlap_conflict` |
+| **Expected — API** | `409 HISTORICAL_OVERLAP_CONFLICT` |
 | **Expected — DB** | No new row |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -934,7 +934,7 @@ row.
 | **Test data** | unit `U-DELETED-1` |
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | The unit is not offered; a direct attempt shows a clear refusal |
-| **Expected — API** | `400 unit_deleted_unsupported` |
+| **Expected — API** | `400 UNIT_DELETED_UNSUPPORTED` |
 | **Expected — DB** | No row |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -1018,7 +1018,7 @@ row.
 | **Test data** | The identical unit, client and dates |
 | **Steps** | 1. `H-CREATE` with identical values. |
 | **Expected — UI** | The existing record is shown, with an explicit "already recorded" message |
-| **Expected — API** | `409 historical_duplicate_booking` |
+| **Expected — API** | `409 HISTORICAL_DUPLICATE_BOOKING` |
 | **Expected — DB** | Still exactly one booking |
 | **Expected — Audit** | No new history row |
 | **Expected — Financial** | No second charge, no second payment |
@@ -1038,7 +1038,7 @@ row.
 | **Test data** | A **different** unit, client and dates, but the same external reference |
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | Field-level error on the external reference |
-| **Expected — API** | `409 historical_duplicate_booking` |
+| **Expected — API** | `409 HISTORICAL_DUPLICATE_BOOKING` |
 | **Expected — DB** | No new row; the partial unique index rejects it |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -1058,7 +1058,7 @@ row.
 | **Test data** | Same unit and dates, client `C-EXISTING-2` |
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | Overlap conflict, **not** a duplicate message |
-| **Expected — API** | `409 historical_overlap_conflict` — the *overlap* rule catches it, not the duplicate rule |
+| **Expected — API** | `409 HISTORICAL_OVERLAP_CONFLICT` — the *overlap* rule catches it, not the duplicate rule |
 | **Expected — DB** | No new row |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -1322,7 +1322,7 @@ row.
 | **Test data** | Case A: reason omitted. Case B: reason `not_a_real_reason`. Case C: reason `other` with no note. Case D: `originalSource` omitted |
 | **Steps** | 1. `H-CREATE` for each case. |
 | **Expected — UI** | Field-level errors on the offending controls |
-| **Expected — API** | `400 validation_error` in all four cases |
+| **Expected — API** | `400 VALIDATION_ERROR` in all four cases |
 | **Expected — DB** | Nothing written in any case |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -1362,7 +1362,7 @@ row.
 | **Test data** | Body includes a bare top-level `ownerId = O-BETA`, plus `bookingStatus = "Confirmed"` and `isHistorical = false` |
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | n/a |
-| **Expected — API** | `200` with all injected fields ignored, or `403 owner_override_forbidden` if the owner differs from the unit's |
+| **Expected — API** | Under HB-02: the injected owner field is rejected as unknown and can never influence the persisted owner. Under HB-05: `403 OWNER_OVERRIDE_FORBIDDEN` when the owner differs from the unit's and the caller lacks `bookings:override_owner` |
 | **Expected — DB** | `owner_id = O-ALPHA` (the unit's owner), `booking_status = 'completed'`, `is_historical = true` |
 | **Expected — Audit** | Attribution records no override |
 | **Expected — Financial** | Correct for `O-ALPHA` |
@@ -1582,7 +1582,7 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Test data** | `agreed_amount = -100.00` |
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | Field error |
-| **Expected — API** | `400 validation_error` |
+| **Expected — API** | `400 VALIDATION_ERROR` |
 | **Expected — DB** | Nothing; `ck_bookings_final_amount_non_negative` would also refuse it |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -1610,7 +1610,7 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Zero revenue, one occupancy record |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | `DECISION REQUIRED` — whether a complimentary stay should be recordable at zero. **Reason:** genuine comps exist. **Impact:** blocking them forces a false amount. **Recommended default:** allow zero with a confirmation. **Decider:** Finance (OQ-02). **Blocking:** no |
+| **Diagnostics** | **Settled — zero is valid** ([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary)). `agreedAmount` may be zero or positive; the existing `ck_bookings_base_amount_non_negative` constraint is already `>= 0`, so no schema change is needed and rejecting zero would invent a rule the platform does not have. A comped stay, an owner's own use and a goodwill arrangement are all real cases, and forcing a false non-zero amount would be worse than recording the truth |
 
 #### SC-FIN-11 — Payment greater than the agreed total
 
@@ -1766,7 +1766,7 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Test data** | `paid_at = D0 + 1` |
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | The date control refuses future dates |
-| **Expected — API** | `400 validation_error` |
+| **Expected — API** | `400 VALIDATION_ERROR` |
 | **Expected — DB** | Nothing |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -1907,10 +1907,10 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Priority · Category · Automate** | **P0** · Owner · YES (API) |
 | **Traceability** | REQ-07, REQ-11 · HB-05 · INV-10 |
 | **Preconditions** | `A-HIST` holds record but **not** override |
-| **Test data** | `ownerAttribution.ownerId = O-BETA` on a unit owned by `O-ALPHA` |
+| **Test data** | `ownerId` / `ownerAttribution.ownerId = O-BETA` on a unit owned by `O-ALPHA`. Under the HB-02 v1 contract neither field exists, so this is an unknown-field injection ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)); once HB-05 ships it becomes a genuine override attempt |
 | **Steps** | 1. `H-CREATE` as `A-HIST`. |
 | **Expected — UI** | The override control is not rendered; the owner is read-only with an escalation message |
-| **Expected — API** | `403 owner_override_forbidden` |
+| **Expected — API** | `403 OWNER_OVERRIDE_FORBIDDEN` |
 | **Expected — DB** | Nothing written |
 | **Expected — Audit** | Refusal logged |
 | **Expected — Financial** | Nothing |
@@ -1970,7 +1970,7 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Test data** | Override supplied with no reason; and reason `other` with no note |
 | **Steps** | 1. `H-CREATE` for each case. |
 | **Expected — UI** | Field errors |
-| **Expected — API** | `400 validation_error` |
+| **Expected — API** | `400 VALIDATION_ERROR` |
 | **Expected — DB** | Nothing |
 | **Expected — Audit** | None |
 | **Expected — Financial** | Nothing |
@@ -1990,7 +1990,7 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Test data** | Operator selects "ownership cannot be confidently determined" |
 | **Steps** | 1. Reach step 5. 2. Mark ownership uncertain. 3. Attempt to submit. |
 | **Expected — UI** | Submission is blocked with a clear decision-required message; no silent default to the unit owner |
-| **Expected — API** | `400 owner_attribution_required` if forced |
+| **Expected — API** | `400 OWNER_ATTRIBUTION_REQUIRED` if forced |
 | **Expected — DB** | **Nothing written** — no booking, no draft |
 | **Expected — Audit** | No booking audit |
 | **Expected — Financial** | Nothing |
@@ -2797,7 +2797,7 @@ with a citation.
 | **Test data** | Past check-in through `N-CREATE`, `Q-CREATE`, client booking, guest booking, owner-portal creation, CRM conversion |
 | **Steps** | 1. Attempt a past-dated booking on each path. |
 | **Expected — UI** | Error naming the historical flow as the correct route |
-| **Expected — API** | `400 stay_dates_in_past` on **every** path |
+| **Expected — API** | `400 STAY_DATES_IN_PAST` on **every** path |
 | **Expected — DB** | Nothing written |
 | **Expected — Audit** | None |
 | **Expected — Financial** | None |
@@ -2818,7 +2818,7 @@ with a citation.
 | **Test data** | `B-UPDATE` moving check-in to the past |
 | **Steps** | 1. Update. |
 | **Expected — UI** | Refused |
-| **Expected — API** | `400 stay_dates_in_past` |
+| **Expected — API** | `400 STAY_DATES_IN_PAST` |
 | **Expected — DB** | Dates unchanged |
 | **Expected — Audit** | No change row |
 | **Expected — Financial** | Unchanged |
@@ -3133,7 +3133,7 @@ with a citation.
 | **Test data** | Two overlapping requests, different clients, fired simultaneously |
 | **Steps** | 1. Fire both. |
 | **Expected — UI** | One success, one conflict |
-| **Expected — API** | Exactly one `200`, one `409 historical_overlap_conflict` |
+| **Expected — API** | Exactly one `200`, one `409 HISTORICAL_OVERLAP_CONFLICT` |
 | **Expected — DB** | Exactly one booking |
 | **Expected — Audit** | One history row |
 | **Expected — Financial** | One set of amounts |
@@ -3168,12 +3168,12 @@ with a citation.
 | | |
 |---|---|
 | **Priority · Category · Automate** | P1 · Concurrency · YES (API) |
-| **Traceability** | REQ-10 · HB-03 · INV-08 |
+| **Traceability** | REQ-10 · **HB-02** · INV-08 |
 | **Preconditions** | None |
-| **Test data** | Case A: header absent. Case B: malformed value. Case C: valid, reused |
+| **Test data** | Case A: header absent. Case B: malformed value. Case C: valid, replayed with an identical body. Case D: valid, replayed with a **different** body. Case E: a claim that exists without a completion |
 | **Steps** | 1. `H-CREATE` for each case. |
 | **Expected — UI** | The wizard always supplies a valid key |
-| **Expected — API** | A and B `400 validation_error`; C returns the original booking or `409`, never a second id |
+| **Expected — API** | A and B `400 IDEMPOTENCY_KEY_REQUIRED`; C `200` with **the original booking id**; D `409 IDEMPOTENCY_KEY_REUSED`; E `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` deterministically on every retry. **Never a second booking id** |
 | **Expected — DB** | At most one booking |
 | **Expected — Audit** | At most one history row |
 | **Expected — Financial** | One set of amounts |
@@ -3181,7 +3181,7 @@ with a citation.
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Counted once |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | `DECISION REQUIRED` — whether the key is mandatory or optional. **Reason:** mandatory is safer but breaks naive API clients. **Impact:** optional leaves a duplicate window. **Recommended default:** mandatory on the historical endpoint only. **Decider:** Engineering. **Blocking:** no |
+| **Diagnostics** | **Settled — the key is REQUIRED on the historical endpoint** ([D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract)). An optional key leaves a duplicate window open by default; the only caller that matters is the HB-06 wizard, which always sends one. There is no naive-API-client constituency for a privileged internal endpoint |
 
 #### SC-CONC-05 — Lock contention does not corrupt state
 
@@ -3285,7 +3285,7 @@ with a citation.
 | **Test data** | Attempt to record a −500.00 refund |
 | **Steps** | 1. Attempt a negative payment. |
 | **Expected — UI** | No refund control exists |
-| **Expected — API** | `400 validation_error` |
+| **Expected — API** | `400 VALIDATION_ERROR` |
 | **Expected — DB** | Rejected by `ck_payments_amount_positive CHECK (amount > 0)` even if validation were bypassed |
 | **Expected — Audit** | None |
 | **Expected — Financial** | The refund cannot be recorded |
@@ -3349,7 +3349,7 @@ with a citation.
 | **Test data** | Attempt an owner correction on that booking |
 | **Steps** | 1. Attempt the correction. |
 | **Expected — UI** | Refusal explaining that the settlement is already paid |
-| **Expected — API** | `409 owner_correction_settlement_locked` |
+| **Expected — API** | `409 OWNER_CORRECTION_SETTLEMENT_LOCKED` |
 | **Expected — DB** | Payout row **byte-identical**; booking attribution unchanged |
 | **Expected — Audit** | Refusal logged |
 | **Expected — Financial** | Nothing altered |
@@ -3389,7 +3389,7 @@ with a citation.
 | **Test data** | Force a correction attempt through the API |
 | **Steps** | 1. Attempt. 2. Compare the payout row before and after. |
 | **Expected — UI** | Refusal |
-| **Expected — API** | `409 owner_correction_settlement_locked` |
+| **Expected — API** | `409 OWNER_CORRECTION_SETTLEMENT_LOCKED` |
 | **Expected — DB** | Payout unchanged in every column including `paid_at` |
 | **Expected — Audit** | Refusal recorded |
 | **Expected — Financial** | Settled money untouched |
@@ -3933,7 +3933,7 @@ owner; the reconciliation output is the evidence.**
 - [ ] `historical_booking_created_total` — expected low volume; investigate spikes
 - [ ] `historical_booking_rejected_total{reason}` — a rise in `overlap` or `duplicate` may indicate operator confusion
 - [ ] `historical_owner_override_total` — every override reviewed by Finance in week one
-- [ ] `booking_create_rejected_total{reason="stay_dates_in_past"}` — validates assumption A-4 in HB-01
+- [ ] `booking_create_rejected_total{reason="STAY_DATES_IN_PAST"}` — validates assumption A-4 in HB-01
 - [ ] Daily reconciliation (`SC-PERF-04`) for the first month
 - [ ] Zero notification rows attributable to historical bookings
 - [ ] No `AutoCompleteBookingsJob` transitions on historical records

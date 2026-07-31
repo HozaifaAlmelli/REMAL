@@ -307,8 +307,8 @@ tests this ticket writes will not run automatically until
   specification at
   [HB-01 §11.2](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#112-normal-flow-hardening--specification):
   the shared Cairo business-date resolver; the `ValidateStayDates` extension; the `UpdatePendingAsync` guard
-  with its `is_historical` exemption; the typed error mapped to `400 stay_dates_in_past`; the
-  `booking_create_rejected_total{reason="stay_dates_in_past"}` metric and PII-free structured log;
+  with its `is_historical` exemption; the typed error mapped to `400 STAY_DATES_IN_PAST`; the
+  `booking_create_rejected_total{reason="STAY_DATES_IN_PAST"}` metric and PII-free structured log;
   per-creation-path regression tests; Cairo-midnight and DST boundary tests; and publication of the
   operator documentation at activation.
 
@@ -531,7 +531,7 @@ line or a metric label. Free-text (`owner_override_note`, `internal_notes`) stay
 | `historical_booking_created_total` | counter | none | successful historical recordings |
 | `historical_booking_rejected_total` | counter | `reason` ∈ {`overlap`, `duplicate`, `not_complete`, `forbidden`, `owner_attribution`, `unit_deleted`, `validation`} | one label value per error code in [Master Plan §12](00_MASTER_PLAN.md#12-api-and-command-design) |
 | `historical_owner_override_total` | counter | none | privileged override usage; a rising trend means the default attribution is wrong |
-| `booking_create_rejected_total` | counter | `reason="stay_dates_in_past"` | specified by [HB-01 §20](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#20-audit-and-observability) and **emitted by this ticket** (§26.1 task 35); consumed here as the post-activation signal |
+| `booking_create_rejected_total` | counter | `reason="STAY_DATES_IN_PAST"` | specified by [HB-01 §20](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#20-audit-and-observability) and **emitted by this ticket** (§26.1 task 35); consumed here as the post-activation signal |
 
 Given §5.7, the v1 default is: emit each as a structured log event with the stable names above **and** expose
 the equivalent counts through the reconciliation view, so the numbers exist even with no metrics stack.
@@ -666,10 +666,10 @@ those columns are absent. The `_verify.sql` script must assert column presence b
 
 | # | Rule | Layer | Failure |
 |---|---|---|---|
-| RV-01 | `dateFrom <= dateTo` on every new report route | Service | `400 validation_error` — reuse `ValidateDateRange` (`ReportingFinanceAnalyticsService.cs:148-153`) |
-| RV-02 | `includeHistorical` and `historicalOnly` are not both restrictive-contradictory | Service | `400 validation_error` |
-| RV-03 | Stay-axis range capped (recommend 24 months) | Service | `400 validation_error` |
-| RV-04 | `stayMonthFrom`/`stayMonthTo` parse as month starts | Validator | `400 validation_error` |
+| RV-01 | `dateFrom <= dateTo` on every new report route | Service | `400 VALIDATION_ERROR` — reuse `ValidateDateRange` (`ReportingFinanceAnalyticsService.cs:148-153`) |
+| RV-02 | `includeHistorical` and `historicalOnly` are not both restrictive-contradictory | Service | `400 VALIDATION_ERROR` |
+| RV-03 | Stay-axis range capped (recommend 24 months) | Service | `400 VALIDATION_ERROR` |
+| RV-04 | `stayMonthFrom`/`stayMonthTo` parse as month starts | Validator | `400 VALIDATION_ERROR` |
 | RV-05 | Absent filter parameters reproduce current behaviour byte-for-byte | Contract test | test failure |
 | RV-06 | View `_verify.sql` asserts every declared column name, type and ordinal | Migration verify | migration fails |
 | RV-07 | `_verify.sql` asserts `bookings.is_historical`, `agreed_amount`, `original_source` exist before creating views | Migration verify | migration fails |
@@ -741,7 +741,7 @@ Definitions in §11.7. Emission substrate per `D-08-04`.
 | `historical_booking_rejected_total{reason="overlap"}` | any occurrence | Expected and healthy; review weekly for a pattern on one unit |
 | `historical_booking_rejected_total{reason="duplicate"}` | any occurrence | Confirms `RISK-05` protection is engaging |
 | `historical_owner_override_total` / created | > 20% | The default owner attribution is wrong; escalate to Finance (`RISK-02`) |
-| `booking_create_rejected_total{reason="stay_dates_in_past"}` | trend | Hardening-readiness gate for HB-01 |
+| `booking_create_rejected_total{reason="STAY_DATES_IN_PAST"}` | trend | Hardening-readiness gate for HB-01 |
 | `payments_unlinked_amount` (reconciliation) | > 0 | The §5.3 divergence is live; quantify before month-end |
 | Off-diagonal rows with `historical_count = 0` | any | Someone backdated through the normal flow |
 
@@ -971,7 +971,7 @@ Keep them in a single, separable commit so §34's independent revert is possible
     there — the single choke point every creation path reaches via `:146` — is what gives full path
     coverage in one change.
 31. Apply the same rule to `UpdatePendingAsync` per `D-03`, exempting rows where `is_historical` is true.
-32. Add the typed exception and map it to `400 stay_dates_in_past`, with a message naming the historical
+32. Add the typed exception and map it to `400 STAY_DATES_IN_PAST`, with a message naming the historical
     flow as the correct route, in the wording agreed under `AC-HB01-09`.
 33. Add regression tests proving every creation path in
     [HB-01 §5.1](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#51-booking-creation-paths-complete-enumeration)
@@ -979,7 +979,7 @@ Keep them in a single, separable commit so §34's independent revert is possible
     creation, CRM conversion.
 34. Add Cairo-midnight and DST-transition boundary tests, asserting the boundary is evaluated once,
     server-side, per request.
-35. Emit `booking_create_rejected_total{reason="stay_dates_in_past"}` and the PII-free structured log.
+35. Emit `booking_create_rejected_total{reason="STAY_DATES_IN_PAST"}` and the PII-free structured log.
 36. Verify the portal and the storefront render the new `400` acceptably; capture a screenshot.
 37. Publish the operator documentation drafted under HB-01, then activate — rollout step 9.
 38. Monitor `booking_create_rejected_total` for one week and compare against the HB-01 census to confirm or
@@ -1021,9 +1021,9 @@ document. Together the two sets give REQ-16 unbroken specification-to-proof trac
 
 | ID | Criterion | Scenario |
 |---|---|---|
-| AC-HB08-23 | **Given** an admin creating a booking with check-in before today (Cairo), **when** submitted through any path in [HB-01 §5.1](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#51-booking-creation-paths-complete-enumeration), **then** the API returns `400 stay_dates_in_past` and nothing is written. | `SC-REG-02` |
+| AC-HB08-23 | **Given** an admin creating a booking with check-in before today (Cairo), **when** submitted through any path in [HB-01 §5.1](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#51-booking-creation-paths-complete-enumeration), **then** the API returns `400 STAY_DATES_IN_PAST` and nothing is written. | `SC-REG-02` |
 | AC-HB08-24 | **Given** a booking with today's or a future check-in, **when** created through any path, **then** behaviour is identical to the pre-hardening baseline. | `SC-REG-01`, `SC-REG-04`, `SC-REG-05` |
-| AC-HB08-25 | **Given** an existing `Prospecting` booking, **when** an update moves check-in into the past, **then** it is rejected with `400 stay_dates_in_past`; and **given** a booking where `is_historical` is true, **then** the past-date rule does not fire against its stay dates. | `SC-REG-03` |
+| AC-HB08-25 | **Given** an existing `Prospecting` booking, **when** an update moves check-in into the past, **then** it is rejected with `400 STAY_DATES_IN_PAST`; and **given** a booking where `is_historical` is true, **then** the past-date rule does not fire against its stay dates. | `SC-REG-03` |
 | AC-HB08-26 | **Given** the shared Cairo business-date resolver, **when** `AutoCompleteBookingsJob` runs against a fixed dataset, **then** it selects a booking set identical to the pre-refactor set, and exactly one helper in the solution produces the Cairo business date. | `SC-REG-06` |
 
 ## 28. Negative acceptance criteria
@@ -1068,7 +1068,7 @@ document. Together the two sets give REQ-16 unbroken specification-to-proof trac
 | **Hardening — unit** | Cairo resolver: before/at/after midnight; DST transition; UTC-vs-Cairo divergence window. `ValidateStayDates`: past, today, future, inverted, equal dates. No `DateTime.Now`/`DateTime.Today` anywhere in the new code |
 | **Hardening — service** | Every creation path in HB-01 §5.1 rejects past stays; `UpdatePendingAsync` rejects past moves and exempts `is_historical` |
 | **Hardening — integration** | `AutoCompleteBookingsJob` selects an identical booking set after the resolver refactor |
-| **Hardening — API and frontend** | `400 stay_dates_in_past` body shape and code; portal and storefront render it acceptably |
+| **Hardening — API and frontend** | `400 STAY_DATES_IN_PAST` body shape and code; portal and storefront render it acceptably |
 | **Hardening — security** | No parameter, header or flag disables the rule; the rule exists in exactly one layer |
 | Manual / UAT | `SC-REP-01` … `SC-REP-14`, `SC-OWN-09`, `SC-AVAIL-08`; **`SC-REG-01` … `SC-REG-06`, `SC-DATE-01` … `SC-DATE-10`** for the hardening component; Finance reconciliation walkthrough; the §24.4 read-only smoke sequence executed on staging first |
 
@@ -1128,7 +1128,7 @@ developer-run. The PR must state this rather than imply automated coverage.
     formally closed with the §5.8 evidence.
 13. **REQ-16 hardening implemented, tested and activated as step 9**, with `SC-REG-02` passing on every
     creation path and the hardening change isolated in the final commit on this branch.
-14. `booking_create_rejected_total{reason="stay_dates_in_past"}` visible in the monitoring stack and
+14. `booking_create_rejected_total{reason="STAY_DATES_IN_PAST"}` visible in the monitoring stack and
     compared against the HB-01 census for one week.
 15. Operator documentation published at activation.
 
@@ -1240,7 +1240,7 @@ Restated here because HB-08 owns the rollout checklist even though HB-04 owns th
 - A statement that CI runs no tests today (§5.9) and which tests were run locally instead.
 - **For the REQ-16 hardening component:** test output showing every creation path in HB-01 §5.1 rejecting a
   past stay; before/after evidence that `AutoCompleteBookingsJob` selects an identical booking set; a
-  screenshot of the `400 stay_dates_in_past` error as rendered in the portal; confirmation that the
+  screenshot of the `400 STAY_DATES_IN_PAST` error as rendered in the portal; confirmation that the
   hardening is isolated in the final commit; and the one-week `booking_create_rejected_total` comparison
   against the HB-01 census.
 - The `D-08-06` answer on out-of-repository consumers.

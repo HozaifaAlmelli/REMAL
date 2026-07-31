@@ -11,6 +11,8 @@
 | Field | Value |
 |---|---|
 | Ticket ID | **HB-05** |
+| Boundary with HB-02 | **HB-02 resolves the current unit owner server-side and accepts no owner input at all**; uncertain ownership is refused with `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`. **HB-05 owns everything else about owner attribution**: explicit confirmation, the override, its `bookings:override_owner` permission and seed, the mandatory reason, previous/selected owner audit, the payout implications — **and** `ForbiddenBusinessException` with the middleware `403` branch that reports an override refusal. See [D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary) |
+| Extension contract | **HB-05's additions to the historical request must be additive and backward-compatible.** A request valid under the HB-02 contract must remain valid after HB-05 ships: new fields are optional-with-safe-default, or arrive together with their own permission. `ownerAttributionConfirmed`, `ownershipDeterminable`, `ownerId`, `overrideReason` and `overrideNote` are **HB-05 fields**; none of them exists in the HB-02 v1 contract |
 | Title | Owner Accounting, Commission Snapshot & Settlement Adjustments |
 | Priority | **P0** |
 | Type | Backend domain + its own additive migration (objects #18-#28) + accounting control |
@@ -363,7 +365,7 @@ The review payload the server must produce (and the wizard must display — HB-0
 | **Ownership-history warning** | Static, always shown — see §11.12 |
 
 Review is expressed on the wire as `ownerAttributionConfirmed: true`. Absent or `false` ⇒ `400`
-`owner_attribution_required`. `INFERRED`: a boolean flag is normally weak evidence of consent, but here the
+`OWNER_ATTRIBUTION_REQUIRED`. `INFERRED`: a boolean flag is normally weak evidence of consent, but here the
 server has no alternative signal, and the flag is not an *authorization* decision — it is an
 acknowledgement recorded in the audit trail alongside the authenticated actor.
 
@@ -415,9 +417,11 @@ mechanism in the solution — only unit-image upload. Requiring evidence documen
 4. Owner is permitted to receive revenue for this unit context: `PROPOSED` — v1 requires either
    `ownerId == unit.OwnerId`, or a valid override with permission and reason. There is no other legitimate
    way for an owner to be attached to a unit, because ownership is a single FK.
-5. Caller holds `bookings:override_owner` when `ownerId != unit.OwnerId` — else `403 owner_override_forbidden`.
-6. Override reason supplied and in the allow-list — else `400 validation_error`.
-7. Commission rate and split pass §11.8's invariants — else `400 validation_error`.
+5. Caller holds `bookings:override_owner` when `ownerId != unit.OwnerId` — else `403 OWNER_OVERRIDE_FORBIDDEN`.
+   HB-05 introduces `ForbiddenBusinessException` and the middleware `403` branch that produce this, because
+   HB-05 introduces the override that throws it ([D-HB02-04](DECISION_RATIFICATION_PACKET.md#d-hb02-04--producing-a-403-for-an-owner-override-refusal)).
+6. Override reason supplied and in the allow-list — else `400 VALIDATION_ERROR`.
+7. Commission rate and split pass §11.8's invariants — else `400 VALIDATION_ERROR`.
 8. **An owner is never accepted merely because the caller supplied a GUID.** Every branch above must pass;
    the GUID is an input to validation, never a conclusion.
 
@@ -427,7 +431,7 @@ mechanism in the solution — only unit-image upload. Requiring evidence documen
 
 - The current owner is **not** used.
 - No booking, payment, status-history or accounting row is written.
-- The request is rejected with `400 owner_attribution_required` and a message naming the escalation path
+- The request is rejected with `400 OWNER_ATTRIBUTION_REQUIRED` and a message naming the escalation path
   (D-HB05-04).
 - A rejection metric is emitted so the frequency of the situation is measurable.
 
@@ -546,7 +550,7 @@ commission assignment there. Record this as a cross-ticket review gate.
 |---|---|
 | Endpoint | `POST /api/internal/bookings/{id}/owner-attribution` (`PROPOSED`) |
 | Permission | `bookings:override_owner`; **plus** `finance:payouts` when a payout row exists (D-HB05-05) |
-| Applies to | Historical bookings (`is_historical = true`). Extension to normal bookings is `DECISION REQUIRED`; recommended default is historical-only in v1 |
+| Applies to | Historical bookings (`is_historical = true`). Extension to normal bookings is **out of v1 scope** and is HB-05's to revisit, not HB-02's |
 | Mandatory inputs | New `ownerId` and/or new `snapshot_commission_rate`; correction reason; note; explicit confirmation |
 | Before/after | Both persisted in the audit event; the previous values are never overwritten in the audit record |
 | Recalculation | The split is recomputed from the unchanged `agreed_amount` and the new rate, under the same OI-1…OI-8 invariants |
@@ -609,7 +613,7 @@ Behaviour when the caller lacks `bookings:override_owner`:
 | Show the current owner **read-only** | Preview endpoint returns `canOverrideOwner: false` |
 | Allow confirmation | Confirmation is not the override; it is still required |
 | Provide a clear escalation message | "Crediting a different owner requires the owner-override permission. Contact Finance." |
-| Browser manipulation cannot enable editing | The server re-checks the permission on `POST`; a forged `ownerId` yields `403 owner_override_forbidden`. Client-side disabling is a convenience, never the control |
+| Browser manipulation cannot enable editing | The server re-checks the permission on `POST`; a forged `ownerId` yields `403 OWNER_OVERRIDE_FORBIDDEN`. Client-side disabling is a convenience, never the control |
 
 `CONFIRMED` [Master §17](00_MASTER_PLAN.md#17-uiux-flow): the operator portal is English-only with no i18n
 system. The Arabic step name is documented for product parity; shipping Arabic copy into `/admin` is
@@ -640,7 +644,12 @@ additionally when an override was applied; `booking.historical.owner_corrected` 
 | KAZA amount | always | |
 | Guest name / phone / email | **never** | No unnecessary PII (Master §18) |
 
-`DECISION REQUIRED` folded into HB-02: whether these events are rows in `booking_status_history` (the only
+**Resolved by HB-02.** These events are **not** rows in `booking_status_history`. HB-02 ratified that a
+historical creation writes **exactly one** status-history row (§11.3, AC-HB02-03, NAC-HB02-02), and an owner
+override or correction is not a status change, so representing it there would both break that invariant and
+assert a lifecycle transition that never happened. HB-05's override and correction events are structured
+audit events (§20), not status history. For the record, the original question was whether they belong in
+`booking_status_history` (the only
 append-only audit surface that exists — `BookingHistoryEvents.cs` has just two constants, `BookingCreated` and
 `AutomaticCompletion`) or structured logs. Recommended default: **one** truthful `booking_status_history` row
 at creation per ADR-04, carrying the owner summary in `Notes` via a new `BookingHistoryEvents` constant, plus
@@ -719,17 +728,17 @@ flowchart TD
     F --> G
 
     G --> H{ownershipDeterminable?}
-    H -->|false| X1[400 owner_attribution_required<br/>NOTHING persisted]
+    H -->|false| X1[400 OWNER_ATTRIBUTION_REQUIRED<br/>NOTHING persisted]
     H -->|true| I{ownerAttributionConfirmed?}
     I -->|false| X1
     I -->|true| J{ownerId == unit.OwnerId?}
     J -->|yes| N[Attribution = unit owner]
     J -->|no| K{permission?}
-    K -->|no| X2[403 owner_override_forbidden]
+    K -->|no| X2[403 OWNER_OVERRIDE_FORBIDDEN]
     K -->|yes| L{owner resolvable,<br/>not soft-deleted?}
     L -->|no| X3[404 not_found]
     L -->|yes| M{reason in allow-list?<br/>note if 'other'}
-    M -->|no| X4[400 validation_error]
+    M -->|no| X4[400 VALIDATION_ERROR]
     M -->|yes| N
 
     N --> O[Compute split from agreed_amount<br/>OI-1..OI-8]
@@ -827,8 +836,8 @@ The endpoint is the **only** source of the split. It performs no writes.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `ownerAttributionConfirmed` | `bool` | yes | `false`/absent ⇒ `400 owner_attribution_required` |
-| `ownershipDeterminable` | `bool` | yes | `false` ⇒ `400 owner_attribution_required` (§11.5) |
+| `ownerAttributionConfirmed` | `bool` | yes | `false`/absent ⇒ `400 OWNER_ATTRIBUTION_REQUIRED` |
+| `ownershipDeterminable` | `bool` | yes | `false` ⇒ `400 OWNER_ATTRIBUTION_REQUIRED` (§11.5) |
 | `ownerId` | `guid?` | no | Omit to accept the unit owner. Non-matching value requires the override permission |
 | `commissionRate` | `decimal?` | no | Defaults to `Owner.CommissionRate`; 0–100 |
 | `ownerOverrideReason` | `string?` | conditional | Required when `ownerId != unit.OwnerId` |
@@ -847,11 +856,11 @@ Body: { ownerId?, commissionRate?, correctionReason, correctionNote, confirmed }
 
 | Condition | Status | Code | Origin |
 |---|---|---|---|
-| Attribution not confirmed, or ownership declared undeterminable | 400 | `owner_attribution_required` | Master §12 |
-| Override attempted without permission | 403 | `owner_override_forbidden` | Master §12 |
+| Attribution not confirmed, or ownership declared undeterminable | 400 | `OWNER_ATTRIBUTION_REQUIRED` | Master §12 |
+| Override attempted without permission | 403 | `OWNER_OVERRIDE_FORBIDDEN` | Master §12 |
 | Owner id does not resolve / soft-deleted | 404 | `not_found` | Master §12 |
-| Reason missing or not in allow-list; split invariant violated | 400 | `validation_error` | Master §12 |
-| Correction attempted while the payout is `scheduled`/`paid` | 409 | `owner_correction_settlement_locked` | **New in this ticket** — `DECISION REQUIRED`, must be registered back into Master §12 |
+| Reason missing or not in allow-list; split invariant violated | 400 | `VALIDATION_ERROR` | Master §12 |
+| Correction attempted while the payout is `scheduled`/`paid` | 409 | `OWNER_CORRECTION_SETTLEMENT_LOCKED` | **New in this ticket** — `DECISION REQUIRED`, must be registered back into Master §12 |
 
 ### 14.5 Unchanged
 
@@ -927,20 +936,20 @@ Extends [Master §13](00_MASTER_PLAN.md#13-validation-matrix) V-10, V-11, V-12.
 
 | ID | Rule | Layer | Failure | Scenario |
 |---|---|---|---|---|
-| VO-01 | `ownerAttributionConfirmed == true` | Service | 400 `owner_attribution_required` | SC-OWN-08 |
-| VO-02 | `ownershipDeterminable == true` | Service | 400 `owner_attribution_required` | SC-OWN-08 |
+| VO-01 | `ownerAttributionConfirmed == true` | Service | 400 `OWNER_ATTRIBUTION_REQUIRED` | SC-OWN-08 |
+| VO-02 | `ownershipDeterminable == true` | Service | 400 `OWNER_ATTRIBUTION_REQUIRED` | SC-OWN-08 |
 | VO-03 | Owner row exists and `DeletedAt IS NULL` | Service | 404 `not_found` | SC-OWN-06 |
 | VO-04 | Owner `Status` is `active`, or `inactive` with a surfaced warning | Service | warning only (D-HB05-07) | SC-OWN-03 |
-| VO-05 | `ownerId != unit.OwnerId` ⇒ caller holds `bookings:override_owner` | Policy + service | 403 `owner_override_forbidden` | SC-OWN-04, SC-OWN-05 |
-| VO-06 | Override ⇒ `ownerOverrideReason` present and in the allow-list | Validator + service + CHECK | 400 `validation_error` | SC-OWN-07 |
-| VO-07 | Reason `other` ⇒ `ownerOverrideNote` non-empty | Validator + CHECK | 400 `validation_error` | SC-OWN-07 |
+| VO-05 | `ownerId != unit.OwnerId` ⇒ caller holds `bookings:override_owner` | Policy + service | 403 `OWNER_OVERRIDE_FORBIDDEN` | SC-OWN-04, SC-OWN-05 |
+| VO-06 | Override ⇒ `ownerOverrideReason` present and in the allow-list | Validator + service + CHECK | 400 `VALIDATION_ERROR` | SC-OWN-07 |
+| VO-07 | Reason `other` ⇒ `ownerOverrideNote` non-empty | Validator + CHECK | 400 `VALIDATION_ERROR` | SC-OWN-07 |
 | VO-08 | `0 <= commissionRate <= 100` | Validator + service + CHECK | 400 | SC-OWN-13 |
 | VO-09 | `snapshot_owner_amount >= 0` and `snapshot_kaza_amount >= 0` | Service + CHECK | 400 | SC-FIN-09 |
 | VO-10 | `snapshot_owner_amount + snapshot_kaza_amount == agreed_amount` | Service + CHECK | 400 | SC-OWN-13 |
 | VO-11 | Client-supplied `ownerAmount`/`kazaAmount` are ignored, not honoured | Service | silent ignore + audit note | SC-OWN-05 |
 | VO-12 | `is_historical` ⇒ full snapshot present | Service + CHECK | 400 / DB error | SC-OWN-13 |
-| VO-13 | Correction: booking is historical | Service | 400 `validation_error` | SC-OWN-15 |
-| VO-14 | Correction: payout is absent, `pending`, or `cancelled` | Service | 409 `owner_correction_settlement_locked` | SC-OWN-14, SC-OWN-16 |
+| VO-13 | Correction: booking is historical | Service | 400 `VALIDATION_ERROR` | SC-OWN-15 |
+| VO-14 | Correction: payout is absent, `pending`, or `cancelled` | Service | 409 `OWNER_CORRECTION_SETTLEMENT_LOCKED` | SC-OWN-14, SC-OWN-16 |
 | VO-15 | Correction: reason and confirmation present | Validator | 400 | SC-OWN-15 |
 | VO-16 | Normal create/update carry no owner field | Contract test | n/a — field absent | SC-OWN-17 |
 
@@ -995,8 +1004,8 @@ Extends [Master §13](00_MASTER_PLAN.md#13-validation-matrix) V-10, V-11, V-12.
 | `booking.historical.owner_corrected` | Booking id, before/after owner and rate, correction reason, payout status at correction time, actor |
 | `booking_status_history` row | One at creation (ADR-04); one additional row per correction, using a new `BookingHistoryEvents` constant |
 | Metric `historical_owner_override_total` | Counter, labelled by reason |
-| Metric `historical_booking_rejected_total{reason="owner_attribution_required"}` | Extends the Master §23 counter; measures how often ownership is uncertain (validates A-8) |
-| Metric `historical_booking_rejected_total{reason="owner_override_forbidden"}` | Detects permission gaps or probing |
+| Metric `historical_booking_rejected_total{reason="OWNER_ATTRIBUTION_REQUIRED"}` | Extends the Master §23 counter; measures how often ownership is uncertain (validates A-8) |
+| Metric `historical_booking_rejected_total{reason="OWNER_OVERRIDE_FORBIDDEN"}` | Detects permission gaps or probing |
 | Metric `owner_attribution_correction_total{outcome="applied\|settlement_locked"}` | Sizes the OQ-07 gap with real data |
 | Reconciliation query | Monthly: `snapshot_owner_amount + snapshot_kaza_amount` vs `agreed_amount` — must be zero-variance; and snapshot vs `owner_payouts.commission_rate` for any payout created later |
 | Log | Structured, correlation id, ids and amounts only, **no PII** |
@@ -1129,7 +1138,7 @@ Ordered; each independently checkable.
 16. Add the `BookingHistoryEvents` constants and write the truthful history row content.
 17. Emit `booking.historical.owner_override` and extend `booking.historical.recorded`.
 18. Implement the correction endpoint (§14.3): validation VO-13 … VO-15, payout-state gate, recalculation of a
-    `pending` payout, audit row, `409 owner_correction_settlement_locked` otherwise.
+    `pending` payout, audit row, `409 OWNER_CORRECTION_SETTLEMENT_LOCKED` otherwise.
 19. Add the metrics in §20.
 20. Regression tests: `SC-OWN-09`, `SC-OWN-10`, `SC-OWN-11`, `SC-OWN-17` — the immutability guarantees.
 21. Test that `UpdatePendingAsync` returns `409` for a historical (`Completed`) booking.
@@ -1142,7 +1151,7 @@ Ordered; each independently checkable.
 25. Write the operator runbook section: what override means, when to use each reason, what to do when
     ownership is uncertain, and that overrides are visible to the credited owner.
 26. Update [99_RELIABILITY_TEST_SCENARIOS.md](99_RELIABILITY_TEST_SCENARIOS.md) `SC-OWN-06` to the
-    owner-reference-validation form per §5.7, and register `owner_correction_settlement_locked` into
+    owner-reference-validation form per §5.7, and register `OWNER_CORRECTION_SETTLEMENT_LOCKED` into
     [Master §12](00_MASTER_PLAN.md#12-api-and-command-design).
 
 ---
@@ -1152,12 +1161,12 @@ Ordered; each independently checkable.
 | ID | Criterion |
 |---|---|
 | AC-HB05-01 | **Given** a historical booking request for a unit, **when** the wizard loads the owner step, **then** the server returns the unit's current owner, owner name, commission rate, computed owner amount, computed KAZA amount, stay dates and the ownership-history warning. |
-| AC-HB05-02 | **Given** a historical request without `ownerAttributionConfirmed = true`, **when** submitted, **then** the API returns `400 owner_attribution_required` and no row is written to `bookings`, `booking_status_history` or `payments`. |
-| AC-HB05-03 | **Given** `ownershipDeterminable = false`, **when** submitted, **then** creation is blocked with `400 owner_attribution_required` and the current unit owner is **not** used. |
-| AC-HB05-04 | **Given** a caller **without** `bookings:override_owner`, **when** an `ownerId` differing from `unit.OwnerId` is submitted, **then** the API returns `403 owner_override_forbidden`. |
+| AC-HB05-02 | **Given** a historical request without `ownerAttributionConfirmed = true`, **when** submitted, **then** the API returns `400 OWNER_ATTRIBUTION_REQUIRED` and no row is written to `bookings`, `booking_status_history` or `payments`. |
+| AC-HB05-03 | **Given** `ownershipDeterminable = false`, **when** submitted, **then** creation is blocked with `400 OWNER_ATTRIBUTION_REQUIRED` and the current unit owner is **not** used. |
+| AC-HB05-04 | **Given** a caller **without** `bookings:override_owner`, **when** an `ownerId` differing from `unit.OwnerId` is submitted, **then** the API returns `403 OWNER_OVERRIDE_FORBIDDEN`. |
 | AC-HB05-05 | **Given** a caller **with** `bookings:override_owner` and a valid reason, **when** a different existing owner is submitted, **then** the booking is created with `owner_id` set to the selected owner. |
-| AC-HB05-06 | **Given** an override, **when** the reason is omitted or outside the allow-list, **then** `400 validation_error`. |
-| AC-HB05-07 | **Given** an override with reason `other`, **when** the note is empty, **then** `400 validation_error`. |
+| AC-HB05-06 | **Given** an override, **when** the reason is omitted or outside the allow-list, **then** `400 VALIDATION_ERROR`. |
+| AC-HB05-07 | **Given** an override with reason `other`, **when** the note is empty, **then** `400 VALIDATION_ERROR`. |
 | AC-HB05-08 | **Given** an `ownerId` that does not resolve to a non-soft-deleted owner, **when** submitted, **then** `404 not_found` — regardless of whether the caller holds the override permission. |
 | AC-HB05-09 | **Given** a created historical booking, **then** `snapshot_commission_rate`, `snapshot_owner_amount` and `snapshot_kaza_amount` are all non-null and `snapshot_owner_amount + snapshot_kaza_amount = agreed_amount`. |
 | AC-HB05-10 | **Given** a created historical booking, **when** `Owner.CommissionRate` is subsequently edited, **then** all three snapshot values are unchanged. |
@@ -1168,7 +1177,7 @@ Ordered; each independently checkable.
 | AC-HB05-15 | **Given** an override, **then** the audit record contains booking id, unit id, unit owner at recording time, final owner, override flag, reason, actor, recorded timestamp, stay dates, rate, owner amount and KAZA amount — and no guest PII. |
 | AC-HB05-16 | **Given** a historical booking with **no** payout row, **when** attribution is corrected, **then** the correction succeeds, before/after values are audited, and a new `booking_status_history` row is written. |
 | AC-HB05-17 | **Given** a historical booking with a `pending` payout, **when** attribution is corrected, **then** the payout is recalculated in place and both values are audited. |
-| AC-HB05-18 | **Given** a historical booking with a `scheduled` or `paid` payout, **when** attribution is corrected, **then** the API returns `409 owner_correction_settlement_locked`, the payout is untouched, and the message names the Finance escalation path. |
+| AC-HB05-18 | **Given** a historical booking with a `scheduled` or `paid` payout, **when** attribution is corrected, **then** the API returns `409 OWNER_CORRECTION_SETTLEMENT_LOCKED`, the payout is untouched, and the message names the Finance escalation path. |
 | AC-HB05-19 | **Given** a correction request, **when** the caller lacks `bookings:override_owner`, **then** `403`. |
 | AC-HB05-20 | **Given** the wizard rendered for a caller without override permission, **then** the owner is read-only, confirmation is still available, an escalation message is shown, and a forged `ownerId` in the network request still returns `403`. |
 | AC-HB05-21 | **Given** a normal booking created via `POST /api/internal/bookings`, **then** `owner_id = unit.OwnerId`, no owner field exists on the request contract, and behaviour is byte-identical to pre-ticket. |
@@ -1262,7 +1271,7 @@ Ordered; each independently checkable.
 8. Full regression suite green, including the existing 33 tests in `RentalPlatform.Tests`.
 9. Observability signals live; `historical_owner_override_total` visible in the monitoring stack.
 10. Operator runbook published, including the "the credited owner will see this" warning.
-11. `SC-OWN-06` re-specified in 99 and `owner_correction_settlement_locked` registered in Master §12.
+11. `SC-OWN-06` re-specified in 99 and `OWNER_CORRECTION_SETTLEMENT_LOCKED` registered in Master §12.
 12. §35's future epic filed as a backlog item with an owner.
 
 ---
@@ -1273,12 +1282,12 @@ Ordered; each independently checkable.
 |---|---|---|---|---|
 | RISK-02 | Wrong owner credited on a historical booking | **Critical** | Mandatory review; gated override; block-on-unknown; immediate owner-portal visibility means errors surface fast | Override audit; monthly owner reconciliation; owner disputes |
 | RISK-03 | Commission rewritten by a later `Owner` edit | **Critical** | Snapshot at creation; no recompute path; SC-OWN-12 | Snapshot vs live rate drift report |
-| RISK-11 | Unauthorized owner injection | High | In-service permission re-check; full owner resolution; never trust a GUID | Security tests; `owner_override_forbidden` metric |
+| RISK-11 | Unauthorized owner injection | High | In-service permission re-check; full owner resolution; never trust a GUID | Security tests; `OWNER_OVERRIDE_FORBIDDEN` metric |
 | RISK-HB05-02 | Split silently disagrees with the later payout row because the payout rate is operator-typed (§5.4) | High | Snapshot is the reference value; reconciliation report compares them; runbook instructs payout operators to use it | Snapshot vs `owner_payouts.commission_rate` report |
 | RISK-HB05-03 | HB-04's edit to `UpdatePendingAsync:431-441` accidentally introduces an owner or commission assignment | Med | Cross-ticket review gate (§11.9); regression tests SC-OWN-10/11 land **before** HB-04 merges | CI |
 | RISK-HB05-01 | Migration collision on `bookings` between HB-04 and HB-05 | Med | Separate migrations with disjoint object sets, fixed by the [ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix); HB-05 is ordered strictly after HB-04; task 2 in §26 | Migration apply failure on staging |
 | RISK-09 | Partial state if the snapshot is written outside the creation transaction | Med | Single `INSERT`; completeness CHECK makes the bad state unrepresentable | Integration test |
-| — | Block-on-uncertain-ownership creates an operational dead end | Med | D-HB05-04 escalation path; rejection metric sizes the problem; revisit if frequent | `owner_attribution_required` counter |
+| — | Block-on-uncertain-ownership creates an operational dead end | Med | D-HB05-04 escalation path; rejection metric sizes the problem; revisit if frequent | `OWNER_ATTRIBUTION_REQUIRED` counter |
 | — | Override permission granted too broadly | Med | Grant to no template initially; per-user grants; NAC-HB05-14 | RBAC audit |
 | — | OQ-07 gap discovered in production (a paid payout needs correcting) | Med | Correction endpoint refuses loudly rather than corrupting; `settlement_locked` metric sizes the need for a v2 adjustment model | Metric + Finance escalations |
 
@@ -1318,7 +1327,7 @@ while leaving the schema and the non-override historical flow in place.
   `BookingService.cs:225` remains the only creation-time write and that no resync path was introduced.
 - Diff evidence that `CreateBookingRequest` and `UpdatePendingBookingRequest` are unchanged.
 - Screenshot of the owner step in both permitted and read-only modes (HB-06 may supply).
-- Screenshot or transcript of the `409 owner_correction_settlement_locked` response.
+- Screenshot or transcript of the `409 OWNER_CORRECTION_SETTLEMENT_LOCKED` response.
 - The RBAC seed statement, showing the permission granted to no role template.
 - Written Finance sign-off on the split model and the OQ-07 limitation.
 
@@ -1361,7 +1370,7 @@ entirely.
 **Prerequisites before the epic is worth starting:** currency and fee/tax scope revisited — both are
 `DEFERRED` today ([OQ-05](DECISION_RATIFICATION_PACKET.md#oq-05--currency-model),
 [OQ-06](DECISION_RATIFICATION_PACKET.md#oq-06--fee-tax-and-discount-model)) — plus enough production data
-from the `historical_owner_override_total` and `owner_attribution_required` metrics to show that manual
+from the `historical_owner_override_total` and `OWNER_ATTRIBUTION_REQUIRED` metrics to show that manual
 attribution is a real, recurring cost.
 
 **Status:** `DEFERRED` by the Sole Project Owner, 2026-07-29. Review lenses: Finance · Product · Engineering.

@@ -26,15 +26,16 @@ without falsifying system timestamps.
    See the [governance model](DECISION_RATIFICATION_PACKET.md#governance-model). The honest limitation is
    stated there too: there is no independent review, so the compensating controls are explicit risk
    acceptance, explicit revisit triggers, and reliability scenarios written to fail loudly.
-2. **Three technical prerequisites sit outside the feature**, each an independent PR, none delivered inside
-   a feature ticket. [`PRE-00`](DECISION_RATIFICATION_PACKET.md#pre-00--historical-data-census) — a read-only,
-   non-production census of existing past-dated bookings; gates pilot and migration rollout approval.
-   [`PRE-01`](DECISION_RATIFICATION_PACKET.md#pre-01--database-bootstrap-parity-for-migration-0057) — `db/init.sql` omits
-   migration `0057`; **HB-02 cannot merge** before it.
-   [`PRE-02`](DECISION_RATIFICATION_PACKET.md#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) — CI runs
-   **no tests at all**, so no transaction, lock, uniqueness or `CHECK` guarantee in this pack is verifiable;
-   **HB-03 cannot merge** before it. `PRE-02` is **not** delivered by HB-09 — HB-09 consumes and extends it.
-   These are the only open items in the programme. See
+2. **Two of the three technical prerequisites are done.**
+   [`PRE-01`](DECISION_RATIFICATION_PACKET.md#pre-01--database-bootstrap-parity-for-migration-0057) — **merged**;
+   `db/init.sql` now includes migration `0057`, and rollback is documented as unsafe rather than scripted.
+   [`PRE-02`](DECISION_RATIFICATION_PACKET.md#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) — **merged**;
+   CI provisions `postgres:16-alpine` and executes tests, and a reusable real-PostgreSQL fixture exists, so
+   transaction, lock, uniqueness and `CHECK` guarantees are now verifiable. `PRE-02` was **not** delivered by
+   HB-09 — HB-09 consumes and extends it.
+   [`PRE-00`](DECISION_RATIFICATION_PACKET.md#pre-00--historical-data-census) — **outstanding**; a
+   read-only, non-production census of existing past-dated bookings, gating pilot and migration rollout
+   approval rather than any ticket's implementation. See
    [Master §21.1](00_MASTER_PLAN.md#211-prerequisites-before-any-historical-migration-lands).
 3. **One canonical write contract.** `POST /api/internal/bookings/historical`, success `200 OK`. Earlier
    drafts also carried `/api/bookings/historical` and `201 Created`; both are retired
@@ -69,10 +70,10 @@ Four other findings materially shaped the plan:
 | # | File | Purpose |
 |---|---|---|
 | — | [README.md](README.md) | This index |
-| — | [DECISION_RATIFICATION_PACKET.md](DECISION_RATIFICATION_PACKET.md) | **The decision record.** Governance model, the nine cross-ticket decisions, the three deferrals, ADR-01…ADR-12, and the three technical prerequisites `PRE-00`/`PRE-01`/`PRE-02`. Every entry has a final status |
+| — | [DECISION_RATIFICATION_PACKET.md](DECISION_RATIFICATION_PACKET.md) | **The decision record.** Governance model, the nine cross-ticket decisions, the [eight HB-02 decisions](DECISION_RATIFICATION_PACKET.md#hb-02-decisions), the three deferrals, ADR-01…ADR-12, and the three technical prerequisites `PRE-00`/`PRE-01`/`PRE-02`. Every entry has a final status |
 | 00 | [00_MASTER_PLAN.md](00_MASTER_PLAN.md) | Full architecture: current & target state, invariants, date model, data model, API, validation matrix, financial/owner/payment/invoice models, reporting impact, migration, rollout, observability, risk register, decision log, ticket graph, QA strategy, DoR/DoD, open questions |
 | 01 | [01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md) | **HB-01 — COMPLETE.** Verified current-state maps, ADRs, and the **normal-flow hardening specification**. A pure decision gate: ships no code and holds no unfinished execution task |
-| 02 | [02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md) | **HB-02** Historical booking command, endpoint, permission, reason/source, truthful audit, direct-to-`Completed` creation |
+| 02 | [02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md) | **HB-02 — IMPLEMENTATION-READY.** Historical booking command, endpoint, permission, reason/source, truthful audit, direct-to-`Completed` creation, the idempotency contract, and truthful capture of `agreedAmount` |
 | 03 | [03_TICKET_AVAILABILITY_CONFLICTS_AND_DUPLICATE_PROTECTION.md](03_TICKET_AVAILABILITY_CONFLICTS_AND_DUPLICATE_PROTECTION.md) | **HB-03** Historical conflict set, boundary semantics, inactive units, concurrency, duplicate protection |
 | 04 | [04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md) | **HB-04** Protected agreed amount, repricing guard, historical payments, invoice consequences |
 | 05 | [05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) | **HB-05** Owner review, privileged override, commission snapshot, correction workflow |
@@ -135,8 +136,8 @@ graph TD
 |---|---|---|---|
 | 0 | **Planning package baseline commit** | — | Documentation only; this pack |
 | — | HB-01 | Already **COMPLETE** | Decision gate. Does **not** execute after the prerequisites |
-| 1 | PRE-00, PRE-01, PRE-02 | **Yes** — independent PRs whose repository footprints do not overlap | `PRE-01` before HB-02 merges; `PRE-02` before HB-03 merges; `PRE-00` before pilot and migration rollout approval |
-| 2 | HB-02 | No — owns `is_historical` and the first migration | Requires **`PRE-01`**; requires `PRE-00` only when the migration or backfill strategy depends on existing-row evidence |
+| 1 | ~~PRE-01~~ **done** · ~~PRE-02~~ **done** · PRE-00 outstanding | — | `PRE-01` and `PRE-02` are merged. `PRE-00` remains, gating pilot and migration rollout approval |
+| 2 | HB-02 — **implementation-ready, no outstanding gate** | No — owns `is_historical` and the first migration | Every HB-02 decision is `OWNER APPROVED`; `PRE-01` and `PRE-02` are merged. `PRE-00` is needed only if the migration or backfill strategy depends on existing-row evidence |
 | 3 | HB-04, HB-07 | Yes | Follow the stable HB-02 domain contract |
 | 3 | HB-03 | Yes, alongside wave 3 | **Cannot merge until `PRE-02` is complete** ([D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement)) |
 | 4 | HB-05 | No — its migration is ordered after HB-04's | After HB-04 |
@@ -257,6 +258,8 @@ source file, migration, workflow or database record was touched.
 | API contract | Both `/api/bookings/historical` and `/api/internal/bookings/historical` appeared as live specifications, and scenarios asserted `201 Created` | One canonical contract: `POST /api/internal/bookings/historical`, `200 OK` ([Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract)) |
 | Invoice and payment policy | HB-02 asserted "no invoice"; HB-04 recommended creating and issuing one. The payment field was simultaneously inline and separate | Both consolidated into [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) and [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) with options, consequences, accepted risk and revisit triggers. Neither policy was silently chosen |
 | Migration ownership | The `snapshot_*` columns were claimed by HB-04 **and** HB-05; HB-02's index and idempotency table were assigned to "HB-04's migration" | One [ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix): every object has exactly one owner, cross-ticket needs are dependencies |
+| HB-02 decision gates | Four gates were open (`D-HB02-03` … `D-HB02-06`), and three boundaries were contradictory: idempotency was HB-02's in the matrix but deferred-and-advisory in HB-03's text; `agreedAmount` was described as HB-04's while sitting in HB-02's request; the HB-02 request carried an owner-override object that HB-05 owns | All fourteen HB-02 decisions ratified. The eight cross-cutting ones are in the [decision record](DECISION_RATIFICATION_PACKET.md#hb-02-decisions); idempotency, the financial boundary and the owner boundary each have one owner and one statement |
+| Error codes | Codes were lowercase prose labels with no transport — the response envelope has no code field at all | An optional `Code` on the shared `ApiResponse` contract ([D-HB02-03](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport)), never inside `errors[0]`, with the `UPPER_SNAKE_CASE` set in [Master §12.3](00_MASTER_PLAN.md#123-error-contract--transport-and-codes) |
 | Rollout | HB-01 gated HB-02 while needing HB-02's column and requiring its own change to deploy last — a cycle | HB-01 is a pure decision gate; REQ-16 implementation and activation moved to HB-08 |
 | `SC-FIN-03` | Claimed to fail against current code | Reclassified as a **prospective invariant**. The update path already rejects completed bookings with `409` (`BookingService.cs:385-387`), so the claimed overwrite is not reproducible. Exactly one scenario, `SC-REG-02`, is expected to fail today |
 | Counts and references | 12 broken anchors, a duplicated `SC-FIN-04` row, an HB-07 verdict count of 15 against 17 listed rows, a scenario count of "128 across 16 groups" | All corrected and re-verified: 0 broken links, 0 duplicate ids, 0 dangling references, 159 scenarios across 17 groups |

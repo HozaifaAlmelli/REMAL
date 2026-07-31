@@ -303,10 +303,10 @@ names the perspectives applied — it is not a list of separate approvers.
 |---|---|---|---|---|---|---|
 | D-01 | Do soft holds (`Prospecting`, `Relevant`) participate in **historical** conflict detection? | A stale lead for the same offline deal is the most likely artefact an operator will meet; blocking on it prevents recording the truth | Too strict → operators cannot record real stays; too loose → nothing (soft holds occupy no real nights) | **Exclude** from the hard conflict set; **include** as a probable-duplicate signal (§11.8) | Product · Operations | **Yes** |
 | D-02 | Does an overlapping `date_block` block a historical stay? | A block is a statement about intended future unavailability; a completed stay is a statement of fact. `Status` is also unfiltered today (§5.3) | Hard-block → maintenance entries veto real history; ignore → genuine data conflicts go unnoticed | **Warn + require acknowledgement**, counting only `status = 'approved'` and `deleted_at IS NULL` blocks | Operations | **Yes** |
-| D-03 | Exact duplicate → hard `409`, or idempotent absorb returning the existing booking? | Both are defensible; absorbing hides operator error, blocking breaks safe retries | Wrong choice produces either duplicate records or confusing 409s on network retry | **`409` by default; absorb (`200` + existing booking) only when a matching `Idempotency-Key` is replayed** | Product · Engineering | **Yes** |
+| D-03 | Exact duplicate → hard `409`, or idempotent absorb returning the existing booking? | Both are defensible; absorbing hides operator error, blocking breaks safe retries | Wrong choice produces either duplicate records or confusing 409s on network retry | **`409 HISTORICAL_DUPLICATE_BOOKING` by default; absorb (`200` + the original booking) only on an exact `Idempotency-Key` replay, which is HB-02's mechanism.** The two checks answer different questions: idempotency asks *"is this the same request?"*, HB-03 asks *"is this the same booking?"* | Product · Engineering | **`OWNER APPROVED`** |
 | D-04 | Probable-duplicate thresholds | Scoring is a product judgement, not a technical one | Too sensitive → acknowledgement fatigue, operators click through; too lax → duplicates land | Any night overlap **AND** (same `client_id` OR same normalised phone); amount similarity is advisory only, never a trigger on its own | Product | No |
 | D-05 | Adopt a PostgreSQL `EXCLUDE` constraint as a hard backstop? | Never used in this codebase (§5.7); operational cost is real (§11.11) | Skipping it leaves the guarantee application-level only | **No in v1.** Ship the app-level guard + reconciliation query; raise a deferred hardening ticket once the census proves the table is clean | Engineering | No |
-| D-06 | How is the error **code** transported, given `ApiResponse` has none (§5.8)? | [Master §12](00_MASTER_PLAN.md#12-api-and-command-design) specifies codes the envelope cannot carry | HB-06 cannot distinguish `historical_overlap_conflict` from `historical_duplicate_booking` and will string-match messages | Add an optional `code` (and `details`) to `ApiResponse` — purely additive, existing clients ignore it | Engineering | **Yes** |
+| D-06 | How is the error **code** transported, given `ApiResponse` has none (§5.8)? | [Master §12](00_MASTER_PLAN.md#12-api-and-command-design) specifies codes the envelope cannot carry | HB-06 cannot distinguish `HISTORICAL_OVERLAP_CONFLICT` from `HISTORICAL_DUPLICATE_BOOKING` and will string-match messages | Add an optional `code` (and `details`) to `ApiResponse` — purely additive, existing clients ignore it | Engineering | **Yes** |
 | D-07 | Final route and success status for the historical endpoint | An earlier draft carried both `/api/bookings/historical` and `/api/internal/bookings/historical`, and both `200` and `201` | A published contract that does not exist, and scenarios asserting the wrong status | **RESOLVED.** `POST /api/internal/bookings/historical` returning **`200 OK`**, matching the live prefix (`BookingsController.cs:21`) and the repository's universal `Ok(ApiResponse<T>...)` pattern (`:114`, `:135`). Recorded normatively at [Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract); every document and scenario now restates it | Engineering | No — resolved |
 | D-08 | Should the historical conflict query keep the `b.Client.DeletedAt == null` filter (§5.5)? | A soft-deleted client's completed stay still occupied the unit | Keeping it → real occupancy invisible → double-booked nights | **Drop the client filter** in the historical query; keep `b.Unit.DeletedAt == null` | Engineering | **Yes** |
 
@@ -427,7 +427,7 @@ requires the acknowledgement flag before it will proceed.
 |---|---|---|
 | Active, not deleted | Proceed | — |
 | `IsActive == false`, `DeletedAt == null` | **Proceed** (ADR-12, REQ-17); attach an informational marker to the result | — |
-| `DeletedAt != null` | Reject | `400 unit_deleted_unsupported` (Master §12) |
+| `DeletedAt != null` | Reject | `400 UNIT_DELETED_UNSUPPORTED` (Master §12) |
 | Not found | Reject | `404 not_found` |
 | `IsVisibleInPortfolio == false` | Proceed — portfolio visibility is a storefront concern (`BookingService.cs:159` applies it only when `requirePortfolioVisibility`) | — |
 
@@ -474,8 +474,8 @@ differently by different operators. Name may contribute to a *display* hint; it 
 
 | Class | Definition | Outcome | Error / signal |
 |---|---|---|---|
-| **Exact duplicate** | Same `unit_id` **AND** same `check_in_date` **AND** same `check_out_date` **AND** same `client_id`, in any status within `HistoricalConflictStatuses` | Block, or absorb under a replayed idempotency key (`D-03`) | `409 historical_duplicate_booking` |
-| **External-reference duplicate** | Same non-null `external_reference` | Block unconditionally — the operator has asserted a unique external identity | `409 historical_duplicate_booking` |
+| **Exact duplicate** | Same `unit_id` **AND** same `check_in_date` **AND** same `check_out_date` **AND** same `client_id`, in any status within `HistoricalConflictStatuses` | Block, or absorb under a replayed idempotency key (`D-03`) | `409 HISTORICAL_DUPLICATE_BOOKING` |
+| **External-reference duplicate** | Same non-null `external_reference` | Block unconditionally — the operator has asserted a unique external identity | `409 HISTORICAL_DUPLICATE_BOOKING` |
 | **Probable duplicate** | Night overlap on the same unit **AND** (same `client_id` **OR** same normalised phone). Amount proximity is displayed, never decisive (`D-04`) | Block **until** the request carries an explicit acknowledgement token, then allow | `409` + machine-readable candidate list; retry with `acknowledgedDuplicateOf: [ids]` |
 | **Soft-hold echo** | An overlapping `Prospecting`/`Relevant` booking for the same client — the half-entered lead for this same deal | Advisory only; feeds the probable-duplicate list (D-01) | Warning payload |
 | **Legitimate repeat** | Same client, same unit, **non-overlapping** nights | Allow with no friction | — |
@@ -485,7 +485,7 @@ Notes:
 - The exact-duplicate scan intentionally overlaps the conflict scan for the same-client case. Both fire; the
   duplicate result takes precedence in the response because it is the more actionable diagnosis.
 - A different client on the same unit and dates is **not** a duplicate. It is an overlap, and it returns
-  `historical_overlap_conflict`. Conflating them would tell operators the wrong story.
+  `HISTORICAL_OVERLAP_CONFLICT`. Conflating them would tell operators the wrong story.
 - The acknowledgement token must name the specific candidate booking ids it acknowledges. A bare boolean
   `force: true` is rejected for the same reason ADR-01 rejects `allowPastDates` — it is unauditable and
   becomes a habitual click-through.
@@ -510,10 +510,14 @@ Two implementation constraints, both verifiable:
 - The unique index produces `23505` at the database level, which
   `ExceptionHandlingMiddleware.cs:68-71` currently maps to **500**. The service must therefore perform an
   explicit pre-check inside the transaction *and* catch `DbUpdateException` on the unique index, translating
-  both to `409 historical_duplicate_booking`. Relying on the pre-check alone loses the race; relying on the
+  both to `409 HISTORICAL_DUPLICATE_BOOKING`. Relying on the pre-check alone loses the race; relying on the
   constraint alone returns a 500.
 
-`DECISION REQUIRED` folded into `D-03`: whether `external_reference` uniqueness is global or scoped per
+**Settled — global.** The [migration-ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix)
+defines object #7 as `ux_bookings_external_reference`, a unique partial index over the whole table
+`WHERE external_reference IS NOT NULL`, owned by HB-02. Global uniqueness is what that index expresses, and
+HB-03 depends on it rather than redefining it. The original question was whether uniqueness is global or
+scoped per
 `original_source`. Recommended default: **global**, because operators paste opaque identifiers whose namespace
 they cannot be relied upon to know.
 
@@ -523,14 +527,14 @@ they cannot be relied upon to know.
 
 | Aspect | Design |
 |---|---|
-| Transport | `Idempotency-Key` request header, client-generated UUID, required by the historical endpoint |
+| Transport | `Idempotency-Key` request header, client-generated UUID, **required** by the historical endpoint. **Owned and implemented by [HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md#191-the-idempotency-contract-d-hb02-idem--normative)** ([D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract)); HB-03 consumes it |
 | Scope | Per key, globally — not per user, so a retried request from a different session still resolves |
-| Storage | `BLOCKED` — no idempotency table exists in the repository. Two candidates: a dedicated `idempotency_keys` table (clean, needs a migration slot), or reusing `external_reference` (rejected: conflates a business identifier with a transport concern) |
-| Recommended default | A minimal `idempotency_keys(key, endpoint, request_hash, response_status, booking_id, created_at)` table, added to HB-04's migration |
+| Storage | **Settled — `idempotency_keys`, created by HB-02's migration.** No idempotency table existed in the repository (`CONFIRMED`), so HB-02 creates one; reusing `external_reference` was rejected because it conflates a business identifier with a transport concern. This is **not** `BLOCKED`, **not** optional, **not** deferred, and **not** HB-03's to create |
+| Scope and key | `(actor_admin_user_id, endpoint, key)`, with a persisted canonical request hash. Defined in full by HB-02; HB-03 must not restate it differently |
 | Replay of a **completed** key with a matching request hash | Return the original outcome — `200` + the original booking |
 | Replay with a **different** request hash | `409` with a distinct message: the key was reused for a different payload |
 | Replay while the original is **in flight** | The advisory lock serialises it; the second attempt then sees the committed key and replays the response |
-| Missing header | `400 validation_error`. The endpoint is low-volume and operator-driven; requiring the key costs nothing |
+| Missing header | `400 VALIDATION_ERROR`. The endpoint is low-volume and operator-driven; requiring the key costs nothing |
 
 ### 11.11 Database-level guard — honest evaluation
 
@@ -566,7 +570,7 @@ ALTER TABLE bookings ADD CONSTRAINT ex_bookings_no_overlap
 ```mermaid
 flowchart TD
     A[POST historical booking] --> B{Idempotency-Key present?}
-    B -->|no| E1[400 validation_error]
+    B -->|no| E1[400 VALIDATION_ERROR]
     B -->|yes| C{Key already completed?}
     C -->|yes, same hash| R1[200 replay original booking]
     C -->|yes, different hash| E2[409 key reused]
@@ -574,11 +578,11 @@ flowchart TD
     D --> L[pg_advisory_xact_lock<br/>booking-unit:unitId]
     L --> U{Unit resolves?}
     U -->|not found| E3[404 not_found]
-    U -->|DeletedAt set| E4[400 unit_deleted_unsupported]
+    U -->|DeletedAt set| E4[400 UNIT_DELETED_UNSUPPORTED]
     U -->|inactive or active| X[Historical conflict scan<br/>Booked, Confirmed, CheckIn,<br/>Completed, LeftEarly]
     X --> X1{Night overlap?}
-    X1 -->|yes, different client| E5[409 historical_overlap_conflict]
-    X1 -->|yes, same client<br/>identical dates| E6[409 historical_duplicate_booking]
+    X1 -->|yes, different client| E5[409 HISTORICAL_OVERLAP_CONFLICT]
+    X1 -->|yes, same client<br/>identical dates| E6[409 HISTORICAL_DUPLICATE_BOOKING]
     X1 -->|no| EX{external_reference<br/>already used?}
     EX -->|yes| E6
     EX -->|no| P{Probable duplicate?<br/>overlap AND<br/>same client or phone}
@@ -620,7 +624,7 @@ sequenceDiagram
     G->>DB: SELECT date_blocks WHERE approved AND not deleted AND range overlaps
     G-->>H: HistoricalConflictResult
     alt blocking conflict
-        H-->>C: ConflictException -> 409 historical_overlap_conflict
+        H-->>C: ConflictException -> 409 HISTORICAL_OVERLAP_CONFLICT
     end
     H->>D: DetectAsync(unitId, dates, clientId, phone, externalReference)
     D->>DB: exact-match scan
@@ -628,7 +632,7 @@ sequenceDiagram
     D->>DB: probable-duplicate scan (overlap AND client|phone)
     D-->>H: None | Exact | Probable(candidates)
     alt exact, or probable unacknowledged
-        H-->>C: ConflictException -> 409 historical_duplicate_booking
+        H-->>C: ConflictException -> 409 HISTORICAL_DUPLICATE_BOOKING
     end
     H->>DB: writes (HB-02/04/05)
     H->>U: CommitAsync
@@ -653,7 +657,7 @@ sequenceDiagram
 | `RentalPlatform.API/Models/ApiResponse.cs` | Optional `code`/`details` (D-06) | Low — additive, serialised only when set |
 | `RentalPlatform.API/Middleware/ExceptionHandlingMiddleware.cs` | Propagate the code; map unique-violation `DbUpdateException` to 409 | Medium — shared by every endpoint; regression-test it |
 | `RentalPlatform.Business/Services/BookingService.cs` | **No behavioural change.** Only the predicate refactor, if the shared expression is adopted here too | High if botched — guard with characterisation tests first |
-| `db/migrations/00NN_*` | `ux_bookings_external_reference`, `idempotency_keys` — authored in HB-04's migration, specified here | Low |
+| `db/migrations/00NN_*` | **Nothing.** `ux_bookings_external_reference` and `idempotency_keys` are both authored by **HB-02's** migration (matrix #7 and #12); HB-03 depends on them and creates neither | — |
 | `RentalPlatform.Tests/` | Boundary, conflict, duplicate and (real-Postgres) concurrency suites | None |
 
 ---
@@ -665,18 +669,18 @@ introduces.
 
 | Condition | Status | Code | Payload additions |
 |---|---|---|---|
-| Night overlap with a `HistoricalConflictStatuses` booking | 409 | `historical_overlap_conflict` | `conflicts[]`: `{ bookingId, status, checkInDate, checkOutDate }` — no client PII |
-| Exact duplicate (unit + dates + client) | 409 | `historical_duplicate_booking` | `duplicateOf: bookingId`, `matchReason: "exact"` |
-| `external_reference` already used | 409 | `historical_duplicate_booking` | `duplicateOf: bookingId`, `matchReason: "external_reference"` |
-| Probable duplicate, unacknowledged | 409 | `historical_duplicate_booking` | `candidates[]` + `requiresAcknowledgement: true`, `matchReason: "probable"` |
-| Approved date block overlaps, unacknowledged (D-02) | 409 | `historical_overlap_conflict` | `dateBlocks[]` + `requiresAcknowledgement: true` |
-| Unit soft-deleted | 400 | `unit_deleted_unsupported` | — |
+| Night overlap with a `HistoricalConflictStatuses` booking | 409 | `HISTORICAL_OVERLAP_CONFLICT` | `conflicts[]`: `{ bookingId, status, checkInDate, checkOutDate }` — no client PII |
+| Exact duplicate (unit + dates + client) | 409 | `HISTORICAL_DUPLICATE_BOOKING` | `duplicateOf: bookingId`, `matchReason: "exact"` |
+| `external_reference` already used | 409 | `HISTORICAL_DUPLICATE_BOOKING` | `duplicateOf: bookingId`, `matchReason: "external_reference"` |
+| Probable duplicate, unacknowledged | 409 | `HISTORICAL_DUPLICATE_BOOKING` | `candidates[]` + `requiresAcknowledgement: true`, `matchReason: "probable"` |
+| Approved date block overlaps, unacknowledged (D-02) | 409 | `HISTORICAL_OVERLAP_CONFLICT` | `dateBlocks[]` + `requiresAcknowledgement: true` |
+| Unit soft-deleted | 400 | `UNIT_DELETED_UNSUPPORTED` | — |
 | Unit not found / out of scope | 404 | `not_found` | — |
-| Missing or malformed `Idempotency-Key` | 400 | `validation_error` | — |
-| Idempotency key replayed with a different payload | 409 | `validation_error` | — |
-| Idempotency key replayed identically | 200 | — | The original booking |
+| Missing or malformed `Idempotency-Key` | 400 | `IDEMPOTENCY_KEY_REQUIRED` | HB-02 owns this response |
+| Idempotency key replayed with a different payload | 409 | `IDEMPOTENCY_KEY_REUSED` | HB-02 owns this response |
+| Idempotency key replayed identically | 200 | — | The original booking; HB-02 owns this response |
 
-Request additions owned by HB-03: `Idempotency-Key` header; `acknowledgedDuplicateOf: Guid[]`;
+Request additions owned by HB-03: `acknowledgedDuplicateOf: Guid[]`;
 `acknowledgedDateBlockIds: Guid[]`. Both acknowledgement arrays are **id lists, never booleans**.
 
 Conflict payloads carry booking ids and dates only. Guest names, phones and emails must not appear — an
@@ -694,7 +698,7 @@ assigned the first two to "HB-04's migration", which was wrong on both counts.
 | Object | Shape | **Owner** | HB-03's relationship |
 |---|---|---|---|
 | `ux_bookings_external_reference` | `UNIQUE INDEX ... (external_reference) WHERE external_reference IS NOT NULL` | **HB-02** (#7) | **Dependency.** It indexes `bookings.external_reference`, an HB-02 column. Must be created `CONCURRENTLY`, so that file must not open a transaction (§11.9). HB-03 relies on it for exact-duplicate rejection |
-| `idempotency_keys` | `key TEXT PK, endpoint TEXT, request_hash TEXT, response_status INT, booking_id UUID NULL, created_at TIMESTAMP` | **HB-02** (#12) | **Dependency.** Idempotency is a property of HB-02's endpoint. `PROPOSED`; a retention/pruning policy is `DECISION REQUIRED`, recommended default 30 days |
+| `idempotency_keys` | PK `(actor_admin_user_id, endpoint, key)` plus `request_hash`, `response_status`, `booking_id`, `created_at`, `completed_at` | **HB-02** (#12) | **Dependency, not ownership.** Idempotency is a property of HB-02's endpoint and is fully specified by [D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract). **There is no automatic expiration in v1** — no retention decision is outstanding |
 | `ex_bookings_no_overlap` | `EXCLUDE USING gist` | Deferred ticket | Not in v1 — `D-05`, §11.11 |
 
 **Merge gate — `PRE-02`.** Every guarantee in this ticket — transaction scope, advisory-lock serialisation,
@@ -725,10 +729,10 @@ do not add speculatively.
 | Endpoint gate | `bookings:record_historical`, enforced by policy on the controller (F-14 convention, `PermissionKeys.cs:16-17` for the existing pattern). HB-03 adds no permission of its own |
 | Conflict-check as an oracle | The conflict payload leaks *that* a unit was occupied on given dates. Restrict it to unit ids inside the caller's scope and return **no client identity** in conflict entries |
 | Duplicate-check as a lookup oracle | Probable-duplicate matching consumes a phone number the caller already supplied; it must never return a phone, name or email in the response — only booking ids and dates |
-| Bypass by flag | No boolean bypass exists. Acknowledgements are id lists validated against the candidates the server itself computed; an id the server did not offer is rejected as `validation_error` |
+| Bypass by flag | No boolean bypass exists. Acknowledgements are id lists validated against the candidates the server itself computed; an id the server did not offer is rejected as `VALIDATION_ERROR` |
 | Bypass by endpoint | The normal `POST` path retains its own guards and, once [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) activates the REQ-16 rule specified in [HB-01 §11.2](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#112-normal-flow-hardening--specification), rejects past dates. Until then `RISK-10` remains open and HB-03's guarantees are only as strong as the historical endpoint's exclusivity |
 | Cross-portfolio injection | Unit resolution is scope-checked before any conflict query runs (INV-12) |
-| Idempotency-key squatting | Keys are namespaced by endpoint and validated against a request hash; a mismatched replay is refused, never silently absorbed |
+| Idempotency-key squatting | Keys are scoped to **actor + endpoint + key** and validated against a canonical request hash; a mismatched replay is refused, never silently absorbed, and one actor can never replay another's key |
 | Enumeration via timing | Not mitigated; conflict checks are not a credential surface. Noted, not actioned |
 
 ---
@@ -752,7 +756,7 @@ Extends [Master §13](00_MASTER_PLAN.md#13-validation-matrix); V-06, V-07, V-08,
 | H-11 | Acknowledged ids must appear in the server-computed candidate set | Detector | 400 | `SC-DUP-06` |
 | H-12 | Name similarity alone never blocks | Detector | allowed | `SC-DUP-07` |
 | H-13 | Repeat customer, non-overlapping dates, passes with no friction | Detector | allowed | `SC-DUP-03` |
-| H-14 | `Idempotency-Key` present and well-formed | Controller | 400 | `SC-CONC-04` |
+| H-14 | `Idempotency-Key` present and well-formed | Controller — **HB-02's rule**, listed here only so the HB-03 matrix is complete | 400 `IDEMPOTENCY_KEY_REQUIRED` | `SC-CONC-04` |
 | H-15 | Conflict evaluation happens inside the transaction, after the lock | Service | `InvalidOperationException` if no transaction (`UnitOfWork.cs:148-153`) | `SC-CONC-01` |
 
 ---
@@ -766,9 +770,9 @@ Extends [Master §13](00_MASTER_PLAN.md#13-validation-matrix); V-06, V-07, V-08,
 | Lock acquisition failure | `AcquireTransactionAdvisoryLockAsync` blocks rather than failing; a pathological wait surfaces as a request timeout. `PROPOSED`: use the blocking variant, not `TryAcquire...` — a historical entry is operator-driven and low-volume, so waiting is preferable to a spurious failure |
 | Rejection | Any conflict or duplicate rejection rolls back. No partial state (INV-06) |
 | Post-write failure | Rollback discards the booking, its history row and any payment together |
-| Unique-index violation at commit | `DbUpdateException` caught and translated to `409 historical_duplicate_booking`; never allowed to reach the 500 branch (`ExceptionHandlingMiddleware.cs:68-71`) |
+| Unique-index violation at commit | `DbUpdateException` caught and translated to `409 HISTORICAL_DUPLICATE_BOOKING`; never allowed to reach the 500 branch (`ExceptionHandlingMiddleware.cs:68-71`) |
 | Read consistency | Default `READ COMMITTED` is sufficient **because** the advisory lock serialises writers on the same unit. Without the lock it would not be — this is the load-bearing reason the lock is mandatory, not merely defensive |
-| Idempotency-key write | Written inside the same transaction, so a rolled-back attempt leaves no key and the retry is clean |
+| Idempotency-key write | Claimed immediately after the advisory lock and completed inside the **same** transaction as the booking insert (HB-02 §11.5), so a rolled-back attempt leaves no key and the retry is clean |
 
 ---
 
@@ -776,10 +780,10 @@ Extends [Master §13](00_MASTER_PLAN.md#13-validation-matrix); V-06, V-07, V-08,
 
 | Scenario | Expected outcome |
 |---|---|
-| Two operators, same unit, same dates, different clients, simultaneous | One commits; the other blocks on the advisory lock, then sees the committed row and returns `409 historical_overlap_conflict` |
-| Two operators, same unit, same dates, **same** client, simultaneous | One commits; the other returns `409 historical_duplicate_booking` |
+| Two operators, same unit, same dates, different clients, simultaneous | One commits; the other blocks on the advisory lock, then sees the committed row and returns `409 HISTORICAL_OVERLAP_CONFLICT` |
+| Two operators, same unit, same dates, **same** client, simultaneous | One commits; the other returns `409 HISTORICAL_DUPLICATE_BOOKING` |
 | Same operator, double-submit, same `Idempotency-Key` | One booking; the second call replays `200` with the original booking |
-| Same operator, double-submit, **different** keys, identical payload | Second returns `409 historical_duplicate_booking` (exact-duplicate rule) — the idempotency layer is not the duplicate guard, and neither substitutes for the other |
+| Same operator, double-submit, **different** keys, identical payload | Second returns `409 HISTORICAL_DUPLICATE_BOOKING` (exact-duplicate rule) — the idempotency layer is not the duplicate guard, and neither substitutes for the other |
 | Historical entry concurrent with a normal quick booking on the same unit | Serialised on the shared key `booking-unit:{unitId:N}` (`BookingService.cs:331-333`); whichever commits second is rejected |
 | Historical entry concurrent with a lifecycle transition on the same unit | Serialised on the same key (`BookingLifecycleService` uses the identical format) |
 | Historical entry concurrent with a date-block creation | `BLOCKED` — whether date-block writes take the same advisory lock is unverified. Must be confirmed before release; if they do not, a block could be created between the check and the commit. Worst case is an advisory warning missed, not a double booking |
@@ -930,16 +934,16 @@ Ordered; each independently checkable.
 
 | ID | Criterion |
 |---|---|
-| AC-HB03-01 | **Given** a `Completed` booking on unit U for 10–15 Jun, **when** a historical booking is recorded on U for 12–14 Jun, **then** the API returns `409 historical_overlap_conflict` naming the conflicting booking id. |
+| AC-HB03-01 | **Given** a `Completed` booking on unit U for 10–15 Jun, **when** a historical booking is recorded on U for 12–14 Jun, **then** the API returns `409 HISTORICAL_OVERLAP_CONFLICT` naming the conflicting booking id. |
 | AC-HB03-02 | **Given** a `LeftEarly` booking on unit U for 10–15 Jun, **when** an overlapping historical booking is recorded, **then** it is rejected identically. |
 | AC-HB03-03 | **Given** a `Cancelled` or `NotRelevant` booking on U for 10–15 Jun, **when** an overlapping historical booking is recorded, **then** it succeeds. |
 | AC-HB03-04 | **Given** a booking on U checking out 15 Jun, **when** a historical booking checks in 15 Jun, **then** it succeeds (same-day turnover, B-07). |
 | AC-HB03-05 | **Given** a booking on U checking in 10 Jun, **when** a historical booking checks out 10 Jun, **then** it succeeds (B-01). |
 | AC-HB03-06 | All twelve boundary cases in §11.4 produce the tabulated verdict. |
 | AC-HB03-07 | **Given** a unit with `IsActive == false` and `DeletedAt == null`, **when** a historical booking is recorded, **then** it succeeds (ADR-12, REQ-17). |
-| AC-HB03-08 | **Given** a unit with `DeletedAt != null`, **when** a historical booking is recorded, **then** `400 unit_deleted_unsupported`. |
-| AC-HB03-09 | **Given** an identical historical booking (same unit, dates, client) already exists, **when** recorded again without an idempotency replay, **then** `409 historical_duplicate_booking` with `matchReason: "exact"`. |
-| AC-HB03-10 | **Given** a booking with `external_reference = "X"`, **when** another historical booking supplies `"X"`, **then** `409 historical_duplicate_booking` with `matchReason: "external_reference"`. |
+| AC-HB03-08 | **Given** a unit with `DeletedAt != null`, **when** a historical booking is recorded, **then** `400 UNIT_DELETED_UNSUPPORTED`. |
+| AC-HB03-09 | **Given** an identical historical booking (same unit, dates, client) already exists, **when** recorded again without an idempotency replay, **then** `409 HISTORICAL_DUPLICATE_BOOKING` with `matchReason: "exact"`. |
+| AC-HB03-10 | **Given** a booking with `external_reference = "X"`, **when** another historical booking supplies `"X"`, **then** `409 HISTORICAL_DUPLICATE_BOOKING` with `matchReason: "external_reference"`. |
 | AC-HB03-11 | **Given** an overlapping booking for the same client with different dates, **when** recorded, **then** `409` with `requiresAcknowledgement: true` and a candidate list; **when** retried with those ids acknowledged, **then** it succeeds. |
 | AC-HB03-12 | **Given** the same client and unit with **non-overlapping** dates, **when** recorded, **then** it succeeds with no acknowledgement required. |
 | AC-HB03-13 | **Given** two different clients with the same name, **when** the second books non-overlapping dates, **then** no duplicate signal is raised. |
