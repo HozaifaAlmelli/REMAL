@@ -132,6 +132,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 \i /docker-entrypoint-initdb.d/migrations/0056_add_unit_portfolio_visibility.sql
 \echo '=== [prod] 0057: add owner contact fields ==='
 \i /docker-entrypoint-initdb.d/migrations/0057_add_owner_contact_fields.sql
+\echo '=== [prod] 0058: add historical booking domain ==='
+\i /docker-entrypoint-initdb.d/migrations/0058_add_historical_booking_domain.sql
+\echo '=== [prod] 0059: add historical booking external reference index ==='
+\i /docker-entrypoint-initdb.d/migrations/0059_add_historical_booking_external_reference_index.sql
 
 -- ── Record the applied baseline (everything run above) ──
 -- scripts/apply-migrations.sh resumes from the highest recorded number.
@@ -143,7 +147,7 @@ FROM unnest(ARRAY[
   '0021','0022','0023','0024','0025','0026','0027','0028','0029','0030',
   '0031','0032','0033','0034','0035','0036','0037','0038','0039','0040',
   '0041','0042','0043','0044','0045','0048','0049','0050','0051','0052',
-  '0053','0054','0055','0056','0057'
+  '0053','0054','0055','0056','0057','0058','0059'
 ]) AS n
 ON CONFLICT (migration_number) DO NOTHING;
 

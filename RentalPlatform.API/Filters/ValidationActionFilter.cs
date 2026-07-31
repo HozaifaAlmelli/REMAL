@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Linq;
 using FluentValidation;
 using RentalPlatform.Business.Exceptions;
+using RentalPlatform.Shared.Constants;
 
 namespace RentalPlatform.API.Filters;
 
@@ -30,7 +31,17 @@ public class ValidationActionFilter : IAsyncActionFilter
                     var errorMessage = string.Join(" | ", errors);
                     
                     // Throw our standard business validation exception to be caught by the middleware
-                    throw new BusinessValidationException(errorMessage);
+                    var historicalCodes = validationResult.Errors
+                        .Select(error => error.ErrorCode)
+                        .Where(HistoricalErrorCodes.All.Contains)
+                        .ToArray();
+                    var code = historicalCodes.Contains(HistoricalErrorCodes.ClientReferenceInvalid)
+                        ? HistoricalErrorCodes.ClientReferenceInvalid
+                        : historicalCodes.FirstOrDefault();
+
+                    throw code is null
+                        ? new BusinessValidationException(errorMessage)
+                        : new BusinessValidationException(errorMessage, code);
                 }
             }
         }

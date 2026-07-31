@@ -9,6 +9,7 @@ namespace RentalPlatform.Tests.Infrastructure;
 public sealed class PostgreSqlFixture : IAsyncLifetime
 {
     public const string ConnectionStringEnvironmentVariable = "KAZA_TEST_DB";
+    private const string MigrationStatementBreak = "-- migration-statement-break";
 
     private static readonly Regex SafeDatabaseName = new(
         @"^kaza_test(?:_[a-z0-9]+)*$",
@@ -272,15 +273,10 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
                     migrationPath);
             }
 
-            var sql = await File.ReadAllTextAsync(migrationPath);
-            await using var command = new NpgsqlCommand(sql, connection)
-            {
-                CommandTimeout = 120
-            };
-
             try
             {
-                await command.ExecuteNonQueryAsync();
+                var sql = await File.ReadAllTextAsync(migrationPath);
+                await ExecuteMigrationSqlAsync(connection, sql);
             }
             catch (Exception exception)
             {
@@ -288,6 +284,24 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
                     $"Bootstrap migration '{migrationFile}' failed in the PostgreSQL test template.",
                     exception);
             }
+        }
+    }
+
+    internal static async Task ExecuteMigrationSqlAsync(
+        NpgsqlConnection connection,
+        string sql,
+        CancellationToken cancellationToken = default)
+    {
+        var statements = sql.Split(
+            MigrationStatementBreak,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var statement in statements)
+        {
+            await using var command = new NpgsqlCommand(statement, connection)
+            {
+                CommandTimeout = 120
+            };
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 

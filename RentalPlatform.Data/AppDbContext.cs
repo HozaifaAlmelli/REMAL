@@ -28,6 +28,8 @@ public class AppDbContext : DbContext
     public DbSet<DateBlock> DateBlocks { get; set; } = null!;
     public DbSet<Booking> Bookings { get; set; } = null!;
     public DbSet<BookingStatusHistory> BookingStatusHistories { get; set; } = null!;
+    public DbSet<BookingOriginalSource> BookingOriginalSources { get; set; } = null!;
+    public DbSet<IdempotencyKey> IdempotencyKeys { get; set; } = null!;
     public DbSet<CrmLead> CrmLeads { get; set; } = null!;
     public DbSet<CrmNote> CrmNotes { get; set; } = null!;
     public DbSet<CrmAssignment> CrmAssignments { get; set; } = null!;

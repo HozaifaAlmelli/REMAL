@@ -57,6 +57,24 @@ public class ClientService : IClientService
         return await _unitOfWork.Clients.GetByIdAsync(id, cancellationToken);
     }
 
+    public async Task<Client?> FindByPhoneIdentityAsync(
+        string phone,
+        CancellationToken cancellationToken = default)
+    {
+        var trimmedPhone = phone?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedPhone))
+            throw new BusinessValidationException("Phone is required.");
+
+        ValidatePhone(trimmedPhone);
+        var normalizedPhone = NormalizePhoneIdentity(trimmedPhone);
+        return await _unitOfWork.Clients.Query()
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                client => client.Phone.Replace("+", string.Empty) == normalizedPhone,
+                cancellationToken);
+    }
+
     public async Task<Client> CreateAsync(string name, string phone, string? email, string plainTextPassword, CancellationToken cancellationToken = default)
     {
         var trimmedName = name?.Trim();

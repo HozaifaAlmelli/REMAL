@@ -393,7 +393,8 @@ public sealed class BookingHistoryCreatorTests
             DateOnly startDate,
             DateOnly endDate,
             Guid? excludeBookingId = null,
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default,
+            bool allowInactiveUnit = false) =>
             Task.FromResult(new UnitAvailabilityResult
             {
                 UnitId = unitId,

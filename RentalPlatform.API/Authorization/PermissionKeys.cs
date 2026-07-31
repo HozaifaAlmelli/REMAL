@@ -15,6 +15,7 @@ public static class PermissionKeys
     public const string CrmAssign = "crm:assign";
     public const string BookingsRead = "bookings:read";
     public const string BookingsWrite = "bookings:write";
+    public const string BookingsRecordHistorical = "bookings:record_historical";
     public const string FinanceOverview = "finance:overview";
     public const string FinanceManage = "finance:manage";
     public const string FinancePayouts = "finance:payouts";
@@ -40,6 +41,7 @@ public static class PermissionKeys
             new(CrmAssign, "CRM", "Assign leads", "Assign and reassign leads and bookings."),
             new(BookingsRead, "Bookings", "View bookings", "View bookings and status history."),
             new(BookingsWrite, "Bookings", "Manage bookings", "Create, update, and advance booking lifecycle stages."),
+            new(BookingsRecordHistorical, "Bookings", "Record historical bookings", "Record completed stays from trusted historical records."),
             new(FinanceOverview, "Finance", "View finance overview", "View finance summaries and dashboard metrics."),
             new(FinanceManage, "Finance", "Manage transactions", "Manage invoices and payment records."),
             new(FinancePayouts, "Finance", "Manage payouts", "Create and process owner payouts."),

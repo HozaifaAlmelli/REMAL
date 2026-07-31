@@ -244,7 +244,7 @@ are recorded here in full.
 | [D-HB02-02](#d-hb02-02) | Controller placement | **New `HistoricalBookingsController` with `[Route("api/internal/bookings")]` and `[HttpPost("historical")]`.** Keeps the privileged path visually separate and gives HB-07 one file to assert against | Engineering | **`OWNER APPROVED`** |
 | [D-HB02-03](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport) | Machine-readable error transport | **Add an optional `Code` to the shared `ApiResponse` contract**, populated from coded business exceptions by `ExceptionHandlingMiddleware`. Every existing field is preserved; human-readable `message` remains; the code is **never** encoded inside `errors[0]`; unrelated endpoints are not required to migrate. Full contract in §14.4 | Engineering · Product | **`OWNER APPROVED`** |
 | [D-HB02-04](DECISION_RATIFICATION_PACKET.md#d-hb02-04--producing-a-403-for-an-owner-override-refusal) | Producing a `403` for an owner-override refusal | **Not applicable to HB-02, and therefore not built here.** HB-02 accepts no owner field at all ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)), so an override can never be *requested* on this endpoint and no override refusal can arise. `ForbiddenBusinessException` and the middleware's `403` branch move to **HB-05**, which owns the override. HB-02's own uncertainty path is `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` via the existing `ConflictException` branch — no new middleware branch is required. See §10.2 | Engineering · Security | **`OWNER APPROVED`** |
-| [D-HB02-05](DECISION_RATIFICATION_PACKET.md#d-hb02-05--client-reference-contract) | Client reference contract | **Exactly one of `clientId` or `newClient`.** Both or neither ⇒ `400 CLIENT_REFERENCE_INVALID`. Unknown `clientId` ⇒ `404 CLIENT_NOT_FOUND`. A `newClient` whose normalised phone already belongs to a client ⇒ `409 CLIENT_PHONE_ALREADY_EXISTS` carrying `existingClientId`; **no duplicate is created, and no silent reuse or merge occurs**. Full rules in §14.2 | Product · Engineering | **`OWNER APPROVED`** |
+| [D-HB02-05](DECISION_RATIFICATION_PACKET.md#d-hb02-05--client-reference-contract) | Client reference contract | **Exactly one of `clientId` or `newClient`.** Both or neither ⇒ `400 CLIENT_REFERENCE_INVALID`. Unknown `clientId` ⇒ `404 CLIENT_NOT_FOUND`. A duplicate normalised phone returns only `existingClientId`: `409 CLIENT_PHONE_ALREADY_EXISTS` for an active, non-deleted client that may be selected on retry; `409 CLIENT_PHONE_REQUIRES_REVIEW` for an inactive or soft-deleted client that requires administrative review/reactivation and must not be reused directly. **No duplicate is created, and no silent reuse, merge, reactivation, restoration, or mutation occurs.** Full rules in §14.2 | Product · Engineering | **`OWNER APPROVED`** |
 | [D-HB02-06](DECISION_RATIFICATION_PACKET.md#d-hb02-06--original_source-vocabulary) | `original_source` vocabulary | **Database-backed lookup table `booking_original_sources(code, label, is_active)`, seeded with exactly `legacy_system`, `external_platform`, `offline_record`, `other`**, with `bookings.original_source` a foreign key to it. Free text is unrepresentable. An unknown *or inactive* code ⇒ `400 ORIGINAL_SOURCE_INVALID`. The existing `ck_bookings_source` channel vocabulary was inspected and is **not** reused — see §15.3 | Product · Finance · Engineering | **`OWNER APPROVED`** |
 | [D-HB02-07](#d-hb02-07) | `actual_booked_at` type | **`DATE`.** It is a business fact about a day, and `DATE` inherits the timezone-free property of the stay dates | Engineering | **`OWNER APPROVED`** |
 | [D-HB02-08](#d-hb02-08) | `actual_booked_at <= check_in_date`? | **Yes, enforced as `400 VALIDATION_ERROR`** with a message naming both dates. Revisited only if Operations produces a real counter-example | Product | **`OWNER APPROVED`** |
@@ -669,7 +669,8 @@ Plus one required header:
 | `clientId` supplied and unknown | `404` | `CLIENT_NOT_FOUND` | Nothing is created |
 | `clientId` supplied and valid | `200` | — | The existing client is reused; **no** client row is created |
 | `newClient` with a phone not already held | `200` | — | One client is created inside the command's transaction |
-| `newClient` whose **normalised phone already belongs to an existing client** | `409` | `CLIENT_PHONE_ALREADY_EXISTS` | **No duplicate is created. The client is not silently reused and not merged.** `existingClientId` is returned in safe internal error metadata, and the caller must retry with that `clientId` |
+| `newClient` whose **normalised phone belongs to an active, non-deleted client** | `409` | `CLIENT_PHONE_ALREADY_EXISTS` | **No duplicate is created. The client is not silently reused and not merged.** Only `existingClientId` is returned in safe internal error metadata, and the caller may retry with that `clientId` |
+| `newClient` whose **normalised phone belongs only to an inactive or soft-deleted client** | `409` | `CLIENT_PHONE_REQUIRES_REVIEW` | Only `existingClientId` is returned. Administrative review/reactivation is required; the caller is not instructed to retry directly, and the unavailable client is not reused, merged, reactivated, restored, or modified |
 
 Phone normalisation and validation are **the existing repository behaviour, reused rather than reimplemented**
 (E-24): validate against `^\+?\d{10,15}$`, compare identity with the leading `+` stripped. HB-02 introduces
@@ -792,8 +793,10 @@ needs no `403` with a body and adds no middleware branch.**
 | `VALIDATION_ERROR` | `400` | `BusinessValidationException` | DTO shape, length, range or reason-allow-list failure; `actualBookedAt` in the future or after `checkInDate` (D-HB02-08) |
 | `CLIENT_REFERENCE_INVALID` | `400` | `BusinessValidationException` | Both or neither of `clientId` / `newClient` |
 | `CLIENT_NOT_FOUND` | `404` | `NotFoundException` | `clientId` does not resolve |
-| `CLIENT_PHONE_ALREADY_EXISTS` | `409` | `ConflictException` | `newClient` phone already belongs to a client; carries `existingClientId` |
+| `CLIENT_PHONE_ALREADY_EXISTS` | `409` | `ConflictException` | `newClient` phone belongs to an active, non-deleted client; carries only `existingClientId` and permits explicit retry with that id |
+| `CLIENT_PHONE_REQUIRES_REVIEW` | `409` | `ConflictException` | `newClient` phone belongs to an inactive or soft-deleted client; carries only `existingClientId` and requires administrative review/reactivation |
 | `UNIT_NOT_FOUND` | `404` | `NotFoundException` | `unitId` does not resolve |
+| `UNIT_DELETED_UNSUPPORTED` | `400` | `BusinessValidationException` | `unitId` resolves only to a soft-deleted unit; inactive non-deleted units remain permitted on this historical path |
 | `ADMIN_USER_NOT_FOUND` | `404` | `NotFoundException` | `assignedAdminUserId` supplied but not an active admin |
 | `HISTORICAL_CHECKOUT_NOT_COMPLETED` | `400` | `BusinessValidationException` | `checkOutDate > cairoToday − 1` (D-CAL-01) — includes a stay ending today, a future stay, and an in-progress stay |
 | `ORIGINAL_SOURCE_INVALID` | `400` | `BusinessValidationException` | `originalSource` is unknown **or** is a known code whose row is `is_active = false` (D-HB02-06) |
@@ -802,6 +805,7 @@ needs no `403` with a body and adds no middleware branch.**
 | `IDEMPOTENCY_REQUEST_IN_PROGRESS` | `409` | `ConflictException` | A claim for this key exists but never completed; deterministic refusal, never a second booking (§19) |
 | `OWNER_ATTRIBUTION_REQUIRES_REVIEW` | `409` | `ConflictException` | Current unit ownership is absent, multiple, ambiguous, or requires historical correction (D-HB02-OWN) |
 | `EXTERNAL_REFERENCE_ALREADY_EXISTS` | `409` | `ConflictException` | `externalReference` collides with the partial unique index; translated, never surfaced as a 500 |
+| `HISTORICAL_OVERLAP_CONFLICT` | `409` | `ConflictException` | Existing date-block or existing holding-status overlap is reached through the shared booking service; HB-03 still owns expansion to the complete historical conflict set |
 
 Two `403`s exist on this route and neither carries a code, because neither is produced by an exception:
 
@@ -817,9 +821,7 @@ and so no ticket invents a second name for the same condition.
 
 | Code | Status | Owner | Condition |
 |---|---|---|---|
-| `HISTORICAL_OVERLAP_CONFLICT` | `409` | [HB-03](03_TICKET_AVAILABILITY_CONFLICTS_AND_DUPLICATE_PROTECTION.md) | Overlap including `Completed` / `LeftEarly` |
 | `HISTORICAL_DUPLICATE_BOOKING` | `409` | HB-03 | Exact or acknowledged-probable duplicate |
-| `UNIT_DELETED_UNSUPPORTED` | `400` | HB-03 | Unit is soft-deleted |
 | `OWNER_OVERRIDE_FORBIDDEN` | `403` | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) | Override requested without `bookings:override_owner`. **HB-05 introduces the exception type and the middleware branch that produce it** (§10.2) |
 | `STAY_DATES_IN_PAST` | `400` | [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) | Past stay dates on the **normal** endpoint, once REQ-16 hardening is activated |
 
@@ -1001,13 +1003,13 @@ V-H-08 onward runs inside the transaction and under the advisory lock.
 | V-H-05 | `checkOutDate <= cairoToday − 1`, with `cairoToday` from `IBusinessClock` | `HistoricalBookingService` | 400 `HISTORICAL_CHECKOUT_NOT_COMPLETED` | V-01 |
 | V-H-06 | `actualBookedAt` not in the future and `<= checkInDate` | `HistoricalBookingService` (D-HB02-08) | 400 `VALIDATION_ERROR` | — |
 | V-H-07 | Idempotency key claimed; replay returns the original, hash mismatch refused | Service, first statement inside the lock | 200 replay / 409 `IDEMPOTENCY_KEY_REUSED` / 409 `IDEMPOTENCY_REQUEST_IN_PROGRESS` | V-13 |
-| V-H-08 | Unit resolves; soft-deleted rejected; inactive permitted | Service (HB-03) | 404 `UNIT_NOT_FOUND` / 400 `UNIT_DELETED_UNSUPPORTED` | V-03, V-04 |
+| V-H-08 | Unit resolves; soft-deleted rejected; inactive permitted | Historical service + explicit shared-booking option (HB-02); HB-03 preserves the rule while expanding conflict checks | 404 `UNIT_NOT_FOUND` / 400 `UNIT_DELETED_UNSUPPORTED` | V-03, V-04 |
 | V-H-09 | `guestCount > 0` and `<= unit.MaxGuests` | Validator + `BookingService.cs:184-186` | 400 | V-05 |
-| V-H-10 | No overlap against the historical conflict set | Service (HB-03) | 409 `HISTORICAL_OVERLAP_CONFLICT` | V-06 |
-| V-H-11 | No date-block conflict | Service (HB-03) | 409 | V-07 |
+| V-H-10 | No overlap against the currently shared holding-status set; HB-03 expands this to the full historical conflict set | Shared booking service (HB-02 transport; HB-03 rule expansion) | 409 `HISTORICAL_OVERLAP_CONFLICT` | V-06 |
+| V-H-11 | No date-block conflict | Shared booking service (HB-02) | 409 `HISTORICAL_OVERLAP_CONFLICT` | V-07 |
 | V-H-12 | Not an exact duplicate; probable duplicate acknowledged | Service (HB-03) | 409 `HISTORICAL_DUPLICATE_BOOKING` | V-08, V-09 |
 | V-H-13 | `externalReference` unique when present | Service + partial unique index | 409 `EXTERNAL_REFERENCE_ALREADY_EXISTS` | V-18 |
-| V-H-14 | Client resolves, or `newClient` is creatable | Service (D-HB02-05) | 404 `CLIENT_NOT_FOUND` / 409 `CLIENT_PHONE_ALREADY_EXISTS` | V-20 |
+| V-H-14 | Client resolves, or `newClient` is creatable | Service (D-HB02-05) | 404 `CLIENT_NOT_FOUND` / 409 `CLIENT_PHONE_ALREADY_EXISTS` / 409 `CLIENT_PHONE_REQUIRES_REVIEW` | V-20 |
 | V-H-15 | `assignedAdminUserId`, if supplied, is an active admin | `BookingService.cs:167-173` | 404 `ADMIN_USER_NOT_FOUND` | — |
 | V-H-16 | `originalSource` is a **known and active** code in `booking_original_sources` | Service + FK (D-HB02-06) | 400 `ORIGINAL_SOURCE_INVALID` | V-17 |
 | V-H-17 | Current unit owner resolves to exactly one valid owner | Service (D-HB02-OWN) | 409 `OWNER_ATTRIBUTION_REQUIRES_REVIEW` | V-10, V-11, V-12 |
@@ -1269,7 +1271,7 @@ Ordered so that each step is independently reviewable and leaves the build green
 | AC-HB02-14 | **Given** a forced failure after the booking insert, **when** the command aborts, **then** zero rows exist in `bookings`, `booking_status_history` **and `idempotency_keys`** for that request, leaving the key free for a clean retry. |
 | AC-HB02-15 | **Given** a successful creation, **then** the `notifications` table gains no row attributable to it and no invoice row is created ([D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy)). |
 | AC-HB02-16 | **Given** a historical booking exists, **when** `AutoCompleteBookingsJob` runs, **then** the booking is not selected and no additional history row appears. |
-| AC-HB02-17 | **Given** `newClient` whose normalised phone already belongs to a client, **when** submitted, **then** `409 CLIENT_PHONE_ALREADY_EXISTS` is returned carrying `existingClientId`, no new client is created, **and the existing client is neither reused nor merged** — no booking exists after the call. |
+| AC-HB02-17 | **Given** `newClient` whose normalised phone belongs to an active, non-deleted client, **when** submitted, **then** `409 CLIENT_PHONE_ALREADY_EXISTS` is returned carrying only `existingClientId`, no new client is created, **and the existing client is neither reused nor merged** — an explicit retry with that `clientId` may proceed. Given an inactive or soft-deleted holder, `409 CLIENT_PHONE_REQUIRES_REVIEW` carries only `existingClientId`, creates no booking or client, performs no mutation, and requires administrative review/reactivation rather than direct retry. |
 | AC-HB02-18 | **Given** a valid `clientId`, **when** submitted, **then** the existing client is reused and no client row is created. |
 | AC-HB02-19 | **Given** two concurrent requests for the same unit and overlapping dates, **when** both run, **then** exactly one succeeds and the other receives a `409`. |
 | AC-HB02-20 | **Given** a request carrying an `externalReference` already used by another historical booking, **when** submitted, **then** `409` is returned rather than a 500. |
@@ -1329,7 +1331,7 @@ Ordered so that each step is independently reviewable and leaves the build green
 | NAC-HB02-28 | HB-02 creates an invoice, payment, payment evidence, fee, tax, discount, payout, or an extended immutable financial snapshot. |
 | NAC-HB02-29 | A currency column, currency field or currency conversion is introduced. |
 | NAC-HB02-30 | A duplicate client is created, or an existing client is silently reused or merged, when a `newClient` phone already exists. |
-| NAC-HB02-31 | Guest name, phone or email is returned in the `CLIENT_PHONE_ALREADY_EXISTS` error payload. |
+| NAC-HB02-31 | Guest name, phone, email, status or deletion details are returned in a client-phone conflict payload; both client-phone codes may expose only `existingClientId`. |
 | NAC-HB02-32 | The historical endpoint accepts a request without a valid `Idempotency-Key`. |
 | NAC-HB02-33 | A replayed key creates a second booking, or is silently re-pointed at a different booking. |
 | NAC-HB02-34 | Idempotency storage is described or implemented as optional, deferred, advisory, or owned by HB-03. |
@@ -1352,7 +1354,7 @@ Ordered so that each step is independently reviewable and leaves the build green
 | **Unit** | Command construction ignores any attempt to set `CreatedAt`, `BookingStatus`, `OwnerId` |
 | **Service** | Happy path writes booking + one history row with the exact field values in §11.3 |
 | **Service** | Every rejection branch in §14.4 returns the right exception type |
-| **Service** | Client resolution: both/neither → `400 CLIENT_REFERENCE_INVALID`; unknown id → `404 CLIENT_NOT_FOUND`; valid id reused with no insert; duplicate phone → `409 CLIENT_PHONE_ALREADY_EXISTS` carrying the existing id and creating nothing |
+| **Service** | Client resolution: both/neither → `400 CLIENT_REFERENCE_INVALID`; unknown id → `404 CLIENT_NOT_FOUND`; valid id reused with no insert; selectable duplicate phone → `409 CLIENT_PHONE_ALREADY_EXISTS`; inactive/deleted duplicate phone → `409 CLIENT_PHONE_REQUIRES_REVIEW`; both carry only the existing id and create nothing |
 | **Service** | Owner resolution: single owner attributed; absent/ambiguous → `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` |
 | **Service** | `agreedAmount` persisted verbatim against a differently-priced unit; zero accepted; negative rejected |
 | **Service** | `original_source`: active accepted, inactive rejected, unknown rejected, existing rows referencing an inactive code still readable |

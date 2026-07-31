@@ -73,7 +73,9 @@ public class ExceptionHandlingMiddleware
 
         context.Response.StatusCode = statusCode;
 
-        var response = ApiResponse.CreateFailure(message, errors);
+        var code = (exception as IBusinessErrorCode)?.Code;
+        var metadata = (exception as IBusinessErrorMetadata)?.Metadata;
+        var response = ApiResponse.CreateFailure(message, errors, code, metadata);
         
         var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         return context.Response.WriteAsync(JsonSerializer.Serialize(response, options));
