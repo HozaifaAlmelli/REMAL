@@ -19,6 +19,7 @@ public static class PermissionKeys
     public const string FinanceOverview = "finance:overview";
     public const string FinanceManage = "finance:manage";
     public const string FinancePayouts = "finance:payouts";
+    public const string PaymentsRecordHistorical = "payments:record_historical";
     public const string UnitsRead = "units:read";
     public const string UnitsManage = "units:manage";
     public const string OwnersRead = "owners:read";
@@ -45,6 +46,7 @@ public static class PermissionKeys
             new(FinanceOverview, "Finance", "View finance overview", "View finance summaries and dashboard metrics."),
             new(FinanceManage, "Finance", "Manage transactions", "Manage invoices and payment records."),
             new(FinancePayouts, "Finance", "Manage payouts", "Create and process owner payouts."),
+            new(PaymentsRecordHistorical, "Finance", "Record historical payments", "Record immutable evidence for payments received outside the platform."),
             new(UnitsRead, "Inventory", "View units", "View units, pricing, amenities, and availability blocks."),
             new(UnitsManage, "Inventory", "Manage units", "Manage units, images, pricing, amenities, and date blocks."),
             new(OwnersRead, "People", "View owners", "View owner profiles and related units."),

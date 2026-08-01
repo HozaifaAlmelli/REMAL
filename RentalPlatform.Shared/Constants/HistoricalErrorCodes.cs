@@ -21,6 +21,19 @@ public static class HistoricalErrorCodes
     public const string HistoricalDuplicateBooking = "HISTORICAL_DUPLICATE_BOOKING";
     public const string HistoricalFinancialSnapshotImmutable =
         "HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE";
+    public const string HistoricalPaymentIdempotencyKeyRequired = "HISTORICAL_PAYMENT_IDEMPOTENCY_KEY_REQUIRED";
+    public const string HistoricalPaymentIdempotencyKeyReused = "HISTORICAL_PAYMENT_IDEMPOTENCY_KEY_REUSED";
+    public const string HistoricalPaymentRequestInProgress = "HISTORICAL_PAYMENT_REQUEST_IN_PROGRESS";
+    public const string HistoricalPaymentBookingNotFound = "HISTORICAL_PAYMENT_BOOKING_NOT_FOUND";
+    public const string HistoricalPaymentBookingRequired = "HISTORICAL_PAYMENT_BOOKING_REQUIRED";
+    public const string HistoricalPaymentSnapshotRequired = "HISTORICAL_PAYMENT_SNAPSHOT_REQUIRED";
+    public const string HistoricalPaymentAmountInvalid = "HISTORICAL_PAYMENT_AMOUNT_INVALID";
+    public const string HistoricalPaymentMethodInvalid = "HISTORICAL_PAYMENT_METHOD_INVALID";
+    public const string HistoricalPaymentReasonRequired = "HISTORICAL_PAYMENT_REASON_REQUIRED";
+    public const string HistoricalPaymentExceedsAgreedAmount = "HISTORICAL_PAYMENT_EXCEEDS_AGREED_AMOUNT";
+    public const string HistoricalPaymentReferenceAlreadyExists = "HISTORICAL_PAYMENT_REFERENCE_ALREADY_EXISTS";
+    public const string HistoricalPaymentImmutable = "HISTORICAL_PAYMENT_IMMUTABLE";
+    public const string HistoricalPaymentLiveCollectionForbidden = "HISTORICAL_PAYMENT_LIVE_COLLECTION_FORBIDDEN";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -41,6 +54,19 @@ public static class HistoricalErrorCodes
         ExternalReferenceAlreadyExists,
         HistoricalOverlapConflict,
         HistoricalDuplicateBooking,
-        HistoricalFinancialSnapshotImmutable
+        HistoricalFinancialSnapshotImmutable,
+        HistoricalPaymentIdempotencyKeyRequired,
+        HistoricalPaymentIdempotencyKeyReused,
+        HistoricalPaymentRequestInProgress,
+        HistoricalPaymentBookingNotFound,
+        HistoricalPaymentBookingRequired,
+        HistoricalPaymentSnapshotRequired,
+        HistoricalPaymentAmountInvalid,
+        HistoricalPaymentMethodInvalid,
+        HistoricalPaymentReasonRequired,
+        HistoricalPaymentExceedsAgreedAmount,
+        HistoricalPaymentReferenceAlreadyExists,
+        HistoricalPaymentImmutable,
+        HistoricalPaymentLiveCollectionForbidden
     };
 }

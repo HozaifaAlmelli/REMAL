@@ -37,6 +37,18 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
             .HasColumnType("decimal(12,2)")
             .IsRequired();
 
+        builder.Property(p => p.IsHistoricalRecord)
+            .HasColumnName("is_historical_record")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(p => p.CreatedByAdminUserId)
+            .HasColumnName("created_by_admin_user_id");
+
+        builder.Property(p => p.RecordedReason)
+            .HasColumnName("recorded_reason")
+            .HasMaxLength(500);
+
         builder.Property(p => p.ReferenceNumber)
             .HasColumnName("reference_number")
             .HasMaxLength(100);
@@ -65,5 +77,11 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
             .WithMany(i => i.Payments)
             .HasForeignKey(p => p.InvoiceId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(p => p.CreatedByAdminUser)
+            .WithMany()
+            .HasForeignKey(p => p.CreatedByAdminUserId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_payments_created_by_admin_user_id");
     }
 }

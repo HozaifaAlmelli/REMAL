@@ -32,6 +32,7 @@ public class AppDbContext : DbContext
     public DbSet<BookingStatusHistory> BookingStatusHistories { get; set; } = null!;
     public DbSet<BookingOriginalSource> BookingOriginalSources { get; set; } = null!;
     public DbSet<IdempotencyKey> IdempotencyKeys { get; set; } = null!;
+    public DbSet<HistoricalPaymentIdempotencyKey> HistoricalPaymentIdempotencyKeys { get; set; } = null!;
     public DbSet<CrmLead> CrmLeads { get; set; } = null!;
     public DbSet<CrmNote> CrmNotes { get; set; } = null!;
     public DbSet<CrmAssignment> CrmAssignments { get; set; } = null!;
@@ -73,6 +74,7 @@ public class AppDbContext : DbContext
     public override int SaveChanges()
     {
         EnforceHistoricalFinancialSnapshotImmutability();
+        EnforceHistoricalPaymentImmutability();
         ApplyTimestampsAndSoftDelete();
         return base.SaveChanges();
     }
@@ -80,6 +82,7 @@ public class AppDbContext : DbContext
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         await EnforceHistoricalFinancialSnapshotImmutabilityAsync(cancellationToken);
+        await EnforceHistoricalPaymentImmutabilityAsync(cancellationToken);
         ApplyTimestampsAndSoftDelete();
         return await base.SaveChangesAsync(cancellationToken);
     }
@@ -126,6 +129,36 @@ public class AppDbContext : DbContext
         {
             throw new HistoricalFinancialSnapshotImmutableException();
         }
+    }
+
+    private void EnforceHistoricalPaymentImmutability()
+    {
+        foreach (var entry in ChangedPaymentEntries())
+        {
+            var databaseValues = entry.GetDatabaseValues();
+            EnsureHistoricalPaymentUnchanged(entry, databaseValues);
+        }
+    }
+
+    private async Task EnforceHistoricalPaymentImmutabilityAsync(CancellationToken cancellationToken)
+    {
+        foreach (var entry in ChangedPaymentEntries())
+        {
+            var databaseValues = await entry.GetDatabaseValuesAsync(cancellationToken);
+            EnsureHistoricalPaymentUnchanged(entry, databaseValues);
+        }
+    }
+
+    private IEnumerable<EntityEntry<Payment>> ChangedPaymentEntries() =>
+        ChangeTracker.Entries<Payment>()
+            .Where(entry => entry.State is EntityState.Modified or EntityState.Deleted);
+
+    private static void EnsureHistoricalPaymentUnchanged(
+        EntityEntry<Payment> entry,
+        PropertyValues? databaseValues)
+    {
+        if (databaseValues?.GetValue<bool>(nameof(Payment.IsHistoricalRecord)) == true)
+            throw new HistoricalPaymentImmutableException();
     }
 
     private void ApplyTimestampsAndSoftDelete()
