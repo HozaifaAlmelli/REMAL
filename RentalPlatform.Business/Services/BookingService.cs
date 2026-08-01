@@ -434,6 +434,13 @@ public class BookingService : IBookingService
         if (booking == null)
             throw new NotFoundException($"Booking with ID {id} not found");
 
+        if (booking.IsHistorical)
+        {
+            throw new ConflictException(
+                "Historical booking financial snapshots cannot be recalculated or replaced.",
+                HistoricalErrorCodes.HistoricalFinancialSnapshotImmutable);
+        }
+
         if (booking.BookingStatus != BookingStatus.Prospecting && booking.BookingStatus != BookingStatus.Relevant)
             throw new ConflictException(
                 $"Booking {id} cannot be updated because its status is '{booking.BookingStatus}'. Only prospecting or relevant bookings can be updated.");

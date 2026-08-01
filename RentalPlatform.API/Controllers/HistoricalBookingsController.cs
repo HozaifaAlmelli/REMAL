@@ -107,7 +107,7 @@ public sealed class HistoricalBookingsController : ControllerBase
             OriginalSource = booking.OriginalSource,
             OriginalSourceLabel = result.OriginalSourceLabel,
             ExternalReference = booking.ExternalReference,
-            AgreedAmount = booking.FinalAmount,
+            AgreedAmount = booking.AgreedAmount,
             RecordedAt = booking.CreatedAt,
             RecordedByAdminUserId = result.RecordedByAdminUserId,
             IdempotencyKey = result.IdempotencyKey,
