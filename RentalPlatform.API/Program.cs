@@ -77,17 +77,8 @@ builder.Services.AddControllers(options =>
     })
     .ConfigureApiBehaviorOptions(options =>
     {
-        options.InvalidModelStateResponseFactory = context =>
-        {
-            var errors = context.ModelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage)
-                .Where(e => !string.IsNullOrEmpty(e))
-                .ToArray();
-
-            var response = RentalPlatform.API.Models.ApiResponse.CreateFailure("Validation failed", errors);
-            return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(response);
-        };
+        options.InvalidModelStateResponseFactory =
+            RentalPlatform.API.Models.ApiValidationResponseFactory.Create;
     })
     .AddJsonOptions(options =>
     {
@@ -285,6 +276,7 @@ builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IHistoricalIdempotencyStore, HistoricalIdempotencyStore>();
 builder.Services.AddScoped<IHistoricalConflictService, HistoricalConflictService>();
 builder.Services.AddScoped<IHistoricalBookingService, HistoricalBookingService>();
+builder.Services.AddScoped<IHistoricalPaymentService, HistoricalPaymentService>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<IBusinessClock, CairoBusinessClock>();
 builder.Services.AddScoped<IGuestBookingService, GuestBookingService>();

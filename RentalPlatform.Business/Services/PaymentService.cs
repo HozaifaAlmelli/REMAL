@@ -91,6 +91,13 @@ public class PaymentService : IPaymentService
         if (booking == null)
             throw new NotFoundException($"Booking with ID {bookingId} not found");
 
+        if (booking.IsHistorical)
+        {
+            throw new ConflictException(
+                "Historical bookings cannot use the live payment-recording path.",
+                HistoricalErrorCodes.HistoricalPaymentLiveCollectionForbidden);
+        }
+
         if (!BookingStatusTransitions.IsFinanceEligible(booking.BookingStatus))
             throw new ConflictException(
                 $"Cannot record a payment for booking {bookingId}: its status is '{booking.BookingStatus}'. " +
@@ -372,6 +379,12 @@ public class PaymentService : IPaymentService
         var payment = await _unitOfWork.Payments.GetByIdAsync(id, cancellationToken);
         if (payment == null)
             throw new NotFoundException($"Payment with ID {id} not found");
+        if (payment.IsHistoricalRecord)
+        {
+            throw new ConflictException(
+                "Historical payment evidence is immutable.",
+                HistoricalErrorCodes.HistoricalPaymentImmutable);
+        }
         return payment;
     }
 
@@ -384,7 +397,7 @@ public class PaymentService : IPaymentService
     {
         // Find all paid payments that have no invoice_id
         var orphanedPaidPayments = await _unitOfWork.Payments.Query()
-            .Where(p => p.PaymentStatus == "paid" && p.InvoiceId == null)
+            .Where(p => p.PaymentStatus == "paid" && p.InvoiceId == null && !p.IsHistoricalRecord)
             .ToListAsync(cancellationToken);
 
         int linkedCount = 0;

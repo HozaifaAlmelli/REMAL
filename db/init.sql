@@ -183,4 +183,7 @@
 \echo '=== Running migration 0060: add historical financial snapshot ==='
 \i /docker-entrypoint-initdb.d/migrations/0060_add_historical_financial_snapshot.sql
 
+\echo '=== Running migration 0061: add historical payment recording ==='
+\i /docker-entrypoint-initdb.d/migrations/0061_add_historical_payment_recording.sql
+
 \echo '=== All migrations completed successfully ==='

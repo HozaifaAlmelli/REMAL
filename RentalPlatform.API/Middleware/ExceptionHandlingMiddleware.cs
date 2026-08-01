@@ -61,6 +61,11 @@ public class ExceptionHandlingMiddleware
                 message = snapshotEx.Message;
                 break;
 
+            case HistoricalPaymentImmutableException paymentEx:
+                statusCode = (int)HttpStatusCode.Conflict;
+                message = paymentEx.Message;
+                break;
+
             case NotFoundException notFoundEx:
                 statusCode = (int)HttpStatusCode.NotFound; // 404
                 message = notFoundEx.Message;
@@ -80,7 +85,8 @@ public class ExceptionHandlingMiddleware
         context.Response.StatusCode = statusCode;
 
         var code = (exception as IBusinessErrorCode)?.Code
-            ?? (exception as HistoricalFinancialSnapshotImmutableException)?.Code;
+            ?? (exception as HistoricalFinancialSnapshotImmutableException)?.Code
+            ?? (exception as HistoricalPaymentImmutableException)?.Code;
         var metadata = (exception as IBusinessErrorMetadata)?.Metadata;
         var response = ApiResponse.CreateFailure(message, errors, code, metadata);
         

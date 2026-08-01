@@ -27,6 +27,7 @@ public interface IUnitOfWork
     IRepository<BookingStatusHistory> BookingStatusHistories { get; }
     IRepository<BookingOriginalSource> BookingOriginalSources { get; }
     IRepository<IdempotencyKey> IdempotencyKeys { get; }
+    IRepository<HistoricalPaymentIdempotencyKey> HistoricalPaymentIdempotencyKeys { get; }
     IRepository<CrmLead> CrmLeads { get; }
     IRepository<CrmNote> CrmNotes { get; }
     IRepository<CrmAssignment> CrmAssignments { get; }

@@ -1656,6 +1656,12 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 
 ## Group 7 — Payments (`SC-PAY-nn`)
 
+**HB-04B binding interpretation (PAY-01 through PAY-14):** every payment step in this group invokes
+`POST /api/internal/bookings/{bookingId:guid}/historical-payments` after historical booking creation. Each call
+records exactly one immutable evidence row and requires `payments:record_historical` plus `Idempotency-Key`.
+References to payment being inline with `H-CREATE` are superseded. Payment-command rollback never removes the
+already-created booking; it removes only that command's payment, audit event and idempotency claim.
+
 #### SC-PAY-01 — No payment recorded
 
 | | |
@@ -1743,18 +1749,18 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Priority · Category · Automate** | P1 · Payments · YES (xUnit) |
 | **Traceability** | REQ-06 · HB-04 |
 | **Preconditions** | Clean windows |
-| **Test data** | One booking each for `cash`, `bank_transfer`, `wallet`; then one attempting `card` |
-| **Steps** | 1. `H-CREATE` for each method. |
-| **Expected — UI** | Only manual methods offered; `card` absent |
-| **Expected — API** | `200` for the three manual methods; `400` for `card` |
-| **Expected — DB** | Three payments; `ck_payments_method` satisfied |
+| **Test data** | One historical booking and one command for each of `cash`, `bank_transfer`, `card`, `wallet` |
+| **Steps** | 1. Create the historical booking. 2. Call the PAY-01 endpoint once for each method with a unique key. |
+| **Expected — UI** | Out of scope for HB-04B |
+| **Expected — API** | `200` for all four canonical methods |
+| **Expected — DB** | Four immutable historical-evidence payments; `ck_payments_method` satisfied |
 | **Expected — Audit** | Each recorded |
 | **Expected — Financial** | Correct balances |
 | **Expected — Owner** | Unchanged |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Method breakdown correct |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | `card` implies a gateway that does not exist in the codebase; offering it would be dishonest |
+| **Diagnostics** | `card` records evidence of an external payment; PAY-12 proves that no gateway or live collection path runs |
 
 #### SC-PAY-06 — Future `PaidAt` rejected
 
