@@ -10,7 +10,7 @@
 | Status | **OWNER APPROVED — READY** |
 | Depends on | HB-02, HB-03, HB-04A and HB-04B |
 | Branch | `feature/historical-booking-owner-attribution` |
-| Migration ownership | HB-05 correction audit and correction-command idempotency objects only; no migration number is reserved |
+| Migration ownership | `0062_add_historical_owner_attribution_corrections`; HB-05 correction audit and correction-command idempotency objects only |
 | Decision authority | Sole Project Owner |
 
 This document is the final HB-05 contract. It replaces the earlier design that placed owner overrides inside
@@ -185,7 +185,7 @@ OWNER_CORRECTION_AUDIT_IMMUTABLE`.
 
 ## 11. Migration ownership and legacy policy
 
-HB-05 owns, without reserving a migration number:
+HB-05 implements its owned objects in migration `0062_add_historical_owner_attribution_corrections`:
 
 1. `historical_owner_attribution_corrections`, its PK, FKs, immutable-chain indexes and coherence checks.
 2. A dedicated `historical_owner_correction_idempotency_keys` table, actor/endpoint/key uniqueness, request

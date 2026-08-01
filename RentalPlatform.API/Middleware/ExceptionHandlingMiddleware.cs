@@ -66,6 +66,11 @@ public class ExceptionHandlingMiddleware
                 message = paymentEx.Message;
                 break;
 
+            case HistoricalOwnerCorrectionAuditImmutableException ownerCorrectionEx:
+                statusCode = (int)HttpStatusCode.Conflict;
+                message = ownerCorrectionEx.Message;
+                break;
+
             case NotFoundException notFoundEx:
                 statusCode = (int)HttpStatusCode.NotFound; // 404
                 message = notFoundEx.Message;
@@ -86,7 +91,8 @@ public class ExceptionHandlingMiddleware
 
         var code = (exception as IBusinessErrorCode)?.Code
             ?? (exception as HistoricalFinancialSnapshotImmutableException)?.Code
-            ?? (exception as HistoricalPaymentImmutableException)?.Code;
+            ?? (exception as HistoricalPaymentImmutableException)?.Code
+            ?? (exception as HistoricalOwnerCorrectionAuditImmutableException)?.Code;
         var metadata = (exception as IBusinessErrorMetadata)?.Metadata;
         var response = ApiResponse.CreateFailure(message, errors, code, metadata);
         

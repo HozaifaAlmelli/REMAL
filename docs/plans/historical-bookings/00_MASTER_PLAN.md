@@ -1298,7 +1298,7 @@ This matrix is the authoritative readiness view after the 2026-08-01 contract-cl
 
 | Ticket | Endpoint contract | Permission contract | Request/response contract | Error registry | Idempotency | Concurrency | Migration ownership | Legacy-data policy | AC/NAC | Remaining blockers | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| HB-05 | Final | Final | Final | Final | Dedicated store final | Booking correction lock final | Correction audit/idempotency/permission only; no number reserved | Guarded preflight; owner-reviewed remediation | Complete | None | **READY** |
+| HB-05 | Final | Final | Final | Final | Dedicated store final | Booking correction lock final | Correction audit/idempotency/permission only; implemented by migration `0062` | Guarded preflight; owner-reviewed remediation | Complete | None | **READY** |
 | HB-06 | Uses final HB-02/HB-04B/HB-05 routes | Existing permissions final | Two-phase UX final | Consumes canonical codes | Separate booking/payment keys | UI prevents duplicate submit; server authoritative | None | Not applicable | Complete | HB-05 implementation | **BLOCKED BY DEPENDENCY** |
 | HB-07 | No new endpoint | No new permission | No automatic dispatch contract final | No new code | Not applicable | Not applicable | None | Not applicable | Complete | None | **READY** |
 | HB-08 | Three report routes final; hardening separate | Existing analytics policy | Filters/responses final | `STAY_DATES_IN_PAST` final | Read-only | Report consistency and rollout sequencing final | Views only; no number reserved | PRE-00 gates rollout | Complete | HB-05 implementation; PRE-00 and pilot gates | **BLOCKED BY DEPENDENCY** |

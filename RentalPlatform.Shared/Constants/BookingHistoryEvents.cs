@@ -12,6 +12,12 @@ public static class BookingHistoryEvents
 
     public const string HistoricalPaymentRecorded = "HistoricalPaymentRecorded";
 
+    public const string HistoricalOwnerAttributionCorrected =
+        "HistoricalOwnerAttributionCorrected";
+
     public static string HistoricalPaymentRecordedFor(Guid paymentId) =>
         $"{HistoricalPaymentRecorded}:{paymentId:D}";
+
+    public static string HistoricalOwnerAttributionCorrectedFor(Guid correctionId) =>
+        $"{HistoricalOwnerAttributionCorrected}:{correctionId:D}";
 }

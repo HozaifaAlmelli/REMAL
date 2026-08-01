@@ -61,6 +61,24 @@ public class OwnerPayoutService : IOwnerPayoutService
         string? notes,
         CancellationToken cancellationToken = default)
     {
+        return await ExecuteWithBookingLockAsync(
+            bookingId,
+            () => CreateOrUpdateFromBookingCoreAsync(
+                bookingId,
+                commissionRate,
+                proofOfPaymentUrl,
+                notes,
+                cancellationToken),
+            cancellationToken);
+    }
+
+    private async Task<OwnerPayout> CreateOrUpdateFromBookingCoreAsync(
+        Guid bookingId,
+        decimal commissionRate,
+        string? proofOfPaymentUrl,
+        string? notes,
+        CancellationToken cancellationToken)
+    {
         var booking = await _unitOfWork.Bookings.GetByIdAsync(bookingId, cancellationToken);
         if (booking == null)
             throw new NotFoundException($"Booking with ID {bookingId} not found");
@@ -131,6 +149,18 @@ public class OwnerPayoutService : IOwnerPayoutService
         string? notes,
         CancellationToken cancellationToken = default)
     {
+        var bookingId = await GetPayoutBookingIdOrThrowAsync(payoutId, cancellationToken);
+        return await ExecuteWithBookingLockAsync(
+            bookingId,
+            () => SetScheduledCoreAsync(payoutId, notes, cancellationToken),
+            cancellationToken);
+    }
+
+    private async Task<OwnerPayout> SetScheduledCoreAsync(
+        Guid payoutId,
+        string? notes,
+        CancellationToken cancellationToken)
+    {
         var payout = await GetPayoutOrThrowAsync(payoutId, cancellationToken);
 
         if (payout.PayoutStatus != OwnerPayoutStatus.Pending)
@@ -156,6 +186,19 @@ public class OwnerPayoutService : IOwnerPayoutService
         string? proofOfPaymentUrl,
         string? notes,
         CancellationToken cancellationToken = default)
+    {
+        var bookingId = await GetPayoutBookingIdOrThrowAsync(payoutId, cancellationToken);
+        return await ExecuteWithBookingLockAsync(
+            bookingId,
+            () => MarkPaidCoreAsync(payoutId, proofOfPaymentUrl, notes, cancellationToken),
+            cancellationToken);
+    }
+
+    private async Task<OwnerPayout> MarkPaidCoreAsync(
+        Guid payoutId,
+        string? proofOfPaymentUrl,
+        string? notes,
+        CancellationToken cancellationToken)
     {
         var payout = await GetPayoutOrThrowAsync(payoutId, cancellationToken);
 
@@ -185,6 +228,18 @@ public class OwnerPayoutService : IOwnerPayoutService
         Guid payoutId,
         string? notes,
         CancellationToken cancellationToken = default)
+    {
+        var bookingId = await GetPayoutBookingIdOrThrowAsync(payoutId, cancellationToken);
+        return await ExecuteWithBookingLockAsync(
+            bookingId,
+            () => CancelCoreAsync(payoutId, notes, cancellationToken),
+            cancellationToken);
+    }
+
+    private async Task<OwnerPayout> CancelCoreAsync(
+        Guid payoutId,
+        string? notes,
+        CancellationToken cancellationToken)
     {
         var payout = await GetPayoutOrThrowAsync(payoutId, cancellationToken);
 
@@ -217,5 +272,48 @@ public class OwnerPayoutService : IOwnerPayoutService
         if (payout == null)
             throw new NotFoundException($"Owner payout with ID {id} not found");
         return payout;
+    }
+
+    private async Task<Guid> GetPayoutBookingIdOrThrowAsync(
+        Guid payoutId,
+        CancellationToken cancellationToken)
+    {
+        var bookingId = await _unitOfWork.OwnerPayouts.Query()
+            .AsNoTracking()
+            .Where(payout => payout.Id == payoutId)
+            .Select(payout => (Guid?)payout.BookingId)
+            .SingleOrDefaultAsync(cancellationToken);
+        return bookingId
+            ?? throw new NotFoundException($"Owner payout with ID {payoutId} not found");
+    }
+
+    private async Task<OwnerPayout> ExecuteWithBookingLockAsync(
+        Guid bookingId,
+        Func<Task<OwnerPayout>> operation,
+        CancellationToken cancellationToken)
+    {
+        if (_unitOfWork.HasActiveTransaction)
+        {
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                HistoricalOwnerCorrectionLocks.ForBooking(bookingId),
+                cancellationToken);
+            return await operation();
+        }
+
+        await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                HistoricalOwnerCorrectionLocks.ForBooking(bookingId),
+                cancellationToken);
+            var result = await operation();
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 }

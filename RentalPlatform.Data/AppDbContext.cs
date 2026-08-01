@@ -33,6 +33,8 @@ public class AppDbContext : DbContext
     public DbSet<BookingOriginalSource> BookingOriginalSources { get; set; } = null!;
     public DbSet<IdempotencyKey> IdempotencyKeys { get; set; } = null!;
     public DbSet<HistoricalPaymentIdempotencyKey> HistoricalPaymentIdempotencyKeys { get; set; } = null!;
+    public DbSet<HistoricalOwnerAttributionCorrection> HistoricalOwnerAttributionCorrections { get; set; } = null!;
+    public DbSet<HistoricalOwnerCorrectionIdempotencyKey> HistoricalOwnerCorrectionIdempotencyKeys { get; set; } = null!;
     public DbSet<CrmLead> CrmLeads { get; set; } = null!;
     public DbSet<CrmNote> CrmNotes { get; set; } = null!;
     public DbSet<CrmAssignment> CrmAssignments { get; set; } = null!;
@@ -75,6 +77,8 @@ public class AppDbContext : DbContext
     {
         EnforceHistoricalFinancialSnapshotImmutability();
         EnforceHistoricalPaymentImmutability();
+        EnforceHistoricalOwnerCorrectionAuditImmutability();
+        EnforceHistoricalOwnerAttributionCoherence();
         ApplyTimestampsAndSoftDelete();
         return base.SaveChanges();
     }
@@ -83,6 +87,8 @@ public class AppDbContext : DbContext
     {
         await EnforceHistoricalFinancialSnapshotImmutabilityAsync(cancellationToken);
         await EnforceHistoricalPaymentImmutabilityAsync(cancellationToken);
+        EnforceHistoricalOwnerCorrectionAuditImmutability();
+        await EnforceHistoricalOwnerAttributionCoherenceAsync(cancellationToken);
         ApplyTimestampsAndSoftDelete();
         return await base.SaveChangesAsync(cancellationToken);
     }
@@ -159,6 +165,58 @@ public class AppDbContext : DbContext
     {
         if (databaseValues?.GetValue<bool>(nameof(Payment.IsHistoricalRecord)) == true)
             throw new HistoricalPaymentImmutableException();
+    }
+
+    private void EnforceHistoricalOwnerCorrectionAuditImmutability()
+    {
+        if (ChangeTracker.Entries<HistoricalOwnerAttributionCorrection>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new HistoricalOwnerCorrectionAuditImmutableException();
+        }
+    }
+
+    private void EnforceHistoricalOwnerAttributionCoherence()
+    {
+        foreach (var entry in ModifiedBookingEntries())
+        {
+            EnsureHistoricalOwnerAttributionHasAudit(entry, entry.GetDatabaseValues());
+        }
+    }
+
+    private async Task EnforceHistoricalOwnerAttributionCoherenceAsync(
+        CancellationToken cancellationToken)
+    {
+        foreach (var entry in ModifiedBookingEntries())
+        {
+            EnsureHistoricalOwnerAttributionHasAudit(
+                entry,
+                await entry.GetDatabaseValuesAsync(cancellationToken));
+        }
+    }
+
+    private void EnsureHistoricalOwnerAttributionHasAudit(
+        EntityEntry<Booking> entry,
+        PropertyValues? databaseValues)
+    {
+        if (databaseValues is null ||
+            !databaseValues.GetValue<bool>(nameof(Booking.IsHistorical)))
+        {
+            return;
+        }
+
+        var previousOwnerId = databaseValues.GetValue<Guid>(nameof(Booking.OwnerId));
+        if (entry.Entity.OwnerId == previousOwnerId)
+            return;
+
+        var matchingAudit = ChangeTracker.Entries<HistoricalOwnerAttributionCorrection>()
+            .Any(correction =>
+                correction.State == EntityState.Added &&
+                correction.Entity.BookingId == entry.Entity.Id &&
+                correction.Entity.PreviousOwnerId == previousOwnerId &&
+                correction.Entity.TargetOwnerId == entry.Entity.OwnerId);
+        if (!matchingAudit)
+            throw new HistoricalOwnerCorrectionAuditImmutableException();
     }
 
     private void ApplyTimestampsAndSoftDelete()
