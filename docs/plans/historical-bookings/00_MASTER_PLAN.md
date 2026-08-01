@@ -279,7 +279,7 @@ Full detail, with quotes, lives in
 | F-09 | All reporting buckets on `DATE(bookings.created_at)` | `CONFIRMED` | `0041_...:49`, `0042_...:65,87`, `ReportingFinanceAnalyticsService.cs:75-81` | Historical revenue lands in today's bucket (REQ-18) |
 | F-10 | One invoice auto-create site (Booked→Confirmed); number encodes record date | `CONFIRMED` | `BookingLifecycleService.cs:194-199`; `InvoiceService.cs:500-518,502` | Direct-to-`Completed` creates no invoice; must be explicit |
 | F-11 | Retired units blocked: `IsActive` required; availability throws on inactive | `CONFIRMED` | `BookingService.cs:156-165`; `UnitAvailabilityService.cs:33-34` | Needs a historical lookup path (REQ-17) |
-| F-12 | `Payment.PaidAt` is a real effective date; methods allow `cash`/`bank_transfer`/`wallet`; amount must be `> 0`; **no recorded-by actor column** | `CONFIRMED` | `Payment.cs:14-15`; `db/migrations/0022_create_payments.sql:18-19` | Historical payment date needs no migration; actor audit does; refunds not representable |
+| F-12 | `Payment.PaidAt` is a real effective date; canonical methods are `cash`/`bank_transfer`/`card`/`wallet`; amount must be `> 0`; HB-04B adds trusted actor attribution for historical evidence | `CONFIRMED` | `Payment.cs`; `PaymentService.cs`; migration `0061` | Historical payment date reuses the existing type; refunds remain unrepresentable |
 | F-13 | `Booking.OwnerId` is snapshotted from `unit.OwnerId`, explicitly not caller input | `CONFIRMED` | `BookingService.cs:225` | Owner attribution already immutable-by-default; override must be deliberate and gated |
 | F-14 | Permission convention is `area:action`, `VARCHAR(50)`, policy-based | `CONFIRMED` | `PermissionKeys.cs:13-33`; `BookingsController.cs:98,119,140`; `db/migrations/0053_create_dynamic_rbac.sql:22,68-70` | Dictates exact new permission naming and seeding |
 
@@ -489,8 +489,15 @@ implementer takes the next free number at branch time.
 | 14 | `bookings.agreed_amount` | column `DECIMAL(12,2) NULL` | **HB-04A** | — |
 | 15 | `ck_bookings_agreed_amount_non_negative` | CHECK | **HB-04A** | #14 |
 | 15b | `ck_bookings_historical_agreed_amount_coherent` | CHECK: historical rows require `agreed_amount = base_amount = final_amount`; non-historical rows require `agreed_amount IS NULL` | **HB-04A** | #1, #14 |
-| 16 | `payments.created_by_admin_user_id` | column `UUID NULL` + FK `→ admin_users(id) ON DELETE SET NULL` | **HB-04B** | — |
-| 17 | `ix_payments_created_by_admin_user_id` | index | **HB-04B** | #16 |
+| 16 | `payments.is_historical_record` | column `BOOLEAN NOT NULL DEFAULT false` | **HB-04B** | — |
+| 17 | `payments.created_by_admin_user_id` | column `UUID NULL` + FK `→ admin_users(id) ON DELETE RESTRICT` | **HB-04B** | — |
+| 17b | `payments.recorded_reason` | column `VARCHAR(500) NULL` | **HB-04B** | — |
+| 17c | `ck_payments_historical_record_coherent` | CHECK requiring actor, reason and `paid_at` for historical rows | **HB-04B** | #16, #17, #17b |
+| 17d | `ix_payments_created_by_admin_user_id` | index | **HB-04B** | #17 |
+| 17e | `ux_payments_historical_reference` | partial unique expression index on booking id and normalized non-null reference | **HB-04B** | #16 |
+| 17f | `historical_payment_idempotency_keys` | table, PK `(actor_admin_user_id, endpoint, key)`, payment FK and timestamps | **HB-04B** | #17 |
+| 17g | HB-04B idempotency payment lookup index | index | **HB-04B** | #17f |
+| 17h | `payments:record_historical` permission seed | data seed; SuperAdmin only | **HB-04B** | RBAC tables from `0053` |
 | 18 | `bookings.snapshot_commission_rate` | column `DECIMAL(5,2) NULL` | **HB-05** | — |
 | 19 | `bookings.snapshot_owner_amount` | column `DECIMAL(12,2) NULL` | **HB-05** | — |
 | 20 | `bookings.snapshot_kaza_amount` | column `DECIMAL(12,2) NULL` | **HB-05** | — |
@@ -603,6 +610,19 @@ today — and are retired.
 | Overlap incl. historical | 409 | `HISTORICAL_OVERLAP_CONFLICT` | HB-02 |
 | Exact duplicate | 409 | `HISTORICAL_DUPLICATE_BOOKING` | HB-03 |
 | Historical financial snapshot mutation or recalculation attempted | 409 | `HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE` | HB-04A |
+| Historical-payment idempotency key absent or malformed | 400 | `HISTORICAL_PAYMENT_IDEMPOTENCY_KEY_REQUIRED` | HB-04B |
+| Historical-payment key replayed with a different command | 409 | `HISTORICAL_PAYMENT_IDEMPOTENCY_KEY_REUSED` | HB-04B |
+| Historical-payment idempotency claim incomplete | 409 | `HISTORICAL_PAYMENT_REQUEST_IN_PROGRESS` | HB-04B |
+| Payment target booking not found | 404 | `HISTORICAL_PAYMENT_BOOKING_NOT_FOUND` | HB-04B |
+| Payment target is not historical | 409 | `HISTORICAL_PAYMENT_BOOKING_REQUIRED` | HB-04B |
+| Historical booking lacks a coherent agreed snapshot | 409 | `HISTORICAL_PAYMENT_SNAPSHOT_REQUIRED` | HB-04B |
+| Historical-payment amount invalid | 400 | `HISTORICAL_PAYMENT_AMOUNT_INVALID` | HB-04B |
+| Historical-payment method invalid | 400 | `HISTORICAL_PAYMENT_METHOD_INVALID` | HB-04B |
+| Historical-payment reason missing | 400 | `HISTORICAL_PAYMENT_REASON_REQUIRED` | HB-04B |
+| Historical payments exceed agreed amount | 409 | `HISTORICAL_PAYMENT_EXCEEDS_AGREED_AMOUNT` | HB-04B |
+| Historical reference already used for the booking | 409 | `HISTORICAL_PAYMENT_REFERENCE_ALREADY_EXISTS` | HB-04B |
+| Historical payment mutation or deletion attempted | 409 | `HISTORICAL_PAYMENT_IMMUTABLE` | HB-04B |
+| Live collection attempted for a historical booking | 409 | `HISTORICAL_PAYMENT_LIVE_COLLECTION_FORBIDDEN` | HB-04B |
 | Soft-deleted unit | 400 | `UNIT_DELETED_UNSUPPORTED` | HB-02 |
 | Explicit owner confirmation absent (HB-05's added field) | 400 | `OWNER_ATTRIBUTION_REQUIRED` | HB-05 |
 | Owner override without permission | 403 | `OWNER_OVERRIDE_FORBIDDEN` | HB-05 |

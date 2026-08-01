@@ -280,16 +280,32 @@ written. `SC-NOTIF-04` is the assertion that no invoice is auto-created.
 | **Decision date** | 2026-07-29 |
 | **Status** | **`OWNER APPROVED`** |
 
-**Command contract (`PROPOSED` shape, binding intent):**
+**Command contract (`OWNER APPROVED`, PAY-01 through PAY-14, 2026-08-01):**
 
 | Property | Requirement |
 |---|---|
-| Separation | The historical creation command writes booking and history only. Payment recording is a distinct call against an already-created historical booking |
-| Permission | A distinct permission, **and** the existing `finance:manage`. Recording money is a finance privilege and must not be acquired implicitly by holding `bookings:record_historical` |
-| Reason | Mandatory, non-empty, persisted |
-| Idempotency | An explicit idempotency key, so a retried call cannot double-record a payment |
-| Audit | Truthful records: real `CreatedAt`, operator-supplied `PaidAt`, the recording actor in `payments.created_by_admin_user_id` |
-| No live collection | No gateway call, no payment link, no fabricated transaction id. `card` is rejected for historical payments because it implies a gateway that does not exist in this codebase |
+| Endpoint | `POST /api/internal/bookings/{bookingId:guid}/historical-payments`; route booking id is authoritative; success is `200 OK` |
+| Permission | Exactly `payments:record_historical`; neither `bookings:record_historical` nor `finance:manage` substitutes for it |
+| Request | One payment: `amount`, `paymentMethod`, `paidAt`, optional `referenceNumber`, mandatory `reason`; unknown or privileged fields are rejected |
+| Evidence | The immutable `payments` row is the v1 evidence. It has `is_historical_record = true`, a trusted actor, dedicated reason and real effective payment time |
+| Multiple payments | Allowed while the cumulative historical-payment amount does not exceed `bookings.agreed_amount`; equality is allowed |
+| Reference identity | A non-null trimmed reference is case-insensitively unique per booking among historical payment rows |
+| Idempotency | Required dedicated storage, scoped by actor + canonical endpoint + key, with a canonical SHA-256 command hash and payment identity |
+| Audit | One `HistoricalPaymentRecorded` booking-history event links the payment id to the trusted actor without PII or financial free text |
+| Immutability | No update, delete, correction or reversal command exists; reachable mutation attempts return `409 HISTORICAL_PAYMENT_IMMUTABLE` |
+| No live collection | No gateway call, payment intent, payment link, invoice, payout or notification. Existing live-payment paths reject historical bookings |
+
+The complete PAY-01 through PAY-14 request, response, transaction, migration and error contract is canonical
+in [HB-04 §11.4](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#114-historical-payment-recording--hb-04b-only).
+
+| Decision set | Binding outcome |
+|---|---|
+| PAY-01 / PAY-02 | One `200 OK` endpoint with route-authoritative booking id and strict one-payment request |
+| PAY-03 / PAY-04 | `payments:record_historical` only; active claims-derived admin actor |
+| PAY-05 / PAY-06 / PAY-07 | Immutable evidence row, multiple installments up to agreed amount, per-booking normalized reference uniqueness |
+| PAY-08 / PAY-09 | Dedicated idempotency plus one transaction and `historical-payment:{bookingId:N}` advisory lock |
+| PAY-10 / PAY-11 / PAY-12 | One concise audit event, immutable evidence, and no live collection |
+| PAY-13 / PAY-14 | Stable persisted response and the canonical HB-04B error registry |
 
 **Why not inline.** Fusing a finance write into a booking-domain command widens what a single permission
 authorizes, and it does so invisibly. Separation keeps the privilege boundary legible, which matters more

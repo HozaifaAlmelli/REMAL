@@ -21,7 +21,7 @@
 | Title | Financial Snapshot & Historical Payments |
 | Priority | **P0** |
 | Type | Backend domain + schema migration + finance correctness |
-| Status | **HB-04A implementation ready — all four owner decisions ratified; HB-04B deferred to a separate PR** |
+| Status | **HB-04A merged; HB-04B implementation-ready under owner-approved PAY-01 through PAY-14** |
 | Dependencies | [HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md) (command, endpoint, permission, `is_historical` marker) |
 | Dependents | [HB-06](06_TICKET_HISTORICAL_BOOKING_WIZARD_UI.md) (financial wizard step), [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) (stay-period reporting) |
 | Sibling coupling | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) owns *who* is credited; HB-04 owns *how much* and *when it was paid* |
@@ -204,7 +204,7 @@ decision in §11.2.
 | A-2 | The agreed total is inclusive of any fee, tax or discount that applied. | `PROPOSED` per [OQ-06](00_MASTER_PLAN.md#32-open-questions) | A fee/tax model must be designed first; HB-04 doubles in size |
 | A-3 | `FinalAmount` may be set to the agreed amount without breaking any consumer. | `CONFIRMED` for the consumers enumerated in HB04-E12/E17/E09/E21/E22 | Any unenumerated consumer that assumes `FinalAmount == computed price` would misbehave; §29 regression sweep must find it |
 | A-4 | An operator recording a historical booking is trusted to state the agreed price; the control is permission + audit, not arithmetic. | `PROPOSED` | An approval workflow would be required — out of v1 |
-| A-5 | Historical payments are always already settled (status `paid`), never `pending`. | `PROPOSED` — a payment agreed offline and received offline has no pending state | If historical *promised* payments must be tracked, the DTO needs a status field |
+| A-5 | Historical payments are always already settled (status `paid`), never `pending`. | `OWNER APPROVED` by PAY-05 | Promised or pending payments are outside HB-04B |
 | A-6 | `Completed` remains the only status a historical booking is created in. | `CONFIRMED` ADR-04 | The payout-eligibility and finance-eligibility reasoning in §22 must be re-derived |
 
 ---
@@ -339,54 +339,62 @@ graph TD
 
 > **`OWNER APPROVED` for HB-04B — [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy),
 > `OWNER APPROVED` on 2026-07-29, reviewed under the Finance, Security and Engineering lenses.**
-> This subsection specifies *how* a historical payment would be written. *Whether* it is written inline, by a
-> separate privileged command, or not at all in v1 is not settled here. The three policy options and their
-> consequences are in §11.4.0; the implementation contract below applies to `PP-2` and `PP-3` alike and is
-> unused under `PP-1`.
+> PAY-01 through PAY-14 are owner-approved. Historical payment recording is a separate privileged command;
+> the former PP-1/PP-3 alternatives are retained only as rejected history and are not implementation options.
+
+| Decision | Owner-approved contract |
+|---|---|
+| PAY-01 | `POST /api/internal/bookings/{bookingId:guid}/historical-payments`; `200 OK`; no alias |
+| PAY-02 | Strict body: amount, method, paidAt, optional reference, mandatory 500-character reason |
+| PAY-03 | Sole business permission `payments:record_historical`, seeded to SuperAdmin |
+| PAY-04 | Active authenticated admin claim is the persisted actor; the request cannot supply it |
+| PAY-05 | Payment row is immutable evidence with marker, actor, reason and effective time |
+| PAY-06 | Multiple installments allowed; cumulative historical amount must not exceed agreed amount |
+| PAY-07 | Trimmed lower-case reference identity is unique per booking when non-null |
+| PAY-08 | Dedicated actor + endpoint + key idempotency table and canonical SHA-256 command hash |
+| PAY-09 | One transaction and server-derived `historical-payment:{bookingId:N}` advisory lock |
+| PAY-10 | Exactly one `HistoricalPaymentRecorded` booking-history event per created payment |
+| PAY-11 | No update/delete/correction/reversal; attempts return `HISTORICAL_PAYMENT_IMMUTABLE` |
+| PAY-12 | Historical bookings cannot enter existing live-payment creation/collection paths |
+| PAY-13 | Persisted immutable response loader shared by initial success and replay |
+| PAY-14 | Thirteen canonical HB-04B error codes in Master §12.3 |
 
 #### 11.4.0 Policy options
 
 | Option | Behaviour | Side-effect surface | Consequence | Verdict |
 |---|---|---|---|---|
-| **`PP-1`** Evidence only | The command stores the deposit amount, date and method as descriptive audit fields. **No `payments` row is created.** | **Lowest.** The creation command writes `bookings` and one history row and nothing else | Outstanding balance reads as the **full** agreed amount, so the money the guest actually paid is invisible to every balance and finance surface. Fails REQ-06 (payment balances must reflect reality) | Strictly the lowest-side-effect option. **Not recommended**, and rejected only because it fails REQ-06 — Finance may still select it and accept the gap |
-| **`PP-2`** Separate privileged command | Historical booking creation writes **no** payment. A distinct, separately authorized command (`bookings:record_historical` **and** `finance:manage`) records the historical payment afterwards against the created booking | **Low.** Creation stays a single-aggregate write; payment recording is an explicit, separately audited act with its own actor, reason and permission check | Two operator steps instead of one, and the pair is **not atomic** — a booking can exist briefly with no payment. That intermediate state is a legal business state (`S-1` below), so it is recoverable rather than corrupt | **Recommended** — the lowest-side-effect option that still satisfies REQ-06 |
-| **`PP-3`** Inline entry inside creation | The `payment` object travels in the creation request and is written in the same transaction | Highest. One command writes `bookings`, `payments`, `booking_status_history`, and touches the overpayment guard and advisory lock | Atomic and one-step for the operator, but it fuses a finance write into a booking-domain command and widens what a single permission authorizes | Available; requires an explicit Security decision on the widened privilege (see `D-HB04-03`) |
+| **`PP-1`** Evidence only | No `payments` row | Lowest | Fails REQ-06 | **Rejected by PAY-05** |
+| **`PP-2`** Separate privileged command | Historical booking creation writes **no** payment. The command requires exactly `payments:record_historical` | **Low.** Creation stays a single-aggregate write; payment recording is an explicit, separately audited act | Two operator steps; the legal no-payment state is recoverable | **OWNER APPROVED** by PAY-01/PAY-03 |
+| **`PP-3`** Inline entry inside creation | Payment travels in booking creation | Highest | Breaks least privilege and command separation | **Rejected by PAY-01/PAY-03** |
 
-Until `D-PAY-01` is ratified, no implementer may assume any of the three. HB-02's request contract marks the
-`payment` field accordingly, and the reliability scenarios in
-[99 Group 7](99_RELIABILITY_TEST_SCENARIOS.md#group-7--payments-sc-pay-nn) are written against the payment
-*outcome*, not against which command produced it.
+The binding choice is PP-2. HB-02 accepts no payment field. Reliability scenarios in
+[99 Group 7](99_RELIABILITY_TEST_SCENARIOS.md#group-7--payments-sc-pay-nn) invoke the separate HB-04B endpoint.
 
-#### 11.4.1 Implementation contract (applies to `PP-2` and `PP-3`)
+#### 11.4.1 Implementation contract (PP-2 only)
 
-The existing service cannot express a historical payment (HB04-E07, E08). Two implementation options:
+The existing normal-payment service cannot express the approved command safely (HB04-E07, E08). The former
+options are resolved as follows:
 
 | Option | Shape | Pros | Cons | Verdict |
 |---|---|---|---|---|
-| **P-A** Extend `PaymentService` | Add optional `paidAt`, `paymentStatus`, `createdByAdminUserId` parameters to `CreateAsync` | Reuses the overpayment guard, advisory lock and transaction enlistment (HB04-E09/E10/E11) unchanged | Adds historical concerns to a general service; an optional `paidAt` on the normal path is a backdating hazard | **Recommended**, with the parameter accepting a value **only** when the caller also supplies a historical context object, and normal callers passing nothing |
-| P-B New `HistoricalPaymentWriter` | A separate writer that inserts payment rows directly | Perfect separation | Duplicates the overpayment guard — the single most valuable safety check in the payment subsystem — and would drift | Rejected |
+| P-A Extend `PaymentService` | Optional historical parameters on the normal path | Reuse | Creates a backdating/mass-assignment hazard and conflicts with PAY-03/PAY-12 | Rejected |
+| **P-B Dedicated `HistoricalPaymentService`** | Separate command service sharing UoW/lock conventions | Explicit privilege, idempotency, evidence and audit boundary | Must maintain its own historical cumulative guard | **OWNER APPROVED** by PAY-01 through PAY-12 |
 
-**Recommended parameter contract (`PROPOSED`):**
+**Canonical HB-04B contract (`OWNER APPROVED`):**
 
 ```pseudo
-PaymentService.CreateAsync(
-    bookingId, invoiceId, paymentMethod, amount, referenceNumber, notes,
-    HistoricalPaymentContext? historical = null,   // null on every existing call site
-    cancellationToken)
+POST /api/internal/bookings/{bookingId:guid}/historical-payments
+Idempotency-Key: <uuid>
 
-record HistoricalPaymentContext(DateTime PaidAtUtc, Guid RecordedByAdminUserId);
+{ amount, paymentMethod, paidAt, referenceNumber?, reason }
 ```
 
-When `historical` is null, behaviour is byte-for-byte what it is today. When present:
-`PaymentStatus = "paid"`, `PaidAt = historical.PaidAtUtc`, `CreatedByAdminUserId =
-historical.RecordedByAdminUserId`, `CreatedAt`/`UpdatedAt` remain `UtcNow` (INV-01). Note that this path
-writes a `paid` payment directly and therefore **bypasses `MarkPaidAsync`**, which is correct — `MarkPaidAsync`
-would stamp today's date (HB04-E08) — but it means the invoice auto-`paid` sync at `InvoiceService`/
-`PaymentService.cs:294-311` does not run. §11.6 handles that explicitly.
-
-`createdByAdminUserId` is also populated on the **normal** path where the caller is an authenticated admin,
-since the column exists and leaving it null would waste the audit improvement — but that is additive and
-non-breaking (RISK-15).
+The route booking id is authoritative. The endpoint requires only `payments:record_historical`, returns
+`200 OK`, writes one immutable `paid` historical-evidence row, and never invokes live collection or invoice
+logic. Actor identity is claims-derived. Reason is mandatory and stored separately from notes. The command
+uses `historical-payment:{bookingId:N}` inside one transaction, then claims dedicated idempotency, validates
+the persisted HB-04A snapshot and cumulative amount, writes one `HistoricalPaymentRecorded` history event,
+completes idempotency and commits. Replay uses one authoritative persisted response loader.
 
 ### 11.5 Payment scenarios
 
@@ -398,7 +406,7 @@ non-breaking (RISK-15).
 | **S-4 Fully paid** | payments summing `== agreed` | n × `paid` | `0` | Equal-to-owed is explicitly allowed (`PaymentService.cs:189` uses `>`, not `>=`) |
 | **S-5 Overpayment** | payments summing `> agreed` | **nothing** — whole command rolls back | n/a | 409 from `EnsureNoOverpaymentAsync` (HB04-E09). Message already states owed / recorded / remaining |
 | **S-6 Zero-amount payment** | amount `= 0` | **nothing** | n/a | 400; `ck_payments_amount_positive` and `PaymentService.cs:115-116` both reject |
-| **S-7 `card` method** | method `card` | **nothing** | n/a | 400. Legal at DB level but implies a gateway that does not exist (HB04-E27) — see §17 `FIN-12` |
+| **S-7 `card` method** | method `card` | 1 × immutable historical-evidence payment | `agreed − amount` | `card` is part of the existing canonical vocabulary; this command records external evidence only and never invokes a gateway |
 
 ### 11.6 Invoice consequence and recommendation
 
@@ -529,22 +537,20 @@ what HB-02 §11.5, HB-07 §21.1 row `S-03` and the notification scenarios are wr
 
 ## 14. API changes
 
-No new route. HB-04 extends the request and response of `POST /api/internal/bookings/historical`, owned by
-[HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md).
+HB-04A made no route change. HB-04B adds exactly
+`POST /api/internal/bookings/{bookingId:guid}/historical-payments`; it does not extend the HB-02 request.
 
-**HB-04A request additions:** none. `agreedAmount` already belongs to the canonical HB-02 request and remains
-the only caller-supplied financial value. Payment and invoice request shapes below are HB-04B/reference-only.
+**HB-04A request additions:** none. HB-04B adds only the separate PAY-01 endpoint.
 
 | Field | Type | Required | Rule |
 |---|---|---|---|
 | `agreedAmount` | decimal(12,2) | **Yes** | `>= 0`; ≤ ceiling (§17 `FIN-04`) |
 | `commissionRate` | decimal(5,2) | Conditional | Supplied only where HB-05's owner step permits an explicit rate; otherwise resolved server-side |
-| `payments[]` | array | No (may be empty) | 0..N entries |
-| `payments[].amount` | decimal(12,2) | Yes | `> 0` |
-| `payments[].method` | string | Yes | `cash` \| `bank_transfer` \| `wallet` |
-| `payments[].paidAt` | date/datetime | Yes | Not future; §17 `FIN-08`/`FIN-09` |
-| `payments[].referenceNumber` | string(100) | No | Free text; never a fabricated gateway id |
-| `payments[].notes` | string | No | — |
+| HB-04B `amount` | decimal(12,2) | Yes | `> 0`; cumulative historical total may equal but not exceed agreed amount |
+| HB-04B `paymentMethod` | string | Yes | Existing canonical vocabulary |
+| HB-04B `paidAt` | date/datetime | Yes | Operator-supplied effective time, normalized by repository convention |
+| HB-04B `referenceNumber` | string(100) | No | Trimmed; blank becomes null; case-insensitively unique per booking when present |
+| HB-04B `reason` | string(500) | Yes | Trimmed, nonblank, dedicated persisted audit reason |
 | `invoice.issue` | boolean | No | **Absent under the recommended `PI-1`.** Present only if [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) ratifies `PI-2`/`PI-3` |
 | `invoice.number` | string | No | Same condition; only if Finance supplies a historical series |
 
@@ -598,7 +604,10 @@ HB-04A also owns `ck_bookings_historical_agreed_amount_coherent`: historical row
 `agreed_amount IS NOT NULL AND agreed_amount = base_amount AND base_amount = final_amount`; non-historical
 rows require `agreed_amount IS NULL`. The constraint is added `NOT VALID`, then validated after the guarded
 backfill.
-| `payments` | `created_by_admin_user_id` | `UUID` | Yes | — | `FK → admin_users(id) ON DELETE SET NULL` | `ix_payments_created_by_admin_user_id` | #16, #17 — **HB-04B, not this PR** |
+| `payments` | `is_historical_record` | `BOOLEAN` | No | `false` | historical coherence CHECK | historical reference partial unique index | #16 — HB-04B |
+| `payments` | `created_by_admin_user_id` | `UUID` | Yes | — | `FK → admin_users(id) ON DELETE RESTRICT` | actor index | #17 — HB-04B |
+| `payments` | `recorded_reason` | `VARCHAR(500)` | Yes | — | required and nonblank for historical rows | — | #17b — HB-04B |
+| `historical_payment_idempotency_keys` | dedicated command scope | — | — | — | actor/payment FKs and PK `(actor, endpoint, key)` | payment lookup | #17f/#17g — HB-04B |
 
 **Not created here — dependencies only:**
 
@@ -608,8 +617,8 @@ backfill.
 | `ck_bookings_snapshot_split_reconciles` — the `owner + kaza = agreed` CHECK | **HB-05** (#25) | Previously also proposed here as an unnamed composite CHECK. **One constraint, one owner:** it is HB-05's, added `NOT VALID` then validated, tolerating the all-NULL case explicitly. HB-04's job is to make sure the values it computes satisfy it |
 | `bookings.is_historical` | **HB-02** (#1) | Read by the repricing guard (§11.3) |
 
-**Not added, and why:** `currency` (OQ-05); `tax_amount` / `fee_amount` / `discount_amount` (OQ-06);
-`payments.recorded_reason`; any negative-amount capability (HB04-E20); any gateway column (HB04-E27).
+**Not added:** currency, tax, fee, discount, negative amount, gateway, attachment, invoice, payout, reversal or
+correction objects. HB-04B does add the dedicated reason required by PAY-02/PAY-05.
 
 **Guarded backfill:** before changing any row, migration `0060` counts every `is_historical = true` row that
 has missing HB-02 provenance, NULL/negative amounts, `base_amount <> final_amount`, or values incompatible
@@ -629,14 +638,14 @@ rather than discard financial truth; the release checklist must preserve that gu
 | Concern | Control | Label |
 |---|---|---|
 | Who may state an agreed amount | `bookings:record_historical`, enforced by policy attribute on the HB-02 controller | `PROPOSED` |
-| Who may record historical payment | HB-04B's separate command requires its distinct permission and `finance:manage` under D-PAY-01 | `OWNER APPROVED`; outside HB-04A |
+| Who may record historical payment | Exactly `payments:record_historical`; no `finance:manage` or booking permission substitute | `OWNER APPROVED` PAY-03 |
 | Financial tampering | Owner/KAZA split is **recomputed** server-side and compared with any client-sent values; mismatch → 400 | `PROPOSED` |
 | Mass assignment | `baseAmount`, `finalAmount`, snapshot fields, payment `status`, payment `createdAt`, `createdByAdminUserId` are absent from the DTO (§14) | `PROPOSED` |
 | Actor spoofing (INV-11) | `created_by_admin_user_id` is taken from the authenticated principal only, never from the payload | `PROPOSED` |
 | Timestamp falsification (INV-01) | `Payment.CreatedAt`/`UpdatedAt`, `Booking.CreatedAt`/`UpdatedAt`, `Invoice.CreatedAt` remain `UtcNow`; only `PaidAt` and `IssuedAt` accept operator-supplied values, and both are semantically effective-dates | `PROPOSED` |
 | Cross-portfolio money injection (INV-12) | Booking, unit and owner are resolved under scope by HB-02/HB-05 before HB-04 touches money | Inherited |
 | PII in logs | Financial logs carry booking id, amounts and actor id only — no guest name, phone or email | `PROPOSED` |
-| Card data | None handled. `card` is rejected as a historical method (§11.5 S-7) | `PROPOSED` |
+| Card data | None handled. The canonical `card` method records external evidence only; no PAN, token, gateway id or collection call is accepted | `OWNER APPROVED` PAY-02/PAY-12 |
 | Permission registration | New keys must be added to both the constants **and** the `Descriptors` list (HB04-E26), else the RBAC admin UI cannot grant them | `CONFIRMED` |
 
 ---
@@ -658,7 +667,7 @@ Layer legend: **V** = FluentValidation DTO, **S** = service, **D** = database co
 | FIN-09 | Every `payments[].paidAt` ≥ `actualBookedAt` (the agreement date) − no money before the deal | S | 400 | — | `SC-PAY-07` |
 | FIN-10 | Plausibility warning, not a rejection: `paidAt` after `checkOutDate` is allowed (late settlement) but surfaced to the operator for confirmation | S + UI | 200 with warning | — | `SC-PAY-08` |
 | FIN-11 | `payments[].amount > 0` | V, S, D | 400 | V-15 | `SC-FIN-09` |
-| FIN-12 | `payments[].method ∈ {cash, bank_transfer, wallet}` | V, S | 400 | — | `SC-PAY-08` |
+| FIN-12 | `paymentMethod ∈ {cash, bank_transfer, card, wallet}` using the existing canonical vocabulary | V, S | 400 | — | `SC-PAY-05` |
 | FIN-13 | `Σ payments[].amount ≤ agreedAmount` | S (existing `EnsureNoOverpaymentAsync`) | **409** | V-14 (recommend realign) | `SC-FIN-11` / `SC-PAY-05` |
 | FIN-14 | `payments[].referenceNumber` ≤ 100 chars | V, D | 400 | — | `SC-PAY-09` |
 | FIN-15 | No currency field is accepted | V (unknown-field rejection) | 400 | V-19 `BLOCKED` | `SC-FIN-12` |
@@ -690,13 +699,9 @@ itself, and both `PaymentService` and `InvoiceService` will enlist rather than n
 | Issue invoice | no line items (impossible here), status not draft | 409; rolled back |
 | Commit | DB error | nothing persisted |
 
-**INV-05/INV-06 restated concretely:** there is no state in which a historical booking exists without its
-payments, or payments exist without their booking, or a snapshot exists that does not reconcile. The
-all-or-nothing boundary is the whole command, not the individual writes.
-
-**Deliberate consequence:** a mistyped payment amount aborts the *entire* record, forcing the operator to
-resubmit. That is preferred to a booking silently created without its deposit — a partially-recorded
-historical booking is worse than none, because it looks complete.
+**PAY-09 restated concretely:** booking creation and payment recording are separate transactions. Within the
+HB-04B command, payment, `HistoricalPaymentRecorded` history event and idempotency completion are atomic.
+A failure preserves the already-created booking and commits none of those three HB-04B rows.
 
 ---
 
@@ -709,7 +714,7 @@ historical booking is worse than none, because it looks complete.
 | New-booking lock contention | The payment and invoice locks are keyed on a booking id that does not yet exist elsewhere, so contention is effectively nil for a brand-new record | `INFERRED` |
 | Overpayment race | Already handled: the payment lock plus a committed-total read inside the transaction (`PaymentService.cs:124-130,184-187`) | `CONFIRMED` |
 | Invoice-number race | Already handled by `invoice-number-generation` plus a unique-violation retry path (`InvoiceService.cs:486-492`, `ux_invoices_invoice_number`) | `CONFIRMED` |
-| Idempotency of the whole command | Owned by [HB-03](03_TICKET_AVAILABILITY_CONFLICTS_AND_DUPLICATE_PROTECTION.md) (duplicate detection) and HB-02 (idempotency key). HB-04 adds no separate key — a repeated submission must not create a second set of payments | Inherited |
+| HB-04B idempotency | Dedicated `historical_payment_idempotency_keys`, scoped by actor + endpoint + key. Canonical SHA-256 includes route booking id and normalized command fields. Same request replays; changed request conflicts; failed transactions leave no claim | PAY-08 |
 | Double-submit within 30 s | The existing `RecentDuplicateWindow` (`BookingService.cs:19`) is a double-click guard on `CreatedAt`, **not** a business duplicate rule; it must not be relied on for financial idempotency | `CONFIRMED` |
 
 ---
@@ -719,8 +724,8 @@ historical booking is worse than none, because it looks complete.
 | Signal | Content | Label |
 |---|---|---|
 | Audit event `booking.historical.recorded` (extended by HB-04) | `agreed_amount`, `base_amount` (reference), `snapshot_commission_rate`, `snapshot_owner_amount`, `snapshot_kaza_amount`, payment count, payment total, invoice id | `PROPOSED` |
-| Audit event `booking.historical.payment_recorded` | payment id, booking id, amount, method, `paid_at`, `created_by_admin_user_id`, reference present y/n | `PROPOSED` |
-| Persistent actor record | `payments.created_by_admin_user_id` — the durable answer to "who recorded this money", closing `RISK-15` | `PROPOSED` |
+| Audit event `HistoricalPaymentRecorded` | Concise payment-id linkage in booking history; trusted actor and timestamp; no reason, PII or payment details in free text | `OWNER APPROVED` PAY-10 |
+| Persistent actor record | `payments.created_by_admin_user_id` — the durable answer to "who recorded this evidence" | `OWNER APPROVED` PAY-04/PAY-05 |
 | Metric `historical_booking_amount_total` | Sum of agreed amounts recorded (counter) | `PROPOSED` |
 | Metric `historical_payment_recorded_total{method}` | Counter by manual method | `PROPOSED` |
 | Metric `historical_booking_rejected_total{reason="overpayment"\|"amount_invalid"\|"paid_at_invalid"}` | Extends the Master §23 metric | `PROPOSED` |
@@ -877,7 +882,27 @@ Ordered; each independently checkable.
 | AC-HB04-14 | Fresh development/production bootstrap, upgrade through `0059`, verifier, safe rollback and unsafe rollback refusal all pass on PostgreSQL 16. |
 
 HB-04B acceptance criteria for payment actor, payment command, payment idempotency and historical payment
-validation are intentionally deferred to its separate ticket/PR and are not gates for HB-04A.
+validation are gates for the separate HB-04B PR:
+
+| ID | HB-04B criterion |
+|---|---|
+| AC-HB04B-01 | The canonical endpoint requires only `payments:record_historical`, rejects unknown fields and returns `200` with the persisted contract. |
+| AC-HB04B-02 | A valid call stores one paid historical evidence row with trusted actor, reason, effective time and exactly one audit event. |
+| AC-HB04B-03 | Same-key replay is byte-equivalent and creates no second payment, event or idempotency row; changed payload conflicts. |
+| AC-HB04B-04 | Concurrent commands serialize under the booking lock; cumulative historical amount never exceeds agreed amount. |
+| AC-HB04B-05 | References are normalized and unique per booking while null references and references on other bookings remain legal. |
+| AC-HB04B-06 | Missing/nonhistorical/incoherent-snapshot bookings and every validation/conflict path return canonical non-null codes. |
+| AC-HB04B-07 | Historical evidence cannot be modified/deleted and historical bookings cannot use the live-payment path. |
+| AC-HB04B-08 | Migration, bootstrap, upgrade, verifier and guarded rollback pass on PostgreSQL 16. |
+| AC-HB04B-09 | No invoice, payout, notification, gateway call or booking snapshot mutation occurs. |
+
+| ID | HB-04B must not happen |
+|---|---|
+| NAC-HB04B-01 | Actor, booking identity, status, invoice, payout, currency or bypass state is never request-controlled. |
+| NAC-HB04B-02 | Failed commands never leave payment, history or idempotency residue. |
+| NAC-HB04B-03 | Existing payments are never backfilled as historical and no actor/reason is fabricated. |
+| NAC-HB04B-04 | Constraint names, SQL, PII, reason text or gateway details never leak through errors/logs. |
+| NAC-HB04B-05 | HB-04A agreed/base/final amounts are never modified. |
 
 ## 28. Negative acceptance criteria
 
