@@ -16,15 +16,15 @@ evidence base** for the release gate defined in [HB-09](09_TICKET_TEST_AUTOMATIO
 
 | Aspect | Statement |
 |---|---|
-| Document status | `PROPOSED` — the scenarios describe target behaviour, not current behaviour |
+| Document status | `OWNER APPROVED` — target verification contract |
 | Applies to | The historical command, the hardened normal flow, and every subsystem they touch |
 | Scenario count | **159**, across **17** groups — `SC-HAPPY` 7, `SC-DATE` 10, `SC-AVAIL` 12, `SC-DUP` 8, `SC-SEC` 12, `SC-FIN` 14, `SC-PAY` 10, `SC-OWN` 17, `SC-NOTIF` 12, `SC-AUDIT` 6, `SC-REP` 14, `SC-UI` 10, `SC-TXN` 6, `SC-REG` 7, `SC-MIG` 5, `SC-PERF` 4, `SC-CONC` 5 |
 | Duplicate scenario ids | 0 |
 | Dangling scenario references | 0 |
 | Expected to fail against `8dafb5a` | Exactly **one** — `SC-REG-02`. See [the expected-to-fail set](#the-expected-to-fail-set) |
-| Base commit for all citations | `8dafb5a` |
+| Contract-closure base | `3e2090ecda2a0a70197521390f2c8d2c34905eff` |
 | Executable in production? | **No**, except the explicitly marked read-only smoke subset in [P14](#p14-production-smoke-restrictions) |
-| Relationship to acceptance criteria | Every currently ratified `AC-HBnn-nn` and `NAC-HBnn-nn` — 179 and 131 respectively, 310 in total — is covered by a contiguous range mapping in [§Traceability matrices](#traceability-matrices), and no identifier is unmapped; HB-04B adds its own criteria in its separate PR |
+| Relationship to acceptance criteria | Every currently ratified identifier is covered by the dynamically recounted contiguous ranges in [§Traceability matrices](#traceability-matrices): 205 ACs and 154 NACs at this revision, 359 total, including HB-04B |
 | Canonical endpoint | `POST /api/internal/bookings/historical`, success `200 OK` — see [P16](#p16-canonical-contract-and-decided-behaviour) |
 | Decisions governing these scenarios | All final. Invoice and historical-payment policy are `OWNER APPROVED` — see [P16.2](#p16-canonical-contract-and-decided-behaviour) |
 
@@ -32,7 +32,7 @@ evidence base** for the release gate defined in [HB-09](09_TICKET_TEST_AUTOMATIO
 attempts; the completed-stay boundary in `Africa/Cairo`; active and inactive units; soft-deleted unit
 rejection; `Completed`/`LeftEarly` overlap detection; duplicate detection; historical agreed price and
 repricing protection; invoice consistency; partial, full and deposit payments; historical `PaidAt`; owner
-review and override; commission snapshot; reporting by recorded date versus stay date; absence of
+review and privileged correction; payout-safe attribution audit; reporting by recorded date versus stay date; absence of
 notification replay; `AutoCompleteBookingsJob` exclusion; concurrency; rollback; migration compatibility;
 normal-booking regression; accounting reconciliation.
 
@@ -74,7 +74,9 @@ apply it reads `n/a` plus a one-clause reason.
 | `Q-CREATE` | `POST /api/internal/bookings/quick` | `CONFIRMED` — `BookingsController.cs:118` |
 | `B-UPDATE` | `PUT /api/internal/bookings/{id}` | `CONFIRMED` — `BookingsController.cs:139` |
 | `B-HISTORY` | `GET /api/internal/bookings/{id}/status-history` | `CONFIRMED` — `BookingsController.cs:81` |
-| `H-CREATE` | `POST /api/internal/bookings/historical` | `PROPOSED` — [Master §12](00_MASTER_PLAN.md#12-api-and-command-design), HB-02 |
+| `H-CREATE` | `POST /api/internal/bookings/historical` | `OWNER APPROVED`, implemented by HB-02 |
+| `H-PAY` | `POST /api/internal/bookings/{bookingId:guid}/historical-payments` | `OWNER APPROVED`, implemented by HB-04B |
+| `H-OWNER-CORRECT` | `POST /api/internal/bookings/{bookingId:guid}/owner-attribution-corrections` | `OWNER APPROVED`, owned by HB-05 |
 | `I-DRAFT` | `POST /api/internal/invoices/drafts` | `CONFIRMED` — already permitted for `Completed`/`LeftEarly` bookings (F-10) |
 
 ---
@@ -83,8 +85,8 @@ apply it reads `n/a` plus a one-clause reason.
 
 | Env | Purpose | Database | Constraints |
 |---|---|---|---|
-| **E-DEV** | Developer loop, unit and service scenarios | Local Postgres in the `remal` compose stack | Backend runs in the `remal-api` container on `:5001`; a rebuild is required for backend changes, `dotnet run` on the host does not apply them |
-| **E-CI** | Automated suite on every PR | Ephemeral Postgres service container | `BLOCKED` → [OQ-09](00_MASTER_PLAN.md#32-open-questions): whether CI can run a real relational provider is unconfirmed. EF Core InMemory **cannot** exercise transactions (`TransactionIgnoredWarning`) or advisory locks (`ExecuteSqlInterpolatedAsync` is relational-only), so every `SC-TXN-*` scenario is unrunnable until this is resolved |
+| **E-DEV** | Developer loop, unit and service scenarios | Explicit authorized disposable PostgreSQL 16 through `KAZA_TEST_DB` | Never use the shared development database; missing configuration fails before connection |
+| **E-CI** | Automated suite on every PR | Ephemeral PostgreSQL 16 service | PRE-02 complete; `backend-postgres` executes `Category=PostgreSQL` with no fallback |
 | **E-STG** | Migration forward/verify, integration, full P0+P1 | Staging Postgres restored from a sanitized production snapshot | Must contain realistic booking volume for `SC-PERF-02` |
 | **E-UAT** | Operator-executed manual UAT and accounting reconciliation | Sanitized UAT Postgres | Finance participates directly; snapshot taken before the pack starts |
 | **E-PROD** | Post-deploy verification only | Production | **Read-only subset only** — see [P14](#p14-production-smoke-restrictions) |
@@ -108,8 +110,9 @@ per-user through `rbac_admin_user_permission_overrides` with `grant`/`deny` modi
 |---|---|---|
 | `bookings:read` | `CONFIRMED` existing | All read assertions |
 | `bookings:write` | `CONFIRMED` existing | Normal-flow and regression scenarios |
-| `bookings:record_historical` | `PROPOSED` new (HB-02) | Every `H-CREATE` scenario |
-| `bookings:override_owner` | `PROPOSED` new (HB-05) | `SC-OWN-04`, `SC-OWN-06`, `SC-OWN-07`, `SC-HAPPY-06` |
+| `bookings:record_historical` | Implemented (HB-02) | Every `H-CREATE` scenario |
+| `payments:record_historical` | Implemented (HB-04B) | Every `H-PAY` scenario |
+| `bookings:correct_owner_attribution` | Owner-approved (HB-05) | Owner-correction scenarios |
 | `finance:manage` | `CONFIRMED` existing | Outstanding-balance alert recipients (`AutoCompleteBookingsJob.cs:145-221`); invoice assertions |
 | `finance:payouts` | `CONFIRMED` existing | Owner payout assertions |
 | `owners:read` / `owners:manage` | `CONFIRMED` existing | Owner fixture setup and commission-rate mutation |
@@ -124,8 +127,8 @@ convention (`*.dev@rental.local` / `Admin@1234`) — never reuse production cred
 
 | Handle | Permissions | Purpose |
 |---|---|---|
-| `A-HIST` | `bookings:read`, `bookings:write`, `bookings:record_historical` | The canonical authorised historical operator, **without** override rights |
-| `A-HIST-OVR` | as `A-HIST` **plus** `bookings:override_owner` | Owner override scenarios |
+| `A-HIST` | `bookings:read`, `bookings:write`, `bookings:record_historical` | The canonical authorised historical operator, without owner-correction rights |
+| `A-HIST-CORR` | as `A-HIST` plus `bookings:correct_owner_attribution` | Separate HB-05 correction scenarios |
 | `A-PLAIN` | `bookings:read`, `bookings:write` | The unauthorised-but-legitimate operator; proves the permission is a real gate and the normal endpoint is not a bypass |
 | `A-READONLY` | `bookings:read` | Read-only negative checks |
 | `A-FIN` | `finance:overview`, `finance:manage`, `finance:payouts` | Invoice, payout and balance-alert assertions |
@@ -134,13 +137,9 @@ convention (`*.dev@rental.local` / `Admin@1234`) — never reuse production cred
 | `CL-CLIENT` | A client-portal principal (not an admin) | Principal-type confusion checks |
 | `OW-OWNER` | An owner-portal principal | Principal-type confusion checks |
 
-`BLOCKED` — portfolio/tenant scoping rules for units and owners are not established in the audit
-([HB-01 §5.2](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#52-known-gaps-in-this-audit), assigned to
-HB-05). `A-OTHER-PF` therefore cannot be configured until HB-05 defines the scope model.
-**Reason:** no evidence of a tenant boundary was found. **Impact:** `SC-SEC-08` and `SC-OWN-06` cannot be
-executed. **Recommended default:** treat `units.portfolio_visibility`
-(`db/migrations/0056_add_unit_portfolio_visibility.sql`) as the scoping axis until HB-05 rules otherwise.
-**Decider:** HB-05 implementation owner. **Blocking:** yes, for those two scenarios only.
+For cross-scope tests, use the repository's `units.portfolio_visibility` access axis introduced by migration
+`0056`; tests must not invent a second tenant model. Owner IDs are still loaded and validated server-side,
+and no scenario treats a supplied GUID as authorization.
 
 ---
 
@@ -170,16 +169,16 @@ exactly why `U-INACTIVE-1` is a first-class fixture rather than an edge case.
 
 | Handle | `commission_rate` | Payout state | Purpose |
 |---|---|---|---|
-| `O-ALPHA` | 15.00 | Has `pending` payout rows only — the **open** state | Default attribution; commission snapshot |
-| `O-BETA` | 20.00 | Has at least one `paid` payout row — the **closed** state proxy | Proves a historical booking cannot mutate a settled payout |
+| `O-ALPHA` | 15.00 | Test bookings may have no payout or a state-specific payout | Default attribution; correction safety |
+| `O-BETA` | 20.00 | Test bookings may have a paid payout | Proves owner correction never mutates settlement |
 | `O-GAMMA` | 10.00 | none | Out-of-portfolio injection target |
 | `O-DELTA` | 25.00 | none | **The owner-changed case.** `U-ACTIVE-1` was, as a documented business fact, owned by `O-DELTA` during the `STAY-PAST` window and is owned by `O-ALPHA` today |
 
 `CONFIRMED` (F-13) — there is **no** ownership-history, contract or effective-date model anywhere
 (`BookingService.cs:225` snapshots `unit.OwnerId`; `Owner.cs:13` `CommissionRate` is mutable). The
 `O-DELTA` situation therefore cannot be derived by the system; it exists only as an out-of-band fact given
-to the tester, which is precisely the condition ADR-08 addresses with mandatory review plus a gated
-override.
+to the tester, which is precisely the condition ADR-08 addresses with deterministic creation-time
+attribution plus a separate privileged correction.
 
 **Closed-period note.** `CONFIRMED` (F-03) — `owner_payouts` is one row per booking
 (`ux_owner_payouts_booking_id` UNIQUE) with `payout_status IN ('pending','scheduled','paid','cancelled')`
@@ -199,12 +198,9 @@ period exists.
 | `C-DELETED-1` | Soft-deleted / inactive | Invalid-client rejection (`SC-SEC-10`) |
 | `C-OTHER-PF-1` | Belongs to another portfolio | IDOR target |
 
-`BLOCKED` — the client match-or-create algorithm and phone normalisation rules are not established
-([HB-01 §5.2](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#52-known-gaps-in-this-audit), assigned to
-HB-02). **Reason:** the matching code was not audited. **Impact:** `SC-HAPPY-05` and `SC-DUP-05` cannot
-state an exact matching expectation. **Recommended default:** exact match on normalised E.164 phone,
-otherwise create. **Decider:** HB-02 implementation owner. **Blocking:** no — the scenarios run, but their
-matching assertion is provisional until HB-02 publishes the rule.
+HB-02 owns the final rule: use the client subsystem's server-side normalized phone identity. An active,
+non-deleted match conflicts with `CLIENT_PHONE_ALREADY_EXISTS`; an inactive/deleted holder conflicts with
+`CLIENT_PHONE_REQUIRES_REVIEW`; only an unknown normalized phone may create a client in the transaction.
 
 ---
 
@@ -233,7 +229,7 @@ mismatch will surface as a constraint violation, not as a silent drift.
 | `cash` | **Yes** — primary | The brief's real case: a deposit handed to a KAZA representative |
 | `bank_transfer` | **Yes** | Second method, exercises `reference_number` |
 | `wallet` | **Yes** | Third manual method |
-| `card` | **No — deliberately excluded** | A card payment implies an authorisation performed by a gateway, and `CONFIRMED` (F-12) **no payment-gateway integration exists anywhere in the solution**. Recording a historical `card` payment would assert a transaction the system never performed. `SC-PAY-04` exists specifically to assert that the historical flow refuses `card` |
+| `card` | **Yes** | Records immutable evidence of a card payment that occurred outside KAZA; PAY-12 still forbids any live gateway call |
 
 `CONFIRMED` — `ck_payments_amount_positive CHECK (amount > 0)` means **refunds and negative adjustments are
 not representable**; no scenario may attempt one.
@@ -245,7 +241,7 @@ not representable**; no scenario may attempt one.
 | Assumption | Label | Evidence |
 |---|---|---|
 | The business timezone is `Africa/Cairo`, falling back to `Egypt Standard Time` | `CONFIRMED` | `AutoCompleteBookingsJob.cs:18,133-143` |
-| A stay is *complete* when `check_out_date <= DateOnly.FromDateTime(cairoNow).AddDays(-1)` | `CONFIRMED` as the platform's own definition; `PROPOSED` as the historical boundary (ADR-03) | `AutoCompleteBookingsJob.cs:70,86-87` |
+| A stay is *complete* when `check_out_date <= DateOnly.FromDateTime(cairoNow).AddDays(-1)` | `OWNER APPROVED` historical boundary (ADR-03) | `AutoCompleteBookingsJob.cs:70,86-87` |
 | `check_in_date` / `check_out_date` are `DateOnly` in C# and `DATE` in Postgres — **timezone-free** | `CONFIRMED` | `Booking.cs:15-16`; `db/migrations/0016_create_bookings.sql` |
 | `created_at` / `updated_at` are `TIMESTAMP` **without** time zone, written as `DateTime.UtcNow` | `CONFIRMED` | Booking entity `:22-23`; `0016_create_bookings.sql` |
 | `payments.paid_at` is `TIMESTAMP NULL` and is the real effective date | `CONFIRMED` | `Payment.cs:14`; `0022_create_payments.sql` |
@@ -276,14 +272,11 @@ Every `SC-AVAIL-*` expectation is written against that convention.
 |---|---|
 | Reference price (3 nights × 1500.00 live rate) | 4 500.00 |
 | **Agreed amount** (operator-entered) | **3 900.00** |
-| Commission rate snapshot (`O-ALPHA` at 15.00 %) | 15.00 |
-| `snapshot_kaza_amount` | 585.00 |
-| `snapshot_owner_amount` | 3 315.00 |
 | Deposit paid `cash` at `PAID-AT` | 1 000.00 |
 | Outstanding balance after the deposit | 2 900.00 |
 
-Reconciliation identity asserted everywhere:
-`snapshot_owner_amount + snapshot_kaza_amount = agreed_amount = final_amount`.
+Reconciliation identities asserted everywhere: `agreed_amount = base_amount = final_amount` for historical
+bookings, and cumulative historical evidence never exceeds `agreed_amount`. No owner/KAZA split is invented.
 
 ---
 
@@ -296,7 +289,7 @@ Reconciliation identity asserted everywhere:
    repository is `0057` (`0057_add_owner_contact_fields.sql`).
 3. Seed the RBAC rows: the two new permission keys, their role-template assignments, and the `A-DENY`
    user-level `deny` override.
-4. Seed admin users `A-HIST`, `A-HIST-OVR`, `A-PLAIN`, `A-READONLY`, `A-FIN`, `A-DENY`, `A-OTHER-PF`.
+4. Seed admin users `A-HIST`, `A-HIST-CORR`, `A-PLAIN`, `A-READONLY`, `A-FIN`, `A-DENY`, `A-OTHER-PF`.
 5. Seed owners `O-ALPHA`, `O-BETA`, `O-GAMMA`, `O-DELTA` with the commission rates in [P7](#p7-required-owners).
 6. Seed units per [P6](#p6-required-units), including the seasonal-pricing rows on `U-SEASONAL-1` and the
    `DateBlock` on `U-BLOCKED-1`.
@@ -397,16 +390,12 @@ are re-baselined rather than quietly left wrong.
 
 | Decision | Decided behaviour the scenarios assert | Scenarios that would change if it is revisited |
 |---|---|---|
-| [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) invoice policy | **No invoice is created or issued** by the historical flow in v1; the reporting gap is published, not hidden | `SC-NOTIF-04`, `SC-NOTIF-05`, `SC-REP-02`, `SC-REP-06`, `SC-FIN-01` |
+| [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) invoice policy | Historical commands create no invoice automatically; manual draft/issuance remains allowed; historical evidence always stays unlinked | `SC-NOTIF-04`, `SC-NOTIF-05`, `SC-REP-02`, `SC-REP-06`, `SC-FIN-01` |
 | [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) payment policy | Payment is recorded by a **separate privileged command**, never inline; booking and payment are not atomic together | All of Group 7 (`SC-PAY-01`…`SC-PAY-10`), plus `SC-HAPPY-02`, `SC-HAPPY-03`, `SC-TXN-03` |
 
-**How Group 7 is written so a revisit is cheap.** Every payment scenario asserts the *outcome* — the
-persisted `payments` row, its `paid_at`, its actor, the resulting balance — and never the identity of the
-command that produced it. Under the decided policy the step list is two calls; under inline entry it would
-be one. The expected database state, audit trail and balance are identical either way. Only `SC-TXN-03`
-(atomicity of booking + payment) is genuinely policy-specific, because atomicity across the pair exists only
-under inline entry; its record states both expectations explicitly, in a dedicated **Policy dependence**
-row.
+**Binding Group 7 command boundary.** Every payment scenario first creates or selects an existing historical
+booking and then calls HB-04B with its own permission, idempotency key, transaction and audit. Booking success
+is never rolled back by a later payment-command failure.
 
 ---
 
@@ -419,20 +408,20 @@ row.
 | **Priority · Category · Automate** | P0 · Happy path · YES (xUnit service + Playwright E2E) |
 | **Traceability** | REQ-01, REQ-02, REQ-03, REQ-04, REQ-12, REQ-19 · HB-02 · INV-01, INV-02, INV-05, INV-11 |
 | **Preconditions** | `A-HIST` signed in; `U-ACTIVE-1` free for `STAY-IN … STAY-OUT`; `C-EXISTING-1` present; baseline counters captured |
-| **Test data** | unit `U-ACTIVE-1`; client `C-EXISTING-1`; `check_in = STAY-IN`, `check_out = STAY-OUT`; `actual_booked_at = AGREED-AT`; `historical_entry_reason = offline_agreement`; `original_source = phone`; `guest_count = 2`; `agreed_amount = 3900.00`; no payment |
-| **Steps** | 1. Open the historical wizard. 2. Step 1: source `phone`, agreement date `AGREED-AT`, reason `offline_agreement`. 3. Step 2: pick `U-ACTIVE-1`, dates `STAY-IN`/`STAY-OUT`, 2 guests. 4. Step 3: select `C-EXISTING-1`. 5. Step 4: agreed amount `3900.00`, add no payment. 6. Step 5: confirm owner `O-ALPHA`, no override. 7. Step 6: read the warnings, submit. |
+| **Test data** | unit `U-ACTIVE-1`; client `C-EXISTING-1`; `check_in = STAY-IN`, `check_out = STAY-OUT`; `actual_booked_at = AGREED-AT`; `historical_entry_reason = offline_agreement`; `original_source = offline_record`; `guest_count = 2`; `agreed_amount = 3900.00`; no payment |
+| **Steps** | 1. Open the historical wizard. 2. Step 1: source `offline_record`, agreement date `AGREED-AT`, reason `offline_agreement`. 3. Step 2: pick `U-ACTIVE-1`, dates `STAY-IN`/`STAY-OUT`, 2 guests. 4. Step 3: select `C-EXISTING-1`. 5. Step 4: agreed amount `3900.00`. 6. Step 5: review persisted owner attribution and warnings. 7. Step 6: submit. |
 | **Expected — UI** | Wizard advances only when each step validates; step 6 lists all five mandatory warnings; on success the operator lands on the new booking detail page, which carries a visible "Historical record" marker and shows status `Completed` |
 | **Expected — API** | `200 OK` from `H-CREATE`; body contains the booking id, `isHistorical: true`, `bookingStatus: "Completed"`, `actualBookedAt`, `historicalEntryReason`, `originalSource` |
-| **Expected — DB** | Exactly one new `bookings` row: `booking_status = 'completed'`, `is_historical = true`, `actual_booked_at = AGREED-AT`, `historical_entry_reason = 'offline_agreement'`, `original_source = 'phone'`, `owner_id = O-ALPHA`, dates as entered. `created_at` and `updated_at` are within 60 s of real UTC now — **not** `AGREED-AT` |
+| **Expected — DB** | Exactly one new `bookings` row: `booking_status = 'completed'`, `is_historical = true`, `actual_booked_at = AGREED-AT`, `historical_entry_reason = 'offline_agreement'`, `original_source = 'offline_record'`, `owner_id = O-ALPHA`, dates as entered. `created_at` and `updated_at` are within 60 s of real UTC now — **not** `AGREED-AT` |
 | **Expected — Audit** | Exactly **one** `booking_status_history` row: `old_status = NULL`, `new_status = 'completed'`, `changed_by_admin_user_id = A-HIST`, `changed_at ≈ now`, note = the historical-creation constant. Audit event `booking.historical.recorded` emitted |
-| **Expected — Financial** | `agreed_amount = final_amount = 3900.00`; `base_amount` retained as the computed reference (4 500.00) for comparison; no invoice created (F-10: the only auto-create site is Booked→Confirmed); outstanding balance = 3 900.00 |
-| **Expected — Owner** | `owner_id = O-ALPHA`; `snapshot_commission_rate = 15.00`; `snapshot_owner_amount = 3315.00`; `snapshot_kaza_amount = 585.00`; no `owner_payouts` row created (payouts are explicit — `OwnerPayoutService.cs:107-123`) |
+| **Expected — Financial** | `agreed_amount = base_amount = final_amount = 3900.00`; no invoice or payment is created automatically; outstanding evidence balance = 3 900.00 |
+| **Expected — Owner** | `owner_id = O-ALPHA`; no commission/split snapshot and no payout row is fabricated |
 | **Expected — Notification** | Notification-table count **unchanged**. No client message, no admin alert. Structurally guaranteed: creation has no dispatch path (F-04) and `TransitionAsync` is never called |
 | **Expected — Reporting** | Occupancy for `U-ACTIVE-1` gains nights `STAY-IN … STAY-OUT − 1`. Booking and finance daily summary views attribute the row to `DATE(created_at)` = today unless the stay-period dimension (ADR-11) is applied; both figures must be derivable |
 | **Cleanup** | Record the booking id; no per-scenario undo (no delete endpoint). Suite-level snapshot restore |
 | **Diagnostics** | Full booking row, history rows, `remal-api` log slice for the correlation id, request/response pair, notification counts before and after |
 
-#### SC-HAPPY-02 — The concrete case: with an inline cash deposit
+#### SC-HAPPY-02 — Booking followed by a separate cash-evidence command
 
 | | |
 |---|---|
@@ -440,15 +429,15 @@ row.
 | **Traceability** | REQ-01, REQ-06, REQ-14, REQ-19 · HB-02, HB-04 · INV-02, INV-05, INV-06 |
 | **Preconditions** | As `SC-HAPPY-01` |
 | **Test data** | As `SC-HAPPY-01` **plus** payment: `amount = 1000.00`, `method = cash`, `paid_at = PAID-AT`, `reference_number = "RCPT-TEST-001"`, `payment_status = paid` |
-| **Steps** | 1–4 as `SC-HAPPY-01`. 5. Step 4: agreed amount `3900.00`, add one payment (`cash`, `1000.00`, `PAID-AT`, reference). 6–7 as `SC-HAPPY-01`. |
-| **Expected — UI** | Step 4 shows the running balance `2 900.00`; the payment date control refuses a future date; the review step restates the payment with its historical date |
-| **Expected — API** | `200 OK`; body includes a `payments` array of one entry with the supplied `paidAt` |
-| **Expected — DB** | One `bookings` row **and** one `payments` row, committed together. Payment `paid_at = PAID-AT` (nine days before `created_at`), `created_at ≈ now`, `created_by_admin_user_id = A-HIST` |
-| **Expected — Audit** | One status-history row as `SC-HAPPY-01`; the payment actor is recorded on the payment row itself, closing the F-12 gap |
-| **Expected — Financial** | `final_amount = 3900.00`; paid = 1 000.00; outstanding = 2 900.00 by the formula `(invoice.TotalAmount ?? booking.FinalAmount) − Σ paid` |
-| **Expected — Owner** | Unchanged from `SC-HAPPY-01`; the deposit does not alter the commission snapshot |
+| **Steps** | 1. Complete `SC-HAPPY-01`. 2. If authorized for payments, submit HB-04B with `cash`, `1000.00`, `PAID-AT`, reason and reference using a distinct idempotency key. |
+| **Expected — UI** | Booking success appears first; payment evidence is an optional second phase and displays a running remaining amount of `2 900.00` |
+| **Expected — API** | Booking `200 OK`, followed by payment `200 OK`; each response has its own persisted identity |
+| **Expected — DB** | One booking commit followed by one immutable historical payment commit. Payment `paid_at = PAID-AT`, `invoice_id = NULL`, `created_at ≈ now`, `created_by_admin_user_id = A-HIST` |
+| **Expected — Audit** | One creation history row and one later `HistoricalPaymentRecorded` link; actor is trusted in each command |
+| **Expected — Financial** | `agreed_amount = final_amount = 3900.00`; historical evidence = 1 000.00; outstanding = 2 900.00 by `agreed_amount − Σ historical evidence` |
+| **Expected — Owner** | Unchanged from `SC-HAPPY-01`; evidence does not alter attribution |
 | **Expected — Notification** | Count unchanged. No payment notification exists in the codebase (F-04) and none must appear |
-| **Expected — Reporting** | The payment appears in payment reporting at `PAID-AT` per the recommended default in [OQ-03](00_MASTER_PLAN.md#32-open-questions); the booking still lands in today's `created_at` bucket |
+| **Expected — Reporting** | The payment appears in payment reporting at `PAID-AT` under ratified OQ-03; the booking still lands in today's `created_at` bucket |
 | **Cleanup** | Snapshot restore at suite level |
 | **Diagnostics** | Booking and payment rows, transaction log, balance computation trace |
 
@@ -460,13 +449,13 @@ row.
 | **Traceability** | REQ-06, REQ-14 · HB-04 · INV-05, INV-13 |
 | **Preconditions** | As `SC-HAPPY-01` |
 | **Test data** | Agreed `3900.00`; payment A `cash 1000.00 @ PAID-AT`; payment B `bank_transfer 2900.00 @ D0 − 6 14:00` with reference `TRX-TEST-002` |
-| **Steps** | 1–4 as `SC-HAPPY-01`. 5. Add both payments in step 4. 6–7. Submit. |
-| **Expected — UI** | Running balance reaches `0.00`; the review step shows "fully settled"; no overpayment warning |
-| **Expected — API** | `200 OK`; two payment entries returned |
-| **Expected — DB** | One booking, two `payments` rows, one transaction; both `paid_at` values preserved distinctly |
-| **Expected — Audit** | One status-history row; two payment rows each carrying `created_by_admin_user_id = A-HIST` |
+| **Steps** | 1. Complete `SC-HAPPY-01`. 2. Submit two separate HB-04B commands with distinct idempotency keys. |
+| **Expected — UI** | Each payment is a post-booking step; the remaining amount reaches `0.00` after the second success |
+| **Expected — API** | Booking `200`, then two payment `200` responses |
+| **Expected — DB** | One booking transaction followed by two payment transactions; both `paid_at` values preserved distinctly and both `invoice_id` values null |
+| **Expected — Audit** | One creation history row and two distinct `HistoricalPaymentRecorded` links |
 | **Expected — Financial** | Σ paid = 3 900.00; outstanding = 0.00 |
-| **Expected — Owner** | Snapshot unchanged; the booking is payout-eligible (`FinanceEligibleStatuses` includes `Completed` — `BookingStatusTransitions.cs:61-70`) |
+| **Expected — Owner** | Attribution unchanged; no payout is created or modified |
 | **Expected — Notification** | Count unchanged; specifically **no** `BOOKING_COMPLETED_WITH_BALANCE` alert, which is emitted only by `AutoCompleteBookingsJob.cs:145-221` for bookings the job itself completes |
 | **Expected — Reporting** | Finance daily summary counts both payments at their `paid_at` dates |
 | **Cleanup** | Snapshot restore |
@@ -486,7 +475,7 @@ row.
 | **Expected — DB** | Booking row created against the inactive unit; the unit row is **not** modified (still `is_active = false`) |
 | **Expected — Audit** | One status-history row; the audit event records that an inactive unit was used |
 | **Expected — Financial** | Agreed amount honoured; a reference price may be unavailable or stale for a retired unit, and that must not block creation |
-| **Expected — Owner** | `owner_id` from the retired unit owner; snapshot taken normally |
+| **Expected — Owner** | `owner_id` from the retired unit owner; no financial split inferred |
 | **Expected — Notification** | Count unchanged |
 | **Expected — Reporting** | The retired unit reappears in occupancy history for the stay window; it must **not** reappear in future availability |
 | **Cleanup** | Snapshot restore; verify `U-INACTIVE-1` is still inactive |
@@ -510,27 +499,27 @@ row.
 | **Expected — Notification** | Count unchanged; no welcome or onboarding message |
 | **Expected — Reporting** | New-client counts increase in the recorded-date bucket, not the stay bucket |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Client row, booking row, transaction boundary evidence. **Provisional assertion** — the matching rule is `BLOCKED` per [P8](#p8-required-clients) |
+| **Diagnostics** | Client row, booking row, transaction boundary evidence and normalized-phone identity per [P8](#p8-required-clients) |
 
-#### SC-HAPPY-06 — Authorised owner override to the owner at the time of the stay
+#### SC-HAPPY-06 — Separate authorized owner-attribution correction
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | P0 · Happy path · YES (xUnit service + Playwright E2E) |
 | **Traceability** | REQ-07, REQ-08 · HB-05 · INV-12, INV-14, INV-17 |
-| **Preconditions** | `A-HIST-OVR` signed in; documented fact that `U-ACTIVE-1` was owned by `O-DELTA` during `STAY-IN … STAY-OUT` |
-| **Test data** | unit `U-ACTIVE-1` (current owner `O-ALPHA`, 15.00 %); override to `O-DELTA` (25.00 %); `owner_override_reason = ownership_changed`; `owner_override_note = "Unit transferred to O-ALPHA after the stay; contract ref TEST-OWN-01"`; agreed `3900.00` |
-| **Steps** | 1. Reach step 5. 2. Observe the default owner `O-ALPHA` and the mandatory confirmation control. 3. Choose "credit a different owner", select `O-DELTA`. 4. Supply reason and note. 5. Confirm the recomputed split. 6. Submit. |
-| **Expected — UI** | Override controls are visible **only** because the user holds `bookings:override_owner`; selecting an override forces reason and note; the owner/KAZA split recomputes on screen and is labelled server-authoritative |
-| **Expected — API** | `200 OK`; body echoes `ownerId = O-DELTA`, `ownerOverrideReason`, and the snapshot triple |
-| **Expected — DB** | `owner_id = O-DELTA`; `owner_override_reason` and `owner_override_note` populated; `is_historical = true` |
-| **Expected — Audit** | One status-history row **plus** the `booking.historical.owner_override` audit event carrying before (`O-ALPHA`) and after (`O-DELTA`) owner, reason and actor |
-| **Expected — Financial** | `agreed_amount = 3900.00`, unchanged by the override |
-| **Expected — Owner** | `snapshot_commission_rate = 25.00`; `snapshot_kaza_amount = 975.00`; `snapshot_owner_amount = 2925.00`; sum = 3 900.00. The split is recomputed **server-side** and any client-supplied split is ignored |
+| **Preconditions** | `A-HIST-CORR` signed in; a historical booking is attributed to `O-ALPHA`; no payout exists; an offline-reviewed fact supports `O-DELTA` |
+| **Test data** | Target `O-DELTA`; reason `ownership_changed_after_stay`; unique correction key |
+| **Steps** | 1. Create the booking normally. 2. Open the read-only owner review. 3. Submit the separate correction command with reason. |
+| **Expected — UI** | Creation has no owner override control. The later correction surface appears only with `bookings:correct_owner_attribution` and shows stable before/after IDs without a financial split |
+| **Expected — API** | Booking `200`, then correction `200` from the canonical HB-05 endpoint |
+| **Expected — DB** | `owner_id = O-DELTA`; exactly one immutable correction row; no owner fields are added to the creation payload |
+| **Expected — Audit** | Original creation history plus one `HistoricalOwnerAttributionCorrected` link; correction row carries previous/target IDs, trusted actor and reason |
+| **Expected — Financial** | `agreed_amount = base_amount = final_amount = 3900.00`; payments, invoices and payouts unchanged |
+| **Expected — Owner** | Attribution is `O-DELTA`; no commission or owner/KAZA split is inferred |
 | **Expected — Notification** | Count unchanged; no owner notification |
-| **Expected — Reporting** | Owner-attributed revenue accrues to `O-DELTA`, not `O-ALPHA`, in both the stay and recorded dimensions |
+| **Expected — Reporting** | Owner-attributed agreed amount moves to `O-DELTA`, not `O-ALPHA`, in both the stay and recorded dimensions; no commission share is inferred |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Booking row, override audit event, the exact split arithmetic, the permission claims present on the token |
+| **Diagnostics** | Booking row, correction chain, permission claim and before/after side-effect counts |
 
 #### SC-HAPPY-07 — Long historical stay crossing a month boundary with seasonal price divergence
 
@@ -540,17 +529,17 @@ row.
 | **Traceability** | REQ-05, REQ-18 · HB-04, HB-08 · INV-13, INV-15 |
 | **Preconditions** | `U-SEASONAL-1` has `SeasonalPricing` rows covering part of the stay window so the live reference price differs materially from the agreed amount |
 | **Test data** | unit `U-SEASONAL-1`; `check_in = D0 − 40`, `check_out = D0 − 26` (14 nights spanning a month boundary); agreed `15000.00`; reference computed from live seasonal rows (expected ≠ 15 000.00) |
-| **Steps** | 1. Enter the long window. 2. Observe the reference price. 3. Enter the agreed amount. 4. Submit. |
-| **Expected — UI** | The reference price is displayed as a comparison only, visually subordinate, with an explicit "not used for this record" caption, and the divergence shown as an absolute and percentage delta |
-| **Expected — API** | `200 OK`; `agreedAmount` and `referenceAmount` both returned and distinct |
-| **Expected — DB** | `agreed_amount = 15000.00`; `final_amount = 15000.00`; `base_amount` = the computed reference |
-| **Expected — Audit** | One status-history row; the audit event records both the agreed and reference amounts so the divergence is explainable later |
+| **Steps** | 1. Enter the long window. 2. Observe the reference-only current price. 3. Enter the agreed amount. 4. Submit. |
+| **Expected — UI** | Any current-price reference is visually subordinate and explicitly not used for the record; it never pre-fills or rewrites the agreed amount |
+| **Expected — API** | `200 OK`; the canonical response returns the persisted agreed truth and does not add a `referenceAmount` contract |
+| **Expected — DB** | `agreed_amount = base_amount = final_amount = 15000.00`; no current or seasonal price is persisted as historical truth |
+| **Expected — Audit** | One status-history row records the agreed truth; no invented reference-price audit field exists |
 | **Expected — Financial** | `final_amount` follows the agreed amount, never the seasonal computation (`CalculatePricingAsync` at `UnitAvailabilityService.cs:125-169` is advisory here) |
-| **Expected — Owner** | Snapshot computed from `agreed_amount`: 15 000.00 at 15.00 % → KAZA 2 250.00, owner 12 750.00 |
+| **Expected — Owner** | Attribution remains `O-ALPHA`; no commission or owner/KAZA split is inferred |
 | **Expected — Notification** | Count unchanged |
 | **Expected — Reporting** | The stay-period dimension splits the nights across two calendar months; the recorded-period dimension places the whole record in today's bucket. Both must reconcile to the same total |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Seasonal rows in force, reference computation trace, month-split reporting output |
+| **Diagnostics** | Seasonal rows in force prove current pricing differs; persisted values and month-axis reporting still derive from the agreed truth |
 
 ---
 
@@ -902,7 +891,7 @@ row.
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Unchanged |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Block rows returned. `DECISION REQUIRED` — whether a **historical** stay should be blocked by a date block at all, given the block may have been added after the stay. **Reason:** blocks describe intent, not history. **Impact:** may wrongly refuse a genuine record. **Recommended default:** block in v1, with an explicit operator-visible message. **Decider:** Product owner (OQ-01). **Blocking:** no |
+| **Diagnostics** | Only current approved, non-deleted overlapping blocks participate. Exact IDs must be acknowledged; stale, duplicate, wrong-unit, pending, rejected or deleted IDs are rejected |
 
 #### SC-AVAIL-08 — Inactive but not deleted unit is **accepted**
 
@@ -1262,9 +1251,9 @@ row.
 | **Test data** | Body includes `createdByAdminUserId` / `changedByAdminUserId` naming `A-FIN` |
 | **Steps** | 1. `H-CREATE` with the injected actor. |
 | **Expected — UI** | n/a |
-| **Expected — API** | `200`, but the injected field is ignored |
-| **Expected — DB** | Booking created |
-| **Expected — Audit** | `changed_by_admin_user_id = A-HIST` — the **authenticated** principal, never the body value |
+| **Expected — API** | `400 VALIDATION_ERROR`; unknown actor fields are rejected |
+| **Expected — DB** | No booking created |
+| **Expected — Audit** | No event. A valid retry records `changed_by_admin_user_id = A-HIST` from claims only |
 | **Expected — Financial** | As entered |
 | **Expected — Owner** | Default |
 | **Expected — Notification** | Unchanged |
@@ -1299,16 +1288,16 @@ row.
 | **Priority · Category · Automate** | P0 · Security · YES (API) |
 | **Traceability** | REQ-05, REQ-08 · HB-04, HB-05 |
 | **Preconditions** | `A-HIST` authenticated |
-| **Test data** | Body supplies `snapshotOwnerAmount = 3900.00` and `snapshotKazaAmount = 0.00` against an agreed amount of 3 900.00 and a 15 % owner rate |
+| **Test data** | Body supplies invented `snapshotOwnerAmount`, `snapshotKazaAmount` and `commissionRate` fields |
 | **Steps** | 1. `H-CREATE`. |
-| **Expected — UI** | The split is displayed read-only, computed server-side |
-| **Expected — API** | `400` on the reconciliation invariant, or `200` with server-recomputed values — never the client's split |
-| **Expected — DB** | Stored split matches the server computation |
-| **Expected — Audit** | Audit event records the computed split |
-| **Expected — Financial** | Owner 3 315.00 / KAZA 585.00 |
-| **Expected — Owner** | Snapshot correct |
+| **Expected — UI** | No editable or calculated owner/KAZA split exists |
+| **Expected — API** | `400 VALIDATION_ERROR`; unknown financial fields are rejected |
+| **Expected — DB** | Nothing written |
+| **Expected — Audit** | None |
+| **Expected — Financial** | No split is fabricated |
+| **Expected — Owner** | No attribution change |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Correct commission |
+| **Expected — Reporting** | No historical commission result is fabricated |
 | **Cleanup** | Snapshot restore |
 | **Diagnostics** | Never trust a client-supplied split |
 
@@ -1358,19 +1347,19 @@ row.
 |---|---|
 | **Priority · Category · Automate** | P0 · Security · YES (API) |
 | **Traceability** | REQ-07, REQ-11 · HB-02, HB-05 · INV-12, INV-14 |
-| **Preconditions** | `A-HIST` lacks `bookings:override_owner` |
+| **Preconditions** | `A-HIST` lacks `bookings:correct_owner_attribution` |
 | **Test data** | Body includes a bare top-level `ownerId = O-BETA`, plus `bookingStatus = "Confirmed"` and `isHistorical = false` |
-| **Steps** | 1. `H-CREATE`. |
+| **Steps** | 1. `H-CREATE` with protected fields. 2. On an existing historical booking, call the correction endpoint as `A-HIST`. |
 | **Expected — UI** | n/a |
-| **Expected — API** | Under HB-02: the injected owner field is rejected as unknown and can never influence the persisted owner. Under HB-05: `403 OWNER_OVERRIDE_FORBIDDEN` when the owner differs from the unit's and the caller lacks `bookings:override_owner` |
-| **Expected — DB** | `owner_id = O-ALPHA` (the unit's owner), `booking_status = 'completed'`, `is_historical = true` |
-| **Expected — Audit** | Attribution records no override |
-| **Expected — Financial** | Correct for `O-ALPHA` |
-| **Expected — Owner** | Unit owner retained |
+| **Expected — API** | Creation payload is `400 VALIDATION_ERROR`; separate correction is the existing policy-system `403` with no invented business code |
+| **Expected — DB** | No row from the invalid creation; existing booking attribution unchanged after the unauthorized correction |
+| **Expected — Audit** | No success event |
+| **Expected — Financial** | Unchanged |
+| **Expected — Owner** | Existing attribution retained |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Attributed to `O-ALPHA` |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Confirms owner travels only inside the validated attribution object |
+| **Diagnostics** | Confirms owner correction exists only on its dedicated endpoint and authorization policy |
 
 #### SC-SEC-12 — Audit immutability
 
@@ -1410,7 +1399,7 @@ row.
 | **Expected — DB** | `agreed_amount = base_amount = final_amount = 3900.00`; current pricing is not persisted into the historical snapshot |
 | **Expected — Audit** | Audit event records the agreed truth |
 | **Expected — Financial** | Balance computed from 3 900.00 |
-| **Expected — Owner** | Split computed from 3 900.00 |
+| **Expected — Owner** | Attribution unchanged; no split or payout is fabricated |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Revenue 3 900.00 |
 | **Cleanup** | Snapshot restore |
@@ -1430,7 +1419,7 @@ row.
 | **Expected — DB** | `agreed_amount` and `final_amount` unchanged |
 | **Expected — Audit** | No amount-change entry |
 | **Expected — Financial** | Balance unchanged |
-| **Expected — Owner** | Split unchanged |
+| **Expected — Owner** | Attribution unchanged; no split exists to recalculate |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Historical revenue unchanged |
 | **Cleanup** | Restore the price |
@@ -1451,7 +1440,7 @@ row.
 | **Expected — DB** | `agreed_amount`, `base_amount` and `final_amount` all still 3 900.00 — **not** recomputed to 4 500.00 |
 | **Expected — Audit** | The notes change is recorded; no financial-change entry |
 | **Expected — Financial** | Balance unchanged |
-| **Expected — Owner** | Snapshot unchanged |
+| **Expected — Owner** | Attribution unchanged |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Unchanged |
 | **Cleanup** | Snapshot restore |
@@ -1480,97 +1469,97 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Traceability** | REQ-05 · HB-04 |
 | **Preconditions** | `U-SEASONAL-1` has a seasonal row covering the historical window |
 | **Test data** | Historical stay inside the seasonal period |
-| **Steps** | 1. `H-CREATE`, observing the computed reference. |
-| **Expected — UI** | The reference reflects the seasonal rate for those nights |
-| **Expected — API** | `200` |
-| **Expected — DB** | Agreed amount as entered |
-| **Expected — Audit** | Both figures recorded |
+| **Steps** | 1. `H-CREATE` while the live seasonal price differs from the supplied agreed amount. |
+| **Expected — UI** | Any current-price reference remains advisory and cannot populate the agreed amount |
+| **Expected — API** | `200` with the persisted agreed truth and no new reference-price response field |
+| **Expected — DB** | `agreed_amount = base_amount = final_amount` as entered; no live-price value is persisted |
+| **Expected — Audit** | The agreed truth is recorded; no invented reference-price field is written |
 | **Expected — Financial** | Agreed amount authoritative |
-| **Expected — Owner** | Split from the agreed amount |
+| **Expected — Owner** | Attribution unchanged; no financial split is inferred |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Agreed amount |
 | **Cleanup** | Snapshot restore |
 | **Diagnostics** | `CalculatePricingAsync` is date-ranged (`UnitAvailabilityService.cs:136-148`) so past seasonal rows still apply, but `BasePricePerNight` is today's — the reference is therefore only partly historical, which is exactly why the agreed amount exists |
 
-#### SC-FIN-05 — Commission snapshot is captured at creation
+#### SC-FIN-05 — Owner attribution does not fabricate a financial split
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Financial · YES (xUnit) |
 | **Traceability** | REQ-08 · HB-04, HB-05 · INV-14 |
-| **Preconditions** | `O-ALPHA.CommissionRate = 15.00` |
+| **Preconditions** | `O-ALPHA.CommissionRate = 15.00`; historical creation is otherwise valid |
 | **Test data** | `agreed_amount = 3900.00` |
 | **Steps** | 1. `H-CREATE`. |
-| **Expected — UI** | Step 5 shows 15 %, owner 3 315.00, KAZA 585.00 |
-| **Expected — API** | `200` with the split echoed |
-| **Expected — DB** | `snapshot_commission_rate = 15.00`, `snapshot_owner_amount = 3315.00`, `snapshot_kaza_amount = 585.00` |
-| **Expected — Audit** | Split recorded |
-| **Expected — Financial** | Reconciles to the agreed amount |
+| **Expected — UI** | Owner review shows attribution only; no calculated split |
+| **Expected — API** | `200` without invented commission/split fields |
+| **Expected — DB** | `owner_id = O-ALPHA`; `agreed_amount = base_amount = final_amount = 3900.00`; no split columns or payout row |
+| **Expected — Audit** | Creation records owner identity, not inferred commission economics |
+| **Expected — Financial** | Agreed truth remains authoritative |
 | **Expected — Owner** | `O-ALPHA` |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Commission 585.00 |
+| **Expected — Reporting** | No fabricated commission amount |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Without a snapshot, commission is read live from the mutable `Owner.CommissionRate` (`Owner.cs:13`) and frozen only at payout (`OwnerPayoutService.cs:114`) |
+| **Diagnostics** | Prevents the planning layer from claiming a booking commission snapshot that the post-0061 schema does not contain |
 
-#### SC-FIN-06 — Commission snapshot survives an owner rate change
+#### SC-FIN-06 — Owner rate changes do not rewrite booking financial truth
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Financial · YES (xUnit + integration) |
 | **Traceability** | REQ-08 · HB-05 · INV-14 |
-| **Preconditions** | Historical booking recorded at 15 % |
+| **Preconditions** | Historical booking attributed to an owner whose rate is 15 % |
 | **Test data** | Change `O-ALPHA.CommissionRate` to 25 % |
 | **Steps** | 1. Change the rate. 2. Re-read the booking. 3. Create the payout. |
-| **Expected — UI** | Booking still shows 15 % |
-| **Expected — API** | Unchanged |
-| **Expected — DB** | Snapshot still 15.00 / 3 315.00 / 585.00 |
+| **Expected — UI** | Booking agreed amount and owner ID are unchanged; no historical rate is invented |
+| **Expected — API** | Protected booking response unchanged except any live owner profile viewed separately |
+| **Expected — DB** | `agreed_amount`, `base_amount`, `final_amount` and `owner_id` unchanged |
 | **Expected — Audit** | No change entry |
-| **Expected — Financial** | Unchanged |
-| **Expected — Owner** | Payout uses the snapshot, not the new 25 % |
+| **Expected — Financial** | Booking truth unchanged; no payout is created |
+| **Expected — Owner** | Attribution unchanged |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Commission unchanged |
+| **Expected — Reporting** | No historical commission total is inferred from the changed live rate |
 | **Cleanup** | Restore the rate |
 | **Diagnostics** | Targets `RISK-03` |
 
-#### SC-FIN-07 — Reconciliation invariant
+#### SC-FIN-07 — Historical evidence reconciliation invariant
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | P0 · Financial · YES (xUnit) |
-| **Traceability** | REQ-05, REQ-08 · HB-04 |
-| **Preconditions** | Any historical booking |
-| **Test data** | Several agreed amounts including ones that do not divide evenly |
-| **Steps** | 1. Create each. 2. Assert the invariant. |
-| **Expected — UI** | Split always sums to the agreed amount |
-| **Expected — API** | `200` |
-| **Expected — DB** | `snapshot_owner_amount + snapshot_kaza_amount = agreed_amount` exactly |
-| **Expected — Audit** | Recorded |
-| **Expected — Financial** | No lost cents |
-| **Expected — Owner** | Correct |
+| **Traceability** | REQ-05, REQ-06 · HB-04 |
+| **Preconditions** | Any historical booking with zero or more HB-04B evidence rows |
+| **Test data** | Several agreed amounts and cumulative payment totals |
+| **Steps** | 1. Create each booking. 2. Record permitted evidence. 3. Assert the invariant. |
+| **Expected — UI** | Remaining evidence amount never becomes negative |
+| **Expected — API** | Valid totals `200`; excess returns `409 HISTORICAL_PAYMENT_EXCEEDS_AGREED_AMOUNT` |
+| **Expected — DB** | `agreed_amount = base_amount = final_amount` and `SUM(historical evidence) <= agreed_amount` exactly |
+| **Expected — Audit** | One event per successful command |
+| **Expected — Financial** | No over-recording or lost cents |
+| **Expected — Owner** | Unchanged |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Reconciles |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Subject to the fee/tax decision in [OQ-06](00_MASTER_PLAN.md#32-open-questions) |
+| **Diagnostics** | Uses decimal arithmetic and standalone evidence, never invoice-linked totals |
 
-#### SC-FIN-08 — Rounding
+#### SC-FIN-08 — Decimal precision boundaries
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | P1 · Financial · YES (xUnit) |
 | **Traceability** | REQ-05 · HB-04 |
-| **Preconditions** | Commission rate producing a half-cent, e.g. 3 333.33 at 15 % |
-| **Test data** | `agreed_amount = 3333.33`, rate 15.00 |
-| **Steps** | 1. `H-CREATE`. 2. Inspect the split. |
-| **Expected — UI** | Two-decimal display |
-| **Expected — API** | `200` |
-| **Expected — DB** | Both amounts `DECIMAL(12,2)`; the pair still sums exactly to the agreed amount |
-| **Expected — Audit** | Recorded |
-| **Expected — Financial** | No rounding drift |
-| **Expected — Owner** | Correct |
+| **Preconditions** | None |
+| **Test data** | Valid two-decimal amounts and invalid over-scale values for booking and payment commands |
+| **Steps** | 1. Submit valid boundary values. 2. Submit values with more than two decimal places. |
+| **Expected — UI** | Two-decimal input/display |
+| **Expected — API** | Valid commands `200`; over-scale values return `400 VALIDATION_ERROR` or the command-specific amount code |
+| **Expected — DB** | PostgreSQL `DECIMAL(12,2)` stores accepted values exactly; invalid values create no row |
+| **Expected — Audit** | Only accepted commands record events |
+| **Expected — Financial** | No binary floating-point or silent rounding drift |
+| **Expected — Owner** | Unchanged |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Reconciles |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | State the rounding mode explicitly; the residual cent must be assigned deterministically, not dropped |
+| **Diagnostics** | No commission-split rounding rule is introduced by Historical Bookings v1 |
 
 #### SC-FIN-09 — Negative amount rejected
 
@@ -1603,10 +1592,10 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | Confirmation prompt for a zero-value stay |
 | **Expected — API** | `200` — zero is legal (`>= 0`), unlike negative |
-| **Expected — DB** | Amount 0.00; split 0.00 / 0.00 |
+| **Expected — DB** | `agreed_amount = base_amount = final_amount = 0.00`; no split fields exist |
 | **Expected — Audit** | Recorded |
 | **Expected — Financial** | Balance 0.00 |
-| **Expected — Owner** | Zero entitlement |
+| **Expected — Owner** | Attribution only; no entitlement is inferred |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Zero revenue, one occupancy record |
 | **Cleanup** | Snapshot restore |
@@ -1620,23 +1609,23 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Traceability** | REQ-06 · HB-04 |
 | **Preconditions** | `agreed_amount = 3900.00` |
 | **Test data** | Payment of 5 000.00 |
-| **Steps** | 1. `H-CREATE` with the payment. |
-| **Expected — UI** | Warning showing the resulting negative balance |
-| **Expected — API** | `400` by default |
-| **Expected — DB** | Nothing written |
-| **Expected — Audit** | None |
+| **Steps** | 1. `H-CREATE`. 2. Call `H-PAY` for 5 000.00. |
+| **Expected — UI** | Booking remains successful; payment shows an actionable cumulative-total conflict |
+| **Expected — API** | Booking `200`; payment `409 HISTORICAL_PAYMENT_EXCEEDS_AGREED_AMOUNT` |
+| **Expected — DB** | Booking remains; no payment/history/payment-idempotency residue from the failed command |
+| **Expected — Audit** | Booking creation only |
 | **Expected — Financial** | No overpayment persisted |
 | **Expected — Owner** | None |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Unchanged |
 | **Cleanup** | None |
-| **Diagnostics** | `DECISION REQUIRED` — whether historical overpayment must be representable. **Reason:** overpayments occur and refunds are not representable (`ck_payments_amount_positive`). **Impact:** if blocked, a real overpayment cannot be recorded truthfully. **Recommended default:** reject in v1 and record the true amount. **Decider:** Finance (OQ-02). **Blocking:** no |
+| **Diagnostics** | PAY-06 owner-approved rule: cumulative historical evidence may equal but never exceed `agreed_amount` |
 
 #### SC-FIN-12 — Currency
 
 | | |
 |---|---|
-| **Priority · Category · Automate** | P2 · Financial · NO (blocked) |
+| **Priority · Category · Automate** | P2 · Financial · YES (contract) |
 | **Traceability** | REQ-05 · HB-04 |
 | **Preconditions** | None |
 | **Test data** | A booking intended in a non-default currency |
@@ -1650,7 +1639,7 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Single currency |
 | **Cleanup** | None |
-| **Diagnostics** | `BLOCKED` — no currency model exists anywhere in the schema. **Reason:** never modelled. **Impact:** multi-currency historical bookings are unrepresentable. **Recommended default:** assume single currency and document it. **Decider:** Finance ([OQ-05](00_MASTER_PLAN.md#32-open-questions)). **Blocking:** no for v1 |
+| **Diagnostics** | Owner-approved v1 single-currency boundary: no currency override or redesign is permitted |
 
 ---
 
@@ -1676,7 +1665,7 @@ already-created booking; it removes only that command's payment, audit event and
 | **Expected — DB** | One booking, zero payments |
 | **Expected — Audit** | One history row |
 | **Expected — Financial** | Outstanding = agreed amount |
-| **Expected — Owner** | Split unaffected |
+| **Expected — Owner** | Attribution unchanged; no payout is created |
 | **Expected — Notification** | Unchanged — no outstanding-balance alert, because that fires only from the sweep job |
 | **Expected — Reporting** | Outstanding balance reported |
 | **Cleanup** | Snapshot restore |
@@ -1690,13 +1679,13 @@ already-created booking; it removes only that command's payment, audit event and
 | **Traceability** | REQ-06 · HB-04 |
 | **Preconditions** | Clean window |
 | **Test data** | 1 000.00 cash at `PAID-AT` against 3 900.00 |
-| **Steps** | 1. `H-CREATE` with the payment. |
-| **Expected — UI** | Balance 2 900.00 |
-| **Expected — API** | `200` |
-| **Expected — DB** | One payment, `payment_status = 'paid'`, `paid_at = PAID-AT` |
-| **Expected — Audit** | Payment actor recorded |
+| **Steps** | 1. `H-CREATE` without payment. 2. Call the HB-04B payment endpoint with its own key. |
+| **Expected — UI** | Booking success, then payment success; balance 2 900.00 |
+| **Expected — API** | Two `200` responses |
+| **Expected — DB** | One booking and one immutable historical payment, `payment_status = 'paid'`, `paid_at = PAID-AT`, `invoice_id = NULL` |
+| **Expected — Audit** | One booking creation event and one `HistoricalPaymentRecorded` event |
 | **Expected — Financial** | Outstanding 2 900.00 |
-| **Expected — Owner** | Split unaffected by payment state |
+| **Expected — Owner** | Attribution unchanged; evidence does not create or alter a payout |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Payment at `PAID-AT` |
 | **Cleanup** | Snapshot restore |
@@ -1710,13 +1699,13 @@ already-created booking; it removes only that command's payment, audit event and
 | **Traceability** | REQ-06 · HB-04 |
 | **Preconditions** | Clean window |
 | **Test data** | 3 900.00 bank transfer at `PAID-AT` |
-| **Steps** | 1. `H-CREATE`. |
-| **Expected — UI** | Balance 0.00, marked settled |
-| **Expected — API** | `200` |
-| **Expected — DB** | One payment of 3 900.00 |
-| **Expected — Audit** | Recorded |
+| **Steps** | 1. `H-CREATE`. 2. Record 3 900.00 through HB-04B with a distinct key. |
+| **Expected — UI** | Booking success followed by evidence success; historical evidence total 3 900.00 |
+| **Expected — API** | Two `200` responses |
+| **Expected — DB** | One unlinked immutable historical payment of 3 900.00 |
+| **Expected — Audit** | Separate booking and payment events |
 | **Expected — Financial** | Outstanding 0.00 |
-| **Expected — Owner** | Split unchanged |
+| **Expected — Owner** | Attribution unchanged; no payout is created |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Fully-paid historical booking |
 | **Cleanup** | Snapshot restore |
@@ -1730,11 +1719,11 @@ already-created booking; it removes only that command's payment, audit event and
 | **Traceability** | REQ-06 · HB-04 |
 | **Preconditions** | Clean window |
 | **Test data** | Two payments: 1 000.00 cash at `PAID-AT`, 1 500.00 wallet two days later |
-| **Steps** | 1. `H-CREATE` with both. |
-| **Expected — UI** | Running balance 1 400.00 |
-| **Expected — API** | `200` with two payments |
-| **Expected — DB** | Two payment rows, distinct `paid_at` values |
-| **Expected — Audit** | Both recorded with actor |
+| **Steps** | 1. `H-CREATE`. 2. Call HB-04B twice with distinct idempotency keys. |
+| **Expected — UI** | Booking success, then two evidence successes; running external-evidence amount 2 500.00 |
+| **Expected — API** | Three `200` responses |
+| **Expected — DB** | Two immutable unlinked payment rows with distinct `paid_at` values |
+| **Expected — Audit** | One booking event and two payment events with trusted actors |
 | **Expected — Financial** | Outstanding 1 400.00 |
 | **Expected — Owner** | Unchanged |
 | **Expected — Notification** | Unchanged |
@@ -1790,7 +1779,7 @@ already-created booking; it removes only that command's payment, audit event and
 | **Traceability** | REQ-06 · HB-04 |
 | **Preconditions** | `A-HIST` authenticated |
 | **Test data** | Any historical payment |
-| **Steps** | 1. `H-CREATE` with a payment. 2. Inspect the payment row. |
+| **Steps** | 1. `H-CREATE`. 2. Call HB-04B as `A-HIST`. 3. Inspect the payment row. |
 | **Expected — UI** | The recorded-by actor is visible on the payment |
 | **Expected — API** | `200` |
 | **Expected — DB** | `payments.created_by_admin_user_id = A-HIST` |
@@ -1802,25 +1791,25 @@ already-created booking; it removes only that command's payment, audit event and
 | **Cleanup** | Snapshot restore |
 | **Diagnostics** | Closes the F-12 gap — `Payment` has no actor column today |
 
-#### SC-PAY-08 — Payment failure rolls back the booking
+#### SC-PAY-08 — Payment failure preserves the booking and rolls back the payment command
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Payments · YES (integration, real Postgres only) |
 | **Traceability** | REQ-19 · HB-02, HB-04 · INV-05, INV-06 |
-| **Preconditions** | Fault injection on the payment insert |
-| **Test data** | Valid booking plus a payment engineered to fail |
-| **Steps** | 1. `H-CREATE`. 2. Force the payment insert to fail. |
-| **Expected — UI** | Error; nothing appears in the booking list |
-| **Expected — API** | `500` or a mapped error; not `200` |
-| **Expected — DB** | **No** booking row and **no** payment row |
-| **Expected — Audit** | No history row |
-| **Expected — Financial** | Nothing |
-| **Expected — Owner** | Nothing |
+| **Preconditions** | A successful historical booking; fault injection on the separate payment insert |
+| **Test data** | Valid HB-04B command engineered to fail |
+| **Steps** | 1. `H-CREATE` successfully. 2. Force the HB-04B payment command to fail. |
+| **Expected — UI** | Booking remains successful; payment-only retry is offered |
+| **Expected — API** | Booking `200`; payment mapped failure, not `200` |
+| **Expected — DB** | Booking and its original history remain; no payment, payment-history or payment-idempotency residue |
+| **Expected — Audit** | Exactly the original booking event; no payment event |
+| **Expected — Financial** | Snapshot unchanged; no evidence amount recorded |
+| **Expected — Owner** | Booking attribution unchanged |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Unchanged |
 | **Cleanup** | None needed |
-| **Diagnostics** | The strongest atomicity assertion in the pack. Cannot run on InMemory (`TransactionIgnoredWarning`) |
+| **Diagnostics** | Proves command-local atomicity under the owner-approved two-phase contract; real PostgreSQL only |
 
 #### SC-PAY-09 — No gateway is contacted
 
@@ -1830,7 +1819,7 @@ already-created booking; it removes only that command's payment, audit event and
 | **Traceability** | REQ-06, REQ-13 · HB-04, HB-07 |
 | **Preconditions** | Outbound HTTP monitored |
 | **Test data** | Any historical payment |
-| **Steps** | 1. `H-CREATE` with a payment. 2. Inspect outbound calls. |
+| **Steps** | 1. `H-CREATE`. 2. Record evidence through HB-04B. 3. Inspect outbound calls. |
 | **Expected — UI** | No payment-link control exists |
 | **Expected — API** | `200` |
 | **Expected — DB** | Payment persisted locally |
@@ -1846,45 +1835,45 @@ already-created booking; it removes only that command's payment, audit event and
 
 ## Group 8 — Owner accounting (`SC-OWN-nn`)
 
-#### SC-OWN-01 — Current owner confirmed without override
+#### SC-OWN-01 — Read-only owner attribution review
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | P0 · Owner · YES (xUnit + Playwright) |
 | **Traceability** | REQ-07 · HB-05 · INV-14 |
-| **Preconditions** | `U-ACTIVE-1` owned by `O-ALPHA` |
-| **Test data** | No override |
-| **Steps** | 1. Reach step 5. 2. Review the attribution. 3. Confirm. 4. Submit. |
-| **Expected — UI** | Step 5 shows unit, owner, rate, owner share, KAZA share, stay dates, and the no-ownership-history warning; submission is impossible until confirmed |
-| **Expected — API** | `200` |
-| **Expected — DB** | `owner_id = O-ALPHA`; no override fields set |
-| **Expected — Audit** | Attribution event with `override_used = false` |
-| **Expected — Financial** | Split from the snapshot |
-| **Expected — Owner** | `O-ALPHA` credited |
+| **Preconditions** | Historical booking attributed to `O-ALPHA` |
+| **Test data** | Read-only review request |
+| **Steps** | 1. Open the HB-05 owner-attribution review. 2. Inspect values and capabilities. |
+| **Expected — UI** | Persisted attribution IDs, warning codes and capabilities; no browser financial calculation or owner PII |
+| **Expected — API** | `200` from the review endpoint |
+| **Expected — DB** | No write |
+| **Expected — Audit** | No event for a read |
+| **Expected — Financial** | No financial values inferred or changed |
+| **Expected — Owner** | Persisted attribution is `O-ALPHA` |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Revenue to `O-ALPHA` |
 | **Cleanup** | Snapshot restore |
 | **Diagnostics** | Confirmation must be an explicit act, not a default |
 
-#### SC-OWN-02 — Unit owner changed after the stay; authorized override to the previous owner
+#### SC-OWN-02 — Privileged correction to the previous owner
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Owner · YES (xUnit + Playwright) |
 | **Traceability** | REQ-07 · HB-05 · INV-14 |
-| **Preconditions** | `U-ACTIVE-2` now owned by `O-GAMMA`; during the stay it was `O-BETA`. `A-HIST-OVR` holds `bookings:override_owner` |
-| **Test data** | Override to `O-BETA`, reason `ownership_changed_after_stay`, evidence note supplied |
-| **Steps** | 1. Reach step 5. 2. Override to `O-BETA`. 3. Supply reason and note. 4. Confirm and submit. |
-| **Expected — UI** | Before/after attribution shown side by side; reason and note mandatory |
+| **Preconditions** | Historical booking attributed to `O-GAMMA`, no payout; actor holds `bookings:correct_owner_attribution` |
+| **Test data** | Review returns `expectedCurrentOwnerId = O-GAMMA`; correct to `O-BETA`, reason `ownership_changed_after_stay`, unique key |
+| **Steps** | 1. Submit the dedicated correction command with the reviewed expected ID. 2. Replay it with the same key. |
+| **Expected — UI** | Before/after attribution shown in a separate correction flow |
 | **Expected — API** | `200` |
-| **Expected — DB** | `owner_id = O-BETA`; override reason and note persisted |
-| **Expected — Audit** | Event records current unit owner `O-GAMMA`, final owner `O-BETA`, `override_used = true`, reason, note, actor |
-| **Expected — Financial** | Split from `O-BETA`'s rate |
-| **Expected — Owner** | `O-BETA` credited, not `O-GAMMA` |
+| **Expected — DB** | `owner_id = O-BETA`; exactly one immutable correction row |
+| **Expected — Audit** | Previous/target owner, actor, reason, timestamp and correction ID; replay adds nothing |
+| **Expected — Financial** | Agreed/base/final amounts, payments, invoices and payouts unchanged |
+| **Expected — Owner** | Persisted attribution is `O-BETA`, not `O-GAMMA` |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Revenue to `O-BETA` |
+| **Expected — Reporting** | Owner-attributed agreed amount moves to `O-BETA`; no commission share is inferred |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | The core reason the override exists — targets `RISK-02` |
+| **Diagnostics** | The core reason the separate correction command exists — targets `RISK-02` |
 
 #### SC-OWN-03 — Owner attribution is immutable after a later unit-owner change
 
@@ -1906,17 +1895,17 @@ already-created booking; it removes only that command's payment, audit event and
 | **Cleanup** | Restore ownership |
 | **Diagnostics** | Every code path that could resync `Booking.OwnerId` from `Unit.OwnerId` must be audited |
 
-#### SC-OWN-04 — Unauthorized override attempt
+#### SC-OWN-04 — Unauthorized correction attempt
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Owner · YES (API) |
 | **Traceability** | REQ-07, REQ-11 · HB-05 · INV-10 |
-| **Preconditions** | `A-HIST` holds record but **not** override |
-| **Test data** | `ownerId` / `ownerAttribution.ownerId = O-BETA` on a unit owned by `O-ALPHA`. Under the HB-02 v1 contract neither field exists, so this is an unknown-field injection ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)); once HB-05 ships it becomes a genuine override attempt |
-| **Steps** | 1. `H-CREATE` as `A-HIST`. |
-| **Expected — UI** | The override control is not rendered; the owner is read-only with an escalation message |
-| **Expected — API** | `403 OWNER_OVERRIDE_FORBIDDEN` |
+| **Preconditions** | Actor lacks `bookings:correct_owner_attribution` |
+| **Test data** | Valid correction target and reason |
+| **Steps** | 1. Call the dedicated correction endpoint. |
+| **Expected — UI** | The correction control is not rendered; the owner is read-only with an escalation message |
+| **Expected — API** | Existing authorization-system `403` |
 | **Expected — DB** | Nothing written |
 | **Expected — Audit** | Refusal logged |
 | **Expected — Financial** | Nothing |
@@ -1926,17 +1915,17 @@ already-created booking; it removes only that command's payment, audit event and
 | **Cleanup** | None |
 | **Diagnostics** | Browser manipulation must not enable it — the server is authoritative |
 
-#### SC-OWN-05 — Non-existent owner
+#### SC-OWN-05 — Non-existent correction target owner
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | P1 · Owner · YES (API) |
 | **Traceability** | REQ-07 · HB-05 |
-| **Preconditions** | `A-HIST-OVR` authenticated |
-| **Test data** | A random GUID as the override owner |
-| **Steps** | 1. `H-CREATE`. |
+| **Preconditions** | Authorized correction actor; historical booking with no payout |
+| **Test data** | Random target owner GUID |
+| **Steps** | 1. Call the correction endpoint. |
 | **Expected — UI** | Owner not selectable |
-| **Expected — API** | `400` or `404` |
+| **Expected — API** | `404 OWNER_CORRECTION_TARGET_NOT_FOUND` |
 | **Expected — DB** | Nothing |
 | **Expected — Audit** | None |
 | **Expected — Financial** | Nothing |
@@ -1946,19 +1935,19 @@ already-created booking; it removes only that command's payment, audit event and
 | **Cleanup** | None |
 | **Diagnostics** | An owner is never accepted merely because a caller supplied a GUID |
 
-#### SC-OWN-06 — Cross-portfolio owner injection
+#### SC-OWN-06 — Inactive target warning and deleted target rejection
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Owner · YES (API) |
 | **Traceability** | REQ-07, REQ-11 · HB-05 · INV-12 |
-| **Preconditions** | `A-HIST-OVR` scoped to one portfolio; an owner exists in another |
-| **Test data** | Override to the out-of-scope owner |
-| **Steps** | 1. `H-CREATE`. |
-| **Expected — UI** | Owner not listed |
-| **Expected — API** | `404 not_found` or `403` |
-| **Expected — DB** | Nothing |
-| **Expected — Audit** | Refusal logged |
+| **Preconditions** | Authorized actor; no payout; one inactive and one soft-deleted owner |
+| **Test data** | One correction per target |
+| **Steps** | 1. Correct to inactive target. 2. Attempt a deleted target on a fresh booking. |
+| **Expected — UI** | Inactive target carries a warning; deleted target is unavailable |
+| **Expected — API** | `200` with warning, then `409 OWNER_CORRECTION_TARGET_INVALID` |
+| **Expected — DB** | First correction persisted; second leaves no correction row |
+| **Expected — Audit** | Exactly one success event |
 | **Expected — Financial** | Nothing |
 | **Expected — Owner** | Nothing |
 | **Expected — Notification** | Unchanged |
@@ -1966,15 +1955,15 @@ already-created booking; it removes only that command's payment, audit event and
 | **Cleanup** | None |
 | **Diagnostics** | Revenue misattribution across portfolios would be a serious financial defect |
 
-#### SC-OWN-07 — Missing override reason
+#### SC-OWN-07 — Missing correction reason
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | P0 · Owner · YES (xUnit validator) |
 | **Traceability** | REQ-07 · HB-05 |
-| **Preconditions** | `A-HIST-OVR` authenticated |
-| **Test data** | Override supplied with no reason; and reason `other` with no note |
-| **Steps** | 1. `H-CREATE` for each case. |
+| **Preconditions** | Authorized correction actor |
+| **Test data** | Correction with no reason; and reason `other` with no note |
+| **Steps** | 1. Call the correction endpoint for each case. |
 | **Expected — UI** | Field errors |
 | **Expected — API** | `400 VALIDATION_ERROR` |
 | **Expected — DB** | Nothing |
@@ -1984,19 +1973,19 @@ already-created booking; it removes only that command's payment, audit event and
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Unchanged |
 | **Cleanup** | None |
-| **Diagnostics** | An unexplained override is indistinguishable from a mistake |
+| **Diagnostics** | An unexplained correction is indistinguishable from a mistake |
 
-#### SC-OWN-08 — Uncertain ownership blocks creation
+#### SC-OWN-08 — Uncertain ownership blocks without a caller determinability flag
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Owner · YES (Playwright + API) |
 | **Traceability** | REQ-07 · HB-05 · INV-17 |
-| **Preconditions** | `A-HIST-OVR` authenticated |
-| **Test data** | Operator selects "ownership cannot be confidently determined" |
-| **Steps** | 1. Reach step 5. 2. Mark ownership uncertain. 3. Attempt to submit. |
-| **Expected — UI** | Submission is blocked with a clear decision-required message; no silent default to the unit owner |
-| **Expected — API** | `400 OWNER_ATTRIBUTION_REQUIRED` if forced |
+| **Preconditions** | Repository state cannot determine one valid owner |
+| **Test data** | Review/creation request; attempt to inject a determinability field |
+| **Steps** | 1. Request review/create. 2. Attempt unknown-field injection. |
+| **Expected — UI** | Offline administrative-review guidance; no owner guess |
+| **Expected — API** | `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`; injected field rejected |
 | **Expected — DB** | **Nothing written** — no booking, no draft |
 | **Expected — Audit** | No booking audit |
 | **Expected — Financial** | Nothing |
@@ -2006,25 +1995,25 @@ already-created booking; it removes only that command's payment, audit event and
 | **Cleanup** | None |
 | **Diagnostics** | No draft workflow is invented — none exists in the repository. Wrong owner accounting is worse than no record |
 
-#### SC-OWN-09 — Payout uses the snapshot, not the live rate
+#### SC-OWN-09 — Existing payout blocks owner correction
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | P0 · Owner · YES (integration) |
 | **Traceability** | REQ-08 · HB-05 · INV-14 |
-| **Preconditions** | Historical booking snapshotted at 15 %; `O-ALPHA` since changed to 25 % |
-| **Test data** | Create the owner payout for that booking |
-| **Steps** | 1. Create the payout. 2. Inspect it. |
-| **Expected — UI** | Payout shows 15 % |
-| **Expected — API** | `200` |
-| **Expected — DB** | `owner_payouts.commission_rate = 15.00`; formula constraint satisfied |
-| **Expected — Audit** | Payout creation recorded |
-| **Expected — Financial** | Owner 3 315.00 |
-| **Expected — Owner** | Correct entitlement |
+| **Preconditions** | Historical booking has one payout in any allowed repository payout status |
+| **Test data** | Attempt correction to another eligible owner |
+| **Steps** | 1. Capture payout bytes. 2. Submit the HB-05 correction. 3. Compare state. |
+| **Expected — UI** | Administrative payout-review message |
+| **Expected — API** | `409 OWNER_CORRECTION_PAYOUT_REVIEW_REQUIRED` |
+| **Expected — DB** | Payout and booking attribution unchanged; no correction/idempotency completion row |
+| **Expected — Audit** | No success event |
+| **Expected — Financial** | Existing payout bit-for-bit unchanged |
+| **Expected — Owner** | Attribution unchanged |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Commission 585.00 |
+| **Expected — Reporting** | Unchanged |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | `DECISION REQUIRED` — whether payout creation should prefer the booking snapshot over the live owner rate for **all** bookings or only historical ones. **Reason:** the divergence exists for normal bookings too. **Impact:** inconsistent commission across booking types. **Recommended default:** prefer the snapshot when present. **Decider:** Finance (OQ-02). **Blocking:** no |
+| **Diagnostics** | HB-05 performs no payout correction or rate reconstruction |
 
 #### SC-OWN-10 — A paid payout is never silently mutated
 
@@ -2040,35 +2029,39 @@ already-created booking; it removes only that command's payment, audit event and
 | **Expected — DB** | The paid payout row is **byte-identical**; a new booking simply has no payout yet |
 | **Expected — Audit** | Only the new booking's audit |
 | **Expected — Financial** | Existing settlement untouched |
-| **Expected — Owner** | New entitlement pending separately |
+| **Expected — Owner** | New booking remains attributed to `O-ALPHA`; no payout or entitlement is generated automatically |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Both visible, independently |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | This is the scenario that proves F-03's consequence: because `ux_owner_payouts_booking_id` makes payouts **per booking**, there is no period to reopen. Correcting an already-paid payout remains `BLOCKED` ([OQ-07](00_MASTER_PLAN.md#32-open-questions)) |
+| **Diagnostics** | Because payouts are per booking, any existing payout blocks HB-05 correction; a future accounting-adjustment command requires separate owner ratification |
 
-#### SC-OWN-11 — An unrelated edit preserves the commission snapshot
+#### SC-OWN-11 — An unrelated edit preserves owner and financial truth
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Owner · YES (xUnit + integration) |
 | **Traceability** | REQ-08 · HB-05 · INV-14 |
-| **Preconditions** | Historical booking with `snapshot_commission_rate = 15.00`, owner `O-ALPHA` |
+| **Preconditions** | Historical booking with owner `O-ALPHA` and agreed amount `3900.00` |
 | **Test data** | Edit only the client contact details and the internal note via `B-UPDATE` |
-| **Steps** | 1. Perform the unrelated edit. 2. Re-read the booking and its snapshot. |
-| **Expected — UI** | Commission, owner share and KAZA share all unchanged |
+| **Steps** | 1. Perform the unrelated edit. 2. Re-read booking attribution and amounts. |
+| **Expected — UI** | Owner attribution and agreed amount unchanged |
 | **Expected — API** | `200` |
-| **Expected — DB** | `snapshot_commission_rate`, `snapshot_owner_amount`, `snapshot_kaza_amount` **all unchanged**; not recomputed from the current `Owner.CommissionRate` |
-| **Expected — Audit** | Only the edited fields recorded; no attribution or split change |
-| **Expected — Financial** | Split identical |
+| **Expected — DB** | `owner_id`, `agreed_amount`, `base_amount` and `final_amount` unchanged |
+| **Expected — Audit** | Only the edited fields recorded; no attribution correction |
+| **Expected — Financial** | Agreed truth identical |
 | **Expected — Owner** | `O-ALPHA` retained |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Commission unchanged |
+| **Expected — Reporting** | Attribution and amounts unchanged |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Pairs with `SC-FIN-03` (amount) and `SC-OWN-03` (owner id). Together the three prove that a routine edit cannot silently rewrite historical economics — the generic-update protection required by HB-05 |
+| **Diagnostics** | Pairs with `SC-FIN-03` and proves a routine edit cannot silently rewrite attribution or agreed truth |
 
 ---
 
 ## Group 9 — Notifications and integrations (`SC-NOTIF-nn`)
+
+**Binding HB-07 policy:** v1 emits no automatic internal or external notification, analytics event, outbox,
+webhook or scheduled side effect for booking creation, historical payment, or owner correction. Manual
+notification tools remain human-governed and unchanged.
 
 #### SC-NOTIF-01 — No client confirmation replay
 
@@ -2177,8 +2170,8 @@ already-created booking; it removes only that command's payment, audit event and
 | **Priority · Category · Automate** | P0 · Notifications · YES (integration with egress assertion) |
 | **Traceability** | REQ-13 · HB-07 |
 | **Preconditions** | Outbound HTTP and SMTP monitored |
-| **Test data** | A full historical creation with payment |
-| **Steps** | 1. `H-CREATE`. 2. Inspect all egress. |
+| **Test data** | Historical booking followed by a separate HB-04B payment command |
+| **Steps** | 1. `H-CREATE`. 2. Record payment evidence. 3. Inspect all egress. |
 | **Expected — UI** | n/a |
 | **Expected — API** | `200` |
 | **Expected — DB** | Local writes only |
@@ -2306,7 +2299,7 @@ already-created booking; it removes only that command's payment, audit event and
 | **Expected — UI** | n/a |
 | **Expected — API** | `200` |
 | **Expected — DB** | Normal |
-| **Expected — Audit** | Event carries booking id, unit id, actor, recorded-at, stay dates, agreement date, reason, source, owner id, override flag, commission snapshot |
+| **Expected — Audit** | Creation event carries booking id, unit id, actor, recorded-at, stay dates, agreement date, reason, source and owner id; later correction has its own immutable linked record |
 | **Expected — Financial** | Amounts present |
 | **Expected — Owner** | Attribution present |
 | **Expected — Notification** | Unchanged |
@@ -2396,7 +2389,7 @@ already-created booking; it removes only that command's payment, audit event and
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Correct |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Formula `(invoice.TotalAmount ?? booking.FinalAmount) − Σ paid` |
+| **Diagnostics** | Formula `bookings.agreed_amount − Σ payments.amount WHERE is_historical_record = true`; invoice-linked totals remain separate |
 
 #### SC-REP-05 — Occupancy is correct automatically
 
@@ -2418,7 +2411,7 @@ already-created booking; it removes only that command's payment, audit event and
 | **Cleanup** | Snapshot restore |
 | **Diagnostics** | The one reporting surface needing no work |
 
-#### SC-REP-06 — Owner portal finance overview and the invoice-linkage divergence
+#### SC-REP-06 — Standalone historical evidence is separate from invoice-linked totals
 
 | | |
 |---|---|
@@ -2426,17 +2419,17 @@ already-created booking; it removes only that command's payment, audit event and
 | **Traceability** | REQ-18 · HB-08 · INV-13 |
 | **Preconditions** | Historical booking with a payment **not** linked to an invoice |
 | **Test data** | Payment with `invoice_id = NULL` |
-| **Steps** | 1. Query `owner_portal_finance_overview`. 2. Query the C# finance service for the same booking. |
-| **Expected — UI** | Owner portal figures |
-| **Expected — API** | The two surfaces may disagree |
+| **Steps** | 1. Query finance/owner reports. 2. Compare invoice-linked and historical-evidence columns. |
+| **Expected — UI** | Clearly labelled separate totals |
+| **Expected — API** | Dedicated evidence count/amount; invoice-linked total excludes it |
 | **Expected — DB** | Payment exists with a null invoice link |
 | **Expected — Audit** | n/a |
-| **Expected — Financial** | SQL read models count paid money via `payments.invoice_id`; the C# services count all booking payments |
-| **Expected — Owner** | Owner may see a different total from the admin view |
+| **Expected — Financial** | Evidence amount appears exactly once in its dedicated column and never as invoice-linked paid |
+| **Expected — Owner** | No unsupported reconciliation or settlement claim |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | **Divergence must be measured and reported, not assumed benign** |
+| **Expected — Reporting** | Separate columns reconcile without double-counting |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | A pre-existing divergence surfaced by the audit; historical payments make it more likely because no invoice is auto-created |
+| **Diagnostics** | Manual invoices remain allowed, but historical evidence is never attached or included in invoice-linked totals |
 
 #### SC-REP-07 — Source and channel reporting
 
@@ -2444,12 +2437,12 @@ already-created booking; it removes only that command's payment, audit event and
 |---|---|
 | **Priority · Category · Automate** | P1 · Reporting · YES (SQL) |
 | **Traceability** | REQ-04, REQ-18 · HB-08 |
-| **Preconditions** | Historical booking with `original_source = walk_in` |
+| **Preconditions** | Historical booking with `source = 'admin'`, `original_source = 'offline_record'` |
 | **Test data** | As above |
 | **Steps** | 1. Query source reporting. |
 | **Expected — UI** | Channel breakdown |
 | **Expected — API** | n/a |
-| **Expected — DB** | `source` holds a legal generic value; `original_source` holds `walk_in` |
+| **Expected — DB** | `source = 'admin'`; `original_source = 'offline_record'` |
 | **Expected — Audit** | Both recorded |
 | **Expected — Financial** | n/a — attribution only |
 | **Expected — Owner** | n/a |
@@ -2462,25 +2455,28 @@ already-created booking; it removes only that command's payment, audit event and
 
 | | |
 |---|---|
-| **Priority · Category · Automate** | P2 · Reporting · NO (blocked) |
+| **Priority · Category · Automate** | P2 · Reporting · YES (inventory assertion) |
 | **Traceability** | REQ-18 · HB-08 |
 | **Preconditions** | Historical booking exists |
 | **Test data** | Attempt any CSV/PDF export |
 | **Steps** | 1. Enumerate export surfaces. |
-| **Expected — UI** | Unknown |
-| **Expected — API** | Unknown |
+| **Expected — UI** | Any discovered export uses the same filters and labels as the source report; absence is recorded explicitly |
+| **Expected — API** | Any discovered export route preserves the two reporting axes and historical evidence classification |
 | **Expected — DB** | n/a — read path |
 | **Expected — Audit** | n/a |
-| **Expected — Financial** | Unknown |
-| **Expected — Owner** | Unknown |
+| **Expected — Financial** | No evidence is counted as invoice-linked payment |
+| **Expected — Owner** | Uses persisted booking attribution |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Unknown |
+| **Expected — Reporting** | External-consumer inventory is complete before rollout; no unverified export is silently approved |
 | **Cleanup** | None |
-| **Diagnostics** | `BLOCKED` — no export path was identified in the audit. **Reason:** not verified. **Impact:** an unaudited export could misrepresent historical revenue. **Recommended default:** HB-08 confirms existence before release. **Decider:** Engineering. **Blocking:** no |
+| **Diagnostics** | This is a rollout inventory gate, not an unresolved product decision |
 
 ---
 
 ## Group 12 — UI and UX (`SC-UI-nn`)
+
+**Binding HB-06 policy:** the wizard is a full page. Booking creation succeeds first; optional HB-04B payment
+is a second permission-gated command. Payment failure preserves the booking and retries only payment.
 
 #### SC-UI-01 — Entry point is permission-gated
 
@@ -2677,14 +2673,14 @@ already-created booking; it removes only that command's payment, audit event and
 | **Steps** | 1. `H-CREATE` with the fault. |
 | **Expected — UI** | Error |
 | **Expected — API** | Non-2xx |
-| **Expected — DB** | **Neither** booking nor payment persists |
-| **Expected — Audit** | No history row |
-| **Expected — Financial** | Nothing |
-| **Expected — Owner** | Nothing |
+| **Expected — DB** | Booking and original history persist; no payment, payment-history or payment-idempotency residue |
+| **Expected — Audit** | Booking creation only |
+| **Expected — Financial** | Snapshot unchanged; no evidence amount |
+| **Expected — Owner** | Booking attribution unchanged |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Unchanged |
 | **Cleanup** | None |
-| **Policy dependence** | **This is the one scenario whose expectation depends on [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy).** The decided policy is a **separate privileged command**, so there is no single transaction spanning booking and payment. The binding assertion is therefore: the booking persists, the *separate* payment command fails atomically on its own, no partial payment row exists, and the booking is left in the legal `S-1` no-payment state until the payment is re-recorded. The alternative — inline entry, where neither would persist — is recorded only so the scenario can be re-baselined if the decision is ever revisited |
+| **Policy dependence** | D-PAY-01 is final: booking and payment are separate commands. Payment failure cannot roll back an already committed booking |
 | **Diagnostics** | Identical assertion to `SC-PAY-08`, viewed from the transaction layer |
 
 #### SC-TXN-04 — Timeout and retry safety
@@ -3096,7 +3092,7 @@ with a citation.
 | **Expected — DB** | n/a — read path |
 | **Expected — Audit** | n/a |
 | **Expected — Financial** | Count and value by stay month **and** by recorded month, both derivable |
-| **Expected — Owner** | Owner totals reconcile |
+| **Expected — Owner** | Owner-attributed booking counts and agreed totals reconcile |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | The two views differ by exactly the historical bookings recorded out of period |
 | **Cleanup** | None |
@@ -3248,10 +3244,10 @@ with a citation.
 | **Steps** | 1. `H-CREATE`. |
 | **Expected — UI** | The variance from the reference is displayed, not hidden |
 | **Expected — API** | `200` |
-| **Expected — DB** | `final_amount = 2000.00` |
-| **Expected — Audit** | Both figures recorded |
+| **Expected — DB** | `agreed_amount = base_amount = final_amount = 2000.00` |
+| **Expected — Audit** | The agreed truth is recorded; no computed reference is persisted |
 | **Expected — Financial** | Balance 2 000.00 |
-| **Expected — Owner** | Split from 2 000.00 |
+| **Expected — Owner** | Attribution unchanged; no owner/KAZA split is fabricated |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Revenue 2 000.00 |
 | **Cleanup** | Snapshot restore |
@@ -3271,11 +3267,11 @@ with a citation.
 | **Expected — DB** | `agreed_amount = 3900.00` as one figure |
 | **Expected — Audit** | The breakdown may be captured in the free-text note only |
 | **Expected — Financial** | Total correct; the breakdown is not machine-readable |
-| **Expected — Owner** | Split computed on the total |
+| **Expected — Owner** | No owner/KAZA split is fabricated |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | No fee dimension exists to report |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | `BLOCKED` — no fee, tax or discount column exists on `bookings`. **Reason:** never modelled. **Impact:** component-level historical reporting is impossible. **Recommended default:** fold into the total in v1 and document it. **Decider:** Finance ([OQ-06](00_MASTER_PLAN.md#32-open-questions)). **Blocking:** no |
+| **Diagnostics** | Owner-approved v1 boundary: fees, tax and discounts are represented only inside the agreed total and have no component reporting |
 
 ---
 
@@ -3299,63 +3295,63 @@ with a citation.
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Refund invisible |
 | **Cleanup** | None |
-| **Diagnostics** | `BLOCKED` — refunds are structurally unrepresentable. **Reason:** the CHECK constraint forbids non-positive amounts and no refund entity exists. **Impact:** a historical booking that was partly refunded cannot be recorded truthfully. **Recommended default:** record the **net** amount actually retained and explain it in the note. **Decider:** Finance ([OQ-02](00_MASTER_PLAN.md#32-open-questions)). **Blocking:** no for v1 |
+| **Diagnostics** | Owner-approved v1 boundary: correction/reversal/refund requires a future separately ratified command; HB-04B must not encode it as negative or net evidence |
 
 ---
 
 ## Group 8 continued — Owner accounting
 
-#### SC-OWN-12 — `Owner.CommissionRate` changes after creation
+#### SC-OWN-12 — Live owner profile changes do not rewrite attribution
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Owner · YES (xUnit + integration) |
 | **Traceability** | REQ-08 · HB-05 · INV-14 |
-| **Preconditions** | Historical booking snapshotted at 15 % |
-| **Test data** | Change `O-ALPHA.CommissionRate` to 30 % |
-| **Steps** | 1. Change the rate. 2. Re-read the booking and every derived surface. |
-| **Expected — UI** | Booking still shows 15 % |
-| **Expected — API** | Unchanged |
-| **Expected — DB** | `snapshot_commission_rate` still 15.00 |
+| **Preconditions** | Historical booking attributed to `O-ALPHA` |
+| **Test data** | Change an owner profile field, including `CommissionRate`, without invoking HB-05 |
+| **Steps** | 1. Change the owner profile. 2. Re-read the booking and every derived surface. |
+| **Expected — UI** | Persisted booking attribution remains `O-ALPHA`; no historical commission claim is displayed |
+| **Expected — API** | Booking owner ID and financial snapshot unchanged |
+| **Expected — DB** | `bookings.owner_id`, `agreed_amount`, `base_amount` and `final_amount` unchanged |
 | **Expected — Audit** | No change entry |
-| **Expected — Financial** | Owner and KAZA amounts unchanged |
-| **Expected — Owner** | Entitlement unchanged |
+| **Expected — Financial** | No booking financial field or payout changed |
+| **Expected — Owner** | Attribution unchanged |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Commission unchanged |
+| **Expected — Reporting** | Historical attribution remains based on the booking owner ID |
 | **Cleanup** | Restore the rate |
-| **Diagnostics** | Targets `RISK-03`; the owner-side counterpart of `SC-FIN-06` |
+| **Diagnostics** | Targets accidental resynchronization; no nonexistent commission snapshot is asserted |
 
-#### SC-OWN-13 — Owner and KAZA shares remain unchanged and reconcile
+#### SC-OWN-13 — Owner correction has no accounting side effects
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | P0 · Owner · YES (xUnit) |
 | **Traceability** | REQ-08 · HB-05 |
-| **Preconditions** | Historical booking with a full snapshot |
-| **Test data** | Several rates including 0 % and 100 % |
-| **Steps** | 1. Create each. 2. Assert the invariant and the bounds. |
-| **Expected — UI** | Split displayed read-only |
-| **Expected — API** | `200`; out-of-range rates `400` |
-| **Expected — DB** | `0 <= rate <= 100`; owner + KAZA = agreed amount; snapshot complete when `is_historical` |
-| **Expected — Audit** | Split recorded |
-| **Expected — Financial** | Reconciles exactly |
-| **Expected — Owner** | Correct entitlement |
+| **Preconditions** | Historical booking has no payout; actor is authorized for correction |
+| **Test data** | Correct from `O-ALPHA` to `O-BETA` |
+| **Steps** | 1. Capture booking financials and payment/invoice/payout counts. 2. Correct owner. 3. Compare. |
+| **Expected — UI** | Only attribution before/after is displayed |
+| **Expected — API** | `200` without financial split fields |
+| **Expected — DB** | Owner ID and immutable correction chain change; all financial rows and amounts remain identical |
+| **Expected — Audit** | One correction row and one concise history link |
+| **Expected — Financial** | No fabricated owner/KAZA calculation |
+| **Expected — Owner** | Attribution changes explicitly |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Commission reconciles |
+| **Expected — Reporting** | Owner attribution changes on owner-axis reports; totals do not change |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Mirrors the `ck_owner_payouts_commission_rate_range` bounds already used on payouts |
+| **Diagnostics** | Proves HB-05 is attribution-only and does not smuggle in payout reconciliation |
 
-#### SC-OWN-14 — Correction against a paid payout is refused
+#### SC-OWN-14 — Correction against any payout is refused
 
 | | |
 |---|---|
 | **Priority · Category · Automate** | **P0** · Owner · YES (integration) |
 | **Traceability** | REQ-07 · HB-05 · INV-09 |
-| **Preconditions** | A historical booking whose payout exists with `payout_status = 'paid'` |
-| **Test data** | Attempt an owner correction on that booking |
-| **Steps** | 1. Attempt the correction. |
-| **Expected — UI** | Refusal explaining that the settlement is already paid |
-| **Expected — API** | `409 OWNER_CORRECTION_SETTLEMENT_LOCKED` |
+| **Preconditions** | Historical bookings with `Pending`, `Scheduled`, `Paid` and `Cancelled` payouts |
+| **Test data** | One correction attempt per state |
+| **Steps** | 1. Attempt every correction. |
+| **Expected — UI** | Administrative payout-review refusal |
+| **Expected — API** | `409 OWNER_CORRECTION_PAYOUT_REVIEW_REQUIRED` for every state |
 | **Expected — DB** | Payout row **byte-identical**; booking attribution unchanged |
 | **Expected — Audit** | Refusal logged |
 | **Expected — Financial** | Nothing altered |
@@ -3363,7 +3359,7 @@ with a citation.
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Unchanged |
 | **Cleanup** | None |
-| **Diagnostics** | Correction is permitted only when the payout is absent, `pending`, or `cancelled`. Correcting a **paid** payout needs an adjustment model that does not exist — `BLOCKED` ([OQ-07](00_MASTER_PLAN.md#32-open-questions)) |
+| **Diagnostics** | The only allowed state is no payout row. A future adjustment command must be separately ratified |
 
 #### SC-OWN-15 — Owner correction produces a full audit
 
@@ -3371,17 +3367,17 @@ with a citation.
 |---|---|
 | **Priority · Category · Automate** | P0 · Owner · YES (integration) |
 | **Traceability** | REQ-07, REQ-12 · HB-05 |
-| **Preconditions** | Historical booking attributed to `O-ALPHA`; payout absent or `pending`; actor holds the correction permission |
-| **Test data** | Correct to `O-BETA` with a reason and confirmation |
-| **Steps** | 1. Perform the correction. 2. Inspect the audit. |
+| **Preconditions** | Historical booking attributed to `O-ALPHA`; no payout; actor holds `bookings:correct_owner_attribution` |
+| **Test data** | Review returns `expectedCurrentOwnerId = O-ALPHA`; correct to `O-BETA` with a reason |
+| **Steps** | 1. Perform the correction with the reviewed expected ID. 2. Inspect the audit. |
 | **Expected — UI** | Correction is a distinct flow, not the normal booking edit screen |
 | **Expected — API** | `200` |
-| **Expected — DB** | `owner_id = O-BETA`; snapshot recomputed consistently |
-| **Expected — Audit** | Before and after owner, reason, actor, timestamp all preserved |
-| **Expected — Financial** | Split recomputed and reconciling |
-| **Expected — Owner** | `O-BETA` credited; `O-ALPHA` no longer credited |
+| **Expected — DB** | `owner_id = O-BETA`; one immutable correction row; agreed/base/final amounts remain coherent |
+| **Expected — Audit** | Before/after owner, reason, actor, timestamp and correction ID preserved |
+| **Expected — Financial** | Agreed/base/final amounts and all payment/invoice/payout rows unchanged |
+| **Expected — Owner** | Persisted attribution changes from `O-ALPHA` to `O-BETA` |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | Both owners' figures move consistently |
+| **Expected — Reporting** | Owner-attributed booking counts and agreed totals move consistently; no commission split is generated |
 | **Cleanup** | Snapshot restore |
 | **Diagnostics** | A correction without a full before/after trail is indistinguishable from tampering |
 
@@ -3395,7 +3391,7 @@ with a citation.
 | **Test data** | Force a correction attempt through the API |
 | **Steps** | 1. Attempt. 2. Compare the payout row before and after. |
 | **Expected — UI** | Refusal |
-| **Expected — API** | `409 OWNER_CORRECTION_SETTLEMENT_LOCKED` |
+| **Expected — API** | `409 OWNER_CORRECTION_PAYOUT_REVIEW_REQUIRED` |
 | **Expected — DB** | Payout unchanged in every column including `paid_at` |
 | **Expected — Audit** | Refusal recorded |
 | **Expected — Financial** | Settled money untouched |
@@ -3419,11 +3415,11 @@ with a citation.
 | **Expected — DB** | `owner_id = unit.OwnerId` |
 | **Expected — Audit** | Normal |
 | **Expected — Financial** | Normal |
-| **Expected — Owner** | Unit owner credited |
+| **Expected — Owner** | Normal booking remains attributed to the unit owner |
 | **Expected — Notification** | Normal |
 | **Expected — Reporting** | Normal |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Guards `BookingService.cs:225` and proves the override surface did not leak into the normal flow |
+| **Diagnostics** | Guards `BookingService.cs:225` and proves the historical correction surface did not leak into the normal flow |
 
 ---
 
@@ -3515,7 +3511,7 @@ with a citation.
 |---|---|
 | **Priority · Category · Automate** | P2 · Notifications · NO (design review gate) |
 | **Traceability** | REQ-13 · HB-07 |
-| **Preconditions** | A future email/WhatsApp delivery implementation is proposed |
+| **Preconditions** | A future email/WhatsApp delivery implementation exists on a test branch |
 | **Test data** | Design review of that change |
 | **Steps** | 1. Review the side-effect matrix. 2. Confirm historical exclusion. |
 | **Expected — UI** | n/a — process control |
@@ -3529,25 +3525,25 @@ with a citation.
 | **Cleanup** | None |
 | **Diagnostics** | Today suppression is structural because no delivery exists. That guarantee weakens the moment delivery is built — this gate exists so the matrix is revisited |
 
-#### SC-NOTIF-12 — Analytics events
+#### SC-NOTIF-12 — No automatic analytics event in v1
 
 | | |
 |---|---|
-| **Priority · Category · Automate** | P2 · Notifications · NO (blocked) |
+| **Priority · Category · Automate** | P1 · Notifications · YES (code + integration assertion) |
 | **Traceability** | REQ-13 · HB-07 |
 | **Preconditions** | Historical creation |
 | **Test data** | Standard request |
 | **Steps** | 1. Search for any analytics emission on the creation path. |
-| **Expected — UI** | Unknown |
+| **Expected — UI** | No browser analytics emission |
 | **Expected — API** | `200` |
-| **Expected — DB** | Unknown |
+| **Expected — DB** | No analytics or outbox row |
 | **Expected — Audit** | Booking audit only |
 | **Expected — Financial** | Normal |
 | **Expected — Owner** | Normal |
-| **Expected — Notification** | Unknown |
-| **Expected — Reporting** | Unknown |
+| **Expected — Notification** | None |
+| **Expected — Reporting** | Durable reporting derives from domain rows only |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | `BLOCKED` — no analytics emission was identified in the audit, but the search was not exhaustive. **Reason:** not fully verified. **Impact:** an unnoticed analytics event could misreport a historical booking as new activity. **Recommended default:** HB-07 confirms before release. **Decider:** Engineering. **Blocking:** no |
+| **Diagnostics** | HB-07 performs one positive repository-wide integration audit; no per-request query or metrics platform is added |
 
 ---
 
@@ -3567,13 +3563,13 @@ with a citation.
 | **Expected — DB** | n/a — read path |
 | **Expected — Audit** | n/a |
 | **Expected — Financial** | Stay-month revenue derivable |
-| **Expected — Owner** | Owner totals derivable by stay period |
+| **Expected — Owner** | Owner-attributed booking counts and agreed totals are derivable by stay period |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Both axes reconcile to the same grand total |
 | **Cleanup** | Snapshot restore |
 | **Diagnostics** | The core deliverable of ADR-11 |
 
-#### SC-REP-10 — Payment reporting includes an unlinked historical payment
+#### SC-REP-10 — Payment reporting separates unlinked historical evidence
 
 | | |
 |---|---|
@@ -3583,15 +3579,15 @@ with a citation.
 | **Test data** | Payment reporting query |
 | **Steps** | 1. Query payment reporting. 2. Compare with the invoice-linked read models. |
 | **Expected — UI** | Payment appears |
-| **Expected — API** | Included in payment totals |
+| **Expected — API** | Included only in dedicated historical-evidence totals |
 | **Expected — DB** | Payment exists, unlinked |
 | **Expected — Audit** | n/a |
-| **Expected — Financial** | Cash position includes it at `PAID-AT` |
-| **Expected — Owner** | Owner-facing figure may differ — this is the known divergence |
+| **Expected — Financial** | Evidence amount is excluded from invoice-linked and ordinary orphan totals |
+| **Expected — Owner** | No automatic invoice, payout or settlement implication |
 | **Expected — Notification** | Unchanged |
-| **Expected — Reporting** | The historical breakdown must make the difference explainable |
+| **Expected — Reporting** | Dedicated count/amount reconciles exactly and prevents double-counting |
 | **Cleanup** | Snapshot restore |
-| **Diagnostics** | Pairs with `SC-REP-06`; quantify the divergence rather than assuming it is zero |
+| **Diagnostics** | Pairs with `SC-REP-06`; historical evidence remains standalone even when a manual invoice exists |
 
 #### SC-REP-11 — Dashboard cards do not contradict each other
 
@@ -3627,7 +3623,7 @@ with a citation.
 | **Expected — DB** | n/a — derived |
 | **Expected — Audit** | n/a |
 | **Expected — Financial** | Revenue +agreed amount today |
-| **Expected — Owner** | Owner total +owner share |
+| **Expected — Owner** | Owner-attributed booking count and agreed total increase; no owner share is inferred |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Documented as recorded-axis behaviour; an optional historical series makes it explicable |
 | **Cleanup** | Snapshot restore |
@@ -3646,7 +3642,7 @@ with a citation.
 | **Expected — API** | Included |
 | **Expected — DB** | n/a — read path |
 | **Expected — Audit** | n/a |
-| **Expected — Financial** | Owner share visible |
+| **Expected — Financial** | Agreed amount visible; no inferred owner share or commission |
 | **Expected — Owner** | Owner sees a booking that appeared after the fact |
 | **Expected — Notification** | No owner notification is sent |
 | **Expected — Reporting** | Documented; support runbook explains it |
@@ -3667,7 +3663,7 @@ with a citation.
 | **Expected — DB** | n/a — read path |
 | **Expected — Audit** | n/a |
 | **Expected — Financial** | Difference equals exactly the historical bookings recorded out of period |
-| **Expected — Owner** | Owner totals reconcile both ways |
+| **Expected — Owner** | Owner-attributed booking counts and agreed totals reconcile across both axes |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Already stay-filterable without waiting for the full ADR-11 work |
 | **Cleanup** | None |
@@ -3764,8 +3760,8 @@ a range unambiguously includes every member.
 | Requirements `REQ-01 … REQ-20` | 20 | 20 | 0 | 0 | 0 |
 | Architecture decisions `ADR-01 … ADR-12` | 12 | 12 | 0 | 0 | 0 |
 | Tickets `HB-01 … HB-09` | 9 | 9 | 0 | 0 | 0 |
-| Acceptance criteria `AC-HBnn-nn` | 179 | 179 | 0 | 0 | 0 |
-| Negative acceptance criteria `NAC-HBnn-nn` | 131 | 131 | 0 | 0 | 0 |
+| Acceptance criteria `AC-HBnn-nn` | 205 | 205 | 0 | 0 | 0 |
+| Negative acceptance criteria `NAC-HBnn-nn` | 154 | 154 | 0 | 0 | 0 |
 | Reliability scenarios `SC-GROUP-nn` | 159 | 159 | 0 | 0 | 0 |
 | Scenario groups | 17 | 17 | 0 | 0 | 0 |
 
@@ -3780,7 +3776,7 @@ a range unambiguously includes every member.
 | REQ-05 protected agreed financials | ADR-07 | HB-04 |
 | REQ-06 historical payments | ADR-07 | HB-04 |
 | REQ-07 owner attribution | ADR-08 | HB-05 |
-| REQ-08 commission snapshot | ADR-08 | HB-05 |
+| REQ-08 owner-attribution chain and financial/payout safety | ADR-08 | HB-05 |
 | REQ-09 overlap prevention | ADR-10 | HB-03 |
 | REQ-10 duplicate prevention | ADR-10 | HB-03 |
 | REQ-11 dedicated permission | ADR-01 | HB-02, HB-06 |
@@ -3788,7 +3784,7 @@ a range unambiguously includes every member.
 | REQ-13 suppress automation | ADR-04 | HB-07 |
 | REQ-14 keep accounting updates | ADR-07, ADR-11 | HB-04, HB-07, HB-08 |
 | REQ-15 availability integrity | ADR-10 | HB-03, HB-08 |
-| REQ-16 harden the normal flow | ADR-09 | **HB-01 (specification) → HB-08 (implementation and activation)** |
+| REQ-16 harden the normal flow | ADR-09 | **HB-01 (specification) → HB-08B (separate post-pilot implementation)** |
 | REQ-17 inactive units | ADR-12 | HB-03 |
 | REQ-18 reporting reconcilable | ADR-11 | HB-08 |
 | REQ-19 atomic creation | ADR-04 | HB-02, HB-03 |
@@ -3802,16 +3798,16 @@ from `01`**, so membership is unambiguous: `AC-HB04-14` is in `AC-HB04-01 … AC
 | Ticket | Acceptance criteria | Count | Negative acceptance criteria | Count | Requirements covered |
 |---|---|---|---|---|---|
 | HB-01 | `AC-HB01-01` … `AC-HB01-10` | 10 | `NAC-HB01-01` … `NAC-HB01-08` | 8 | REQ-16 (specification) |
-| HB-02 | `AC-HB02-01` … `AC-HB02-24` | 24 | `NAC-HB02-01` … `NAC-HB02-20` | 20 | REQ-01, REQ-02, REQ-03, REQ-04, REQ-11, REQ-12, REQ-19 |
+| HB-02 | `AC-HB02-01` … `AC-HB02-41` | 41 | `NAC-HB02-01` … `NAC-HB02-38` | 38 | REQ-01, REQ-02, REQ-03, REQ-04, REQ-11, REQ-12, REQ-19 |
 | HB-03 | `AC-HB03-01` … `AC-HB03-20` | 20 | `NAC-HB03-01` … `NAC-HB03-14` | 14 | REQ-09, REQ-10, REQ-15, REQ-17, REQ-19, REQ-20 |
 | HB-04A | `AC-HB04-01` … `AC-HB04-14` | 14 | `NAC-HB04-01` … `NAC-HB04-12` | 12 | REQ-05, REQ-14 |
-| HB-04B | Payment criteria defined in its separate PR | — | Payment criteria defined in its separate PR | — | REQ-06, REQ-14 |
+| HB-04B | `AC-HB04B-01` … `AC-HB04B-09` | 9 | `NAC-HB04B-01` … `NAC-HB04B-05` | 5 | REQ-06, REQ-14 |
 | HB-05 | `AC-HB05-01` … `AC-HB05-24` | 24 | `NAC-HB05-01` … `NAC-HB05-16` | 16 | REQ-07, REQ-08 |
 | HB-06 | `AC-HB06-01` … `AC-HB06-24` | 24 | `NAC-HB06-01` … `NAC-HB06-15` | 15 | REQ-01, REQ-11 |
 | HB-07 | `AC-HB07-01` … `AC-HB07-15` | 15 | `NAC-HB07-01` … `NAC-HB07-14` | 14 | REQ-13, REQ-14 |
 | HB-08 | `AC-HB08-01` … `AC-HB08-26` | 26 | `NAC-HB08-01` … `NAC-HB08-18` | 18 | REQ-12, REQ-14, REQ-15, REQ-16 (implementation), REQ-18 |
 | HB-09 | `AC-HB09-01` … `AC-HB09-22` | 22 | `NAC-HB09-01` … `NAC-HB09-14` | 14 | All — HB-09 automates the pack |
-| **Total currently ratified** | | **179** | | **131** | 20 of 20 |
+| **Observed at contract closure; CI recounts dynamically** | | **205** | | **154** | 20 of 20 |
 
 `AC-HB08-23` … `AC-HB08-26` and `NAC-HB08-16` … `NAC-HB08-18` are the REQ-16 hardening criteria, added when
 implementation moved from HB-01 to HB-08. They are the runtime counterparts of `AC-HB01-01` … `AC-HB01-05`,
@@ -3824,19 +3820,19 @@ these 17 groups, and every group resolves to a ticket and its criterion range.
 
 | Group | Count | Ticket(s) | AC/NAC range | Requirements |
 |---|---|---|---|---|
-| `SC-HAPPY-01` … `-07` | 7 | HB-02 | `AC-HB02-01` … `-24`, `NAC-HB02-01` … `-20` | REQ-01, REQ-02, REQ-03 |
+| `SC-HAPPY-01` … `-07` | 7 | HB-02 | `AC-HB02-01` … `-41`, `NAC-HB02-01` … `-38` | REQ-01, REQ-02, REQ-03 |
 | `SC-DATE-01` … `-10` | 10 | HB-02 (boundary), HB-08 (hardening) | `AC-HB02-*`, `AC-HB08-23` … `-26` | REQ-03, REQ-16 |
 | `SC-AVAIL-01` … `-12` | 12 | HB-03 | `AC-HB03-01` … `-20`, `NAC-HB03-01` … `-14` | REQ-09, REQ-15, REQ-17 |
 | `SC-DUP-01` … `-08` | 8 | HB-03 | same range | REQ-10 |
 | `SC-SEC-01` … `-12` | 12 | HB-02, HB-05, HB-06 | `AC-HB02-*`, `AC-HB05-*`, `AC-HB06-*` | REQ-11, REQ-07 |
 | `SC-FIN-01` … `-14` | 14 | HB-04A, HB-05 | `AC-HB04-01` … `-14`, `AC-HB05-*` | REQ-05, REQ-08 |
-| `SC-PAY-01` … `-10` | 10 | HB-04B | HB-04B criteria | REQ-06 |
+| `SC-PAY-01` … `-10` | 10 | HB-04B | `AC-HB04B-01` … `-09`, `NAC-HB04B-01` … `-05` | REQ-06 |
 | `SC-OWN-01` … `-17` | 17 | HB-05 | `AC-HB05-01` … `-24`, `NAC-HB05-01` … `-16` | REQ-07, REQ-08 |
 | `SC-NOTIF-01` … `-12` | 12 | HB-07 | `AC-HB07-01` … `-15`, `NAC-HB07-01` … `-14` | REQ-13, REQ-14 |
 | `SC-AUDIT-01` … `-06` | 6 | HB-02, HB-08 | `AC-HB02-*`, `AC-HB08-11` … `-13` | REQ-12 |
 | `SC-REP-01` … `-14` | 14 | HB-08 | `AC-HB08-01` … `-22` | REQ-18, REQ-14 |
 | `SC-UI-01` … `-10` | 10 | HB-06 | `AC-HB06-01` … `-24`, `NAC-HB06-01` … `-15` | REQ-01, REQ-11 |
-| `SC-TXN-01` … `-06` | 6 | HB-02, HB-04A, HB-04B | `AC-HB02-13`, `-14`, `AC-HB04-11`; HB-04B criteria | REQ-19 |
+| `SC-TXN-01` … `-06` | 6 | HB-02, HB-04A, HB-04B | `AC-HB02-13`, `-14`, `AC-HB04-11`, `AC-HB04B-02` … `-04` | REQ-19 |
 | `SC-REG-01` … `-07` | 7 | HB-08 (hardening), HB-09 | `AC-HB08-23` … `-26`, `AC-HB09-*` | REQ-15, REQ-16 |
 | `SC-MIG-01` … `-05` | 5 | HB-04A, HB-06, HB-08 | `AC-HB04-07` … `-14`, `AC-HB08-05`, `-06` | REQ-05, REQ-11, REQ-15 |
 | `SC-PERF-01` … `-04` | 4 | HB-03, HB-08 | `AC-HB03-*`, `AC-HB08-13` | REQ-09, REQ-10, REQ-12, REQ-18 |
@@ -3854,7 +3850,7 @@ these 17 groups, and every group resolves to a ticket and its criterion range.
 | REQ-05 protected agreed financials | `SC-FIN-01`, `SC-FIN-02`, `SC-FIN-03`, `SC-FIN-09`, `SC-FIN-13`, `SC-FIN-14`, `SC-MIG-01`, `SC-MIG-05` |
 | REQ-06 historical payments | `SC-HAPPY-02`, `SC-PAY-01`…`SC-PAY-10` |
 | REQ-07 owner attribution | `SC-OWN-01`…`SC-OWN-08`, `SC-OWN-14`…`SC-OWN-16`, `SC-SEC-11` |
-| REQ-08 commission snapshot | `SC-FIN-05`, `SC-FIN-06`, `SC-OWN-09`, `SC-OWN-11`, `SC-OWN-12`, `SC-OWN-13`, `SC-SEC-08` |
+| REQ-08 owner-attribution chain and financial/payout safety | `SC-FIN-05`, `SC-FIN-06`, `SC-OWN-09`, `SC-OWN-11`, `SC-OWN-12`, `SC-OWN-13`, `SC-SEC-08` |
 | REQ-09 overlap prevention | `SC-AVAIL-01`…`SC-AVAIL-06`, `SC-AVAIL-11`, `SC-AVAIL-12`, `SC-DUP-03`, `SC-CONC-02`, `SC-CONC-03`, `SC-PERF-01` |
 | REQ-10 duplicate prevention | `SC-DUP-01`…`SC-DUP-08`, `SC-CONC-04`, `SC-TXN-04`, `SC-PERF-02` |
 | REQ-11 dedicated permission | `SC-SEC-01`…`SC-SEC-06`, `SC-SEC-10`, `SC-UI-01`, `SC-MIG-04` |
@@ -3880,7 +3876,8 @@ these 17 groups, and every group resolves to a ticket and its criterion range.
 | HB-05 | `SC-OWN-01`…`SC-OWN-17`, `SC-SEC-08`, `SC-SEC-11`, `SC-FIN-05`, `SC-FIN-06` |
 | HB-06 | `SC-UI-01`…`SC-UI-10`, `SC-MIG-03` |
 | HB-07 | `SC-NOTIF-01`…`SC-NOTIF-12`, `SC-PAY-09` |
-| HB-08 | `SC-REP-01`…`SC-REP-14`, `SC-PERF-03`, `SC-PERF-04`, `SC-MIG-02`, `SC-MIG-04`, and — for the REQ-16 hardening component — `SC-REG-01`…`SC-REG-06` |
+| HB-08A | `SC-REP-01`…`SC-REP-14`, `SC-PERF-03`, `SC-PERF-04`, `SC-MIG-02`, `SC-MIG-04` |
+| HB-08B | `SC-REG-01`…`SC-REG-06` after successful HB-08A pilot evidence |
 | HB-09 | `SC-REG-07` and the automation of every scenario marked `YES` |
 
 Every scenario appears in at least one ticket row, and every ticket row resolves to a criterion range in
@@ -3901,8 +3898,8 @@ historical boundary and HB-08's hardening rule against the same date arithmetic.
 
 ### P1 regression suite
 
-All `SC-REG-nn`, plus `SC-AVAIL-12`, `SC-OWN-11`, `SC-REP-05`, `SC-MIG-02`, `SC-MIG-03`, and the existing
-33 xUnit tests and the Playwright CRM suite.
+All `SC-REG-nn`, plus `SC-AVAIL-12`, `SC-OWN-11`, `SC-REP-05`, `SC-MIG-02`, `SC-MIG-03`, all currently
+discovered Fast/PostgreSQL tests, and the relevant portal/Playwright suites. Counts come from runner output.
 
 ### Accounting reconciliation suite
 
@@ -3940,7 +3937,7 @@ owner; the reconciliation output is the evidence.**
 
 - [ ] `historical_booking_created_total` — expected low volume; investigate spikes
 - [ ] `historical_booking_rejected_total{reason}` — a rise in `overlap` or `duplicate` may indicate operator confusion
-- [ ] `historical_owner_override_total` — every override reviewed by Finance in week one
+- [ ] Every immutable owner-correction row reviewed against its reason and before/after attribution in week one
 - [ ] `booking_create_rejected_total{reason="STAY_DATES_IN_PAST"}` — validates assumption A-4 in HB-01
 - [ ] Daily reconciliation (`SC-PERF-04`) for the first month
 - [ ] Zero notification rows attributable to historical bookings
@@ -3958,7 +3955,7 @@ separate names ([governance model](DECISION_RATIFICATION_PACKET.md#governance-mo
 
 | Lens | What must be true before release | Evidence that proves it |
 |---|---|---|
-| Product | Scope matches the recorded decisions; the wizard flow is the one specified; deferred items are deliberate, not forgotten | `SC-HAPPY-01`…`-07`, `SC-UI-01`…`-10`; the [decision record](DECISION_RATIFICATION_PACKET.md) |
+| Product | Scope matches the recorded decisions; the wizard flow is the one specified; owner-approved out-of-v1 scope is explicit | `SC-HAPPY-01`…`-07`, `SC-UI-01`…`-10`; the [decision record](DECISION_RATIFICATION_PACKET.md) |
 | Engineering | Architecture, data model, migration ordering and rollback behave as specified | `SC-TXN-01`…`-06`, `SC-CONC-01`…`-05`, `SC-MIG-01`…`-05`; `_verify.sql` green forward and after rollback-then-forward |
 | QA | Suite coverage is real, not asserted; the automation level is honest; release gates block | P0 smoke, P1 regression, security and accounting suites green; `PRE-02` closed **before HB-03 merged**, so relational coverage actually executes rather than silently falling back |
 | Finance / Accounting | The numbers reconcile on both axes, and the known limitation is quantified rather than hidden | Accounting reconciliation suite green; `payments_unlinked_amount` matches the expected gap exactly (`AC-HB08-10`); reconciliation runbook produces sane figures on seeded data |
@@ -3968,7 +3965,7 @@ separate names ([governance model](DECISION_RATIFICATION_PACKET.md#governance-mo
 or explicitly carried as an outstanding deployment-readiness gate; and the go/no-go checklist complete.
 
 > **The Finance lens carries the most weight and the least redundancy.** This feature writes revenue and
-> owner-entitlement records that existing reports cannot distinguish from ordinary bookings until ADR-11
+> owner-attributed booking records that existing reports cannot distinguish from ordinary bookings until ADR-11
 > ships, and under [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) historical cash is
 > deliberately not invoice-linked. With no second reviewer, the reconciliation output *is* the review: if
 > the numbers do not tie out, that is the signal, and it must not be waved through.

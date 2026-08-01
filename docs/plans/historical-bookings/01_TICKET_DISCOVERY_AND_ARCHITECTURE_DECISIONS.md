@@ -337,7 +337,7 @@ Project Owner, 2026-07-29; the authority is stated once rather than repeated per
 | D-02 | The hardening rule | Reject `checkIn < cairoToday` on create; same-day check-in remains legal | Product · Security · Engineering | **`OWNER APPROVED`** |
 | D-03 | Does hardening apply to updates moving dates into the past? | Yes. Otherwise the bypass persists | Security · Engineering | **`OWNER APPROVED`** |
 | D-04 | Grandfathering existing past-dated bookings | No backfill. Report only, via the [PRE-00](DECISION_RATIFICATION_PACKET.md#pre-00--historical-data-census) census | Operations · Engineering | **`OWNER APPROVED`** |
-| D-05 | Which role templates receive `bookings:record_historical` | One finance/ops role template initially; `bookings:override_owner` narrower still, as a per-user grant | Security · Operations | **`OWNER APPROVED`** |
+| D-05 | Which role templates receive `bookings:record_historical` | Historical creation and later owner correction use separate least-privilege permissions; grants are administered independently | Security · Operations | **`OWNER APPROVED`** |
 | D-06 | Column names for the new historical fields | As tabulated in [Master §11.1](00_MASTER_PLAN.md#111-migration-ownership-matrix) | Engineering | **`OWNER APPROVED`** — see [D-MIG-01](DECISION_RATIFICATION_PACKET.md#d-mig-01--migration-ownership) |
 
 ### 10.2 Cross-ticket decisions this gate releases
@@ -348,20 +348,20 @@ acceptance and revisit triggers.
 | ID | Outcome | Status |
 |---|---|---|
 | [D-CAL-01](DECISION_RATIFICATION_PACKET.md#d-cal-01--historical-completion-boundary) | `check_out_date <= Cairo business date − 1` | `OWNER APPROVED` |
-| [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) | No invoice created or issued in v1; limitation visible via HB-08 | `OWNER APPROVED` |
+| [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) | No automatic invoice from historical commands; manual draft and normal issuance remain allowed; historical evidence remains unlinked | `OWNER APPROVED` |
 | [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) | Separate privileged historical-payment command; never inline | `OWNER APPROVED` |
 | [D-OWN-01](DECISION_RATIFICATION_PACKET.md#d-own-01--owner-attribution) | Default unit owner; explicit review; block on uncertainty | `OWNER APPROVED` |
-| [D-OWN-02](DECISION_RATIFICATION_PACKET.md#d-own-02--owner-override) | Distinct permission; mandatory reason; full audit | `OWNER APPROVED` |
+| [D-OWN-02](DECISION_RATIFICATION_PACKET.md#d-own-02--owner-correction) | Separate correction endpoint and permission; mandatory reason; idempotency; immutable audit; any payout blocks | `OWNER APPROVED` |
 | [D-MIG-01](DECISION_RATIFICATION_PACKET.md#d-mig-01--migration-ownership) | One owner per schema object; cross-ticket use is a dependency | `OWNER APPROVED` |
 | [D-ROLL-01](DECISION_RATIFICATION_PACKET.md#d-roll-01--rollout-sequence) | Implement → test → pilot → harden | `OWNER APPROVED` |
 | [D-HARD-01](DECISION_RATIFICATION_PACKET.md#d-hard-01--normal-flow-hardening) | HB-01 specifies; HB-08 implements and activates last | `OWNER APPROVED` |
-| [D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement) | Real PostgreSQL testing mandatory before HB-03 merges | `OWNER APPROVED`; execution `BLOCKED BY TECHNICAL PREREQUISITE PRE-02` |
+| [D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement) | Real PostgreSQL testing mandatory; HB-09 consumes the merged PRE-02 foundation | `OWNER APPROVED`; `PRE-02 COMPLETE` |
 
-### 10.3 Deliberately deferred out of v1
+### 10.3 Owner-approved scope outside v1
 
-`OQ-05` currency model, `OQ-06` fee/tax/discount model, `OQ-07` paid-payout correction. Each is `DEFERRED`
-with an accepted risk and a revisit trigger — see the
-[decision record](DECISION_RATIFICATION_PACKET.md#deferred-v1-decisions). These are scope choices, not
+`OQ-05` currency model, `OQ-06` fee/tax/discount model, `OQ-07` paid-payout correction. Each is
+`OWNER APPROVED — OUT OF V1` with an accepted risk and a revisit trigger — see the
+[decision record](DECISION_RATIFICATION_PACKET.md#owner-approved-out-of-v1-decisions). These are scope choices, not
 unresolved approvals.
 
 ---
@@ -449,8 +449,9 @@ graph TD
 
 No application source file is edited by this ticket.
 
-**Specified here, edited by [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md)** — `PROPOSED`,
-not asserted as required until that implementer confirms:
+**Specified here, implemented only by the later independent
+[HB-08B](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#261-req-16-hardening-tasks--a-later-independent-pr)**
+after pilot approval — `OWNER APPROVED`:
 
 | Path | Change |
 |---|---|
@@ -576,14 +577,14 @@ Reversing steps 2 and 4 would strand operators with no way to record a past stay
 
 ## 25. Feature flag strategy
 
-`PROPOSED`: **no runtime flag anywhere in this feature.** Control the hardening change by **deployment
+`OWNER APPROVED`: **no runtime flag anywhere in this feature.** Control the hardening change by **deployment
 order** — it is the last thing implemented and the last thing activated. A flag would add a bypass surface,
 which is exactly what REQ-16 removes, and a second source of truth that can disagree with RBAC.
 
 The release-gate mechanism is concrete, not aspirational: HB-08 cannot mark its Definition of Done complete
 until the pilot exit criteria in
 [HB-08 §24.3](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#243-pilot-definition) are met, and the
-hardening commit is the last commit in HB-08's branch.
+hardening is delivered in a separate HB-08B PR after HB-08A pilot approval.
 
 If Ops requires an emergency stop for the *historical* flow, the mechanism already exists and is not a flag:
 revoke the `bookings:record_historical` grant. That is instant, audited and server-side.
@@ -754,9 +755,9 @@ HB-01 specified it; PRE-00 runs it.
 **HB-01 has no runtime rollback surface**, because it changes no code and no schema. Rolling it back means
 withdrawing the decision record, which is a review action, not a deploy.
 
-The rollback plan for the behaviour HB-01 specifies belongs to HB-08 and is stated here so the two cannot
-drift: the hardening change is a pure code change with no schema component, it is the **last** commit in
-HB-08's branch, and it can therefore be reverted on its own without disturbing the historical flow, the
+The rollback plan for the behaviour HB-01 specifies belongs to HB-08B and is stated here so the two cannot
+drift: the hardening change is a pure code change with no schema component, ships in a **separate later
+HB-08B PR**, and can therefore be reverted on its own without disturbing the historical flow, the
 migrations, or any recorded historical booking. No data migration means no data-loss exposure. See
 [HB-08 §34](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#34-rollback-strategy).
 
