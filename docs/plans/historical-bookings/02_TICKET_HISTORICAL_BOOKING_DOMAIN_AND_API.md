@@ -23,20 +23,20 @@
 | Estimated complexity | **L** |
 | Implemented by | Sole Project Owner. Review lenses: Engineering · Security · Product |
 | Target branch | `feat/hb02-historical-booking-domain-api` |
-| Migration in this ticket? | **Yes** — the provenance columns (`is_historical`, `actual_booked_at`, `historical_entry_reason`, `original_source`, `external_reference`), the `booking_original_sources` vocabulary table and its seed, the `idempotency_keys` table, and the `bookings:record_historical` permission seed. Financial columns belong to HB-04, owner columns and the `bookings:override_owner` seed to HB-05 |
+| Migration in this ticket? | **Yes** — the provenance columns (`is_historical`, `actual_booked_at`, `historical_entry_reason`, `original_source`, `external_reference`), the `booking_original_sources` vocabulary table and its seed, the `idempotency_keys` table, and the `bookings:record_historical` permission seed. Financial objects belong to HB-04; owner-correction audit, idempotency and permission objects belong to HB-05 |
 
 **Scope sentence.** HB-02 delivers the *skeleton of truth*: a dedicated command, a dedicated endpoint, a
 dedicated permission, the historical provenance columns, direct-to-`Completed` creation, one truthful audit
 row, the idempotency contract for its own endpoint, and one transaction that everything else later hangs
 off. It deliberately does **not** own conflict detection (HB-03), the extended financial snapshot or
-payments (HB-04), or owner override (HB-05) — but it defines the contract slots those tickets fill.
+payments (HB-04), or later owner correction (HB-05) — but it defines the contract slots those tickets fill.
 
 **Two boundaries are easy to misread, so they are stated once here and enforced throughout.** HB-02 captures
 the operator's raw `agreedAmount` because a booking cannot be created without an amount — it does **not**
 own the immutable financial snapshot, which is HB-04's
 ([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary)). HB-02 resolves the *current* unit owner
 deterministically and refuses when ownership is uncertain — it accepts **no** owner field from the caller,
-and override is HB-05's ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)).
+and later correction is HB-05's ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)).
 
 ---
 
@@ -178,8 +178,8 @@ not repeated. This section records the **additional** evidence HB-02 needed and 
 - `HistoricalBookingsController` (or a new action on `BookingsController` — see `D-HB02-02`) exposing
   `POST /api/internal/bookings/historical`.
 - `PermissionKeys.BookingsRecordHistorical = "bookings:record_historical"`, with its descriptor, policy and
-  seed. **`bookings:override_owner` is *not* introduced here** — it belongs to HB-05 with the override it
-  gates ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)).
+  seed. The separate HB-05 permission `bookings:correct_owner_attribution` is not introduced here
+  ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)).
 - **The narrowest Cairo business-date abstraction** the validation needs, created here and consumed by
   everything downstream ([D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership)).
 - Provenance columns and their constraints; the `historical_entry_reason` allow-list; the
@@ -203,7 +203,7 @@ not repeated. This section records the **additional** evidence HB-02 needed and 
 |---|---|
 | Historical conflict detection including `Completed`/`LeftEarly`, duplicate detection, inactive-unit lookup | [HB-03](03_TICKET_AVAILABILITY_CONFLICTS_AND_DUPLICATE_PROTECTION.md) |
 | The immutable extended financial snapshot (`bookings.agreed_amount` and its constraint), the repricing guard, payment semantics, payment evidence, fees, taxes, discounts, invoice consequences | [HB-04](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md) |
-| Explicit owner confirmation, owner **override** and its `bookings:override_owner` permission, mandatory override reason, previous/selected owner audit, commission snapshot columns, payout implications, correction workflow | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) |
+| Read-only owner review, separate privileged correction, mandatory reason, immutable previous/selected-owner chain, dedicated idempotency and payout-safety checks | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) |
 | The portal wizard | [HB-06](06_TICKET_HISTORICAL_BOOKING_WIZARD_UI.md) |
 | The exhaustive side-effect assertion matrix | [HB-07](07_TICKET_NOTIFICATIONS_AUTOMATIONS_AND_INTEGRATIONS.md) |
 | Reporting stay-period dimension | [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) |
@@ -219,7 +219,7 @@ not repeated. This section records the **additional** evidence HB-02 needed and 
 | A-HB02-1 | ~~HB-01's shared Cairo business-date resolver exists and is injectable~~ **Withdrawn.** E-27 proves no shared resolver exists. **HB-02 creates it** — see [D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership) | `CONFIRMED` — E-27 | n/a; the assumption has been replaced by an owned deliverable |
 | A-HB02-2 | `Completed` remains terminal, so nothing can later transition a historical booking | `CONFIRMED` — `BookingStatusTransitions.cs:18` | Re-open the audit-truthfulness design |
 | A-HB02-3 | Composing `CreateAsync` inside an outer transaction is safe | `CONFIRMED` by precedent — `GuestBookingService.cs:39-76` does exactly this via `CreateQuickAsync` | Inline the insert instead of composing |
-| A-HB02-4 | Single currency; fees and taxes fold into the agreed total | `OWNER APPROVED` as a deferral — [OQ-05](DECISION_RATIFICATION_PACKET.md#oq-05--currency-model), [OQ-06](DECISION_RATIFICATION_PACKET.md#oq-06--fee-tax-and-discount-model) are both **`DEFERRED`** with recorded risk and revisit triggers | The request contract gains a currency field and HB-04 grows. Additive, so not a v1 blocker |
+| A-HB02-4 | Single currency; fees and taxes fold into the agreed total | `OWNER APPROVED — OUT OF V1` — [OQ-05](DECISION_RATIFICATION_PACKET.md#oq-05--currency-model) and [OQ-06](DECISION_RATIFICATION_PACKET.md#oq-06--fee-tax-and-discount-model) record the accepted risks and revisit triggers | The request contract gains a currency field and HB-04 grows only if that out-of-v1 scope is later ratified |
 | A-HB02-5 | The historical flow is admin-only; no client, owner-portal or storefront surface | `PROPOSED` | New authorization analysis required |
 | A-HB02-6 | Adding a nullable field to `ApiResponse` is backward-compatible for both portals | `INFERRED` — additive JSON property; every existing field is preserved and every existing factory overload keeps its signature | Nothing in HB-02 changes: [`D-HB02-03`](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport) explicitly **forbids** the `errors[0]` carrier, so there is no fallback to fall back to. A genuine incompatibility would be a defect to fix, not a contract to renegotiate |
 
@@ -243,7 +243,7 @@ are recorded here in full.
 | [D-HB02-01](#d-hb02-01) | Concrete route | **`POST /api/internal/bookings/historical`.** The verified controller prefix is `api/internal/bookings` (E-1) and routes are lowercased globally (E-2). The Master Plan string is the same route, and [Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract) is the normative statement of it | Engineering | **`OWNER APPROVED`** |
 | [D-HB02-02](#d-hb02-02) | Controller placement | **New `HistoricalBookingsController` with `[Route("api/internal/bookings")]` and `[HttpPost("historical")]`.** Keeps the privileged path visually separate and gives HB-07 one file to assert against | Engineering | **`OWNER APPROVED`** |
 | [D-HB02-03](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport) | Machine-readable error transport | **Add an optional `Code` to the shared `ApiResponse` contract**, populated from coded business exceptions by `ExceptionHandlingMiddleware`. Every existing field is preserved; human-readable `message` remains; the code is **never** encoded inside `errors[0]`; unrelated endpoints are not required to migrate. Full contract in §14.4 | Engineering · Product | **`OWNER APPROVED`** |
-| [D-HB02-04](DECISION_RATIFICATION_PACKET.md#d-hb02-04--producing-a-403-for-an-owner-override-refusal) | Producing a `403` for an owner-override refusal | **Not applicable to HB-02, and therefore not built here.** HB-02 accepts no owner field at all ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)), so an override can never be *requested* on this endpoint and no override refusal can arise. `ForbiddenBusinessException` and the middleware's `403` branch move to **HB-05**, which owns the override. HB-02's own uncertainty path is `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` via the existing `ConflictException` branch — no new middleware branch is required. See §10.2 | Engineering · Security | **`OWNER APPROVED`** |
+| [D-HB02-04](DECISION_RATIFICATION_PACKET.md#d-hb02-04--owner-correction-authorization-transport) | Owner-correction authorization transport | **Not applicable to HB-02.** HB-02 accepts no owner field. HB-05's separate correction endpoint uses the existing policy authorization 403 for a missing `bookings:correct_owner_attribution` grant; it adds no business-exception 403 branch. HB-02 uncertainty remains `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`. See §10.2 | Engineering · Security | **`OWNER APPROVED`** |
 | [D-HB02-05](DECISION_RATIFICATION_PACKET.md#d-hb02-05--client-reference-contract) | Client reference contract | **Exactly one of `clientId` or `newClient`.** Both or neither ⇒ `400 CLIENT_REFERENCE_INVALID`. Unknown `clientId` ⇒ `404 CLIENT_NOT_FOUND`. A duplicate normalised phone returns only `existingClientId`: `409 CLIENT_PHONE_ALREADY_EXISTS` for an active, non-deleted client that may be selected on retry; `409 CLIENT_PHONE_REQUIRES_REVIEW` for an inactive or soft-deleted client that requires administrative review/reactivation and must not be reused directly. **No duplicate is created, and no silent reuse, merge, reactivation, restoration, or mutation occurs.** Full rules in §14.2 | Product · Engineering | **`OWNER APPROVED`** |
 | [D-HB02-06](DECISION_RATIFICATION_PACKET.md#d-hb02-06--original_source-vocabulary) | `original_source` vocabulary | **Database-backed lookup table `booking_original_sources(code, label, is_active)`, seeded with exactly `legacy_system`, `external_platform`, `offline_record`, `other`**, with `bookings.original_source` a foreign key to it. Free text is unrepresentable. An unknown *or inactive* code ⇒ `400 ORIGINAL_SOURCE_INVALID`. The existing `ck_bookings_source` channel vocabulary was inspected and is **not** reused — see §15.3 | Product · Finance · Engineering | **`OWNER APPROVED`** |
 | [D-HB02-07](#d-hb02-07) | `actual_booked_at` type | **`DATE`.** It is a business fact about a day, and `DATE` inherits the timezone-free property of the stay dates | Engineering | **`OWNER APPROVED`** |
@@ -252,34 +252,33 @@ are recorded here in full.
 | [D-HB02-10](#d-hb02-10) | Does it imply `bookings:write`? | **No implication.** Grant `bookings:read` alongside it and document the pairing in the rollout checklist | Security | **`OWNER APPROVED`** |
 | [D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract) | Idempotency ownership and contract | **HB-02 owns `idempotency_keys` and the command's idempotency contract.** The `Idempotency-Key` header is **required**. Full contract in §19 | Engineering · Operations | **`OWNER APPROVED`** |
 | [D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary) | Financial truth boundary | **HB-02 requires `agreedAmount` and persists it verbatim** into the booking's existing amount columns; it is never defaulted from current pricing. HB-02 creates no invoice, payment, payout, fee, tax, discount or extended snapshot. HB-04 owns all of those | Finance · Engineering | **`OWNER APPROVED`** |
-| [D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary) | Owner attribution boundary | **HB-02 resolves the current unit owner from trusted repository state and accepts no owner field from the caller.** Deterministic single owner ⇒ use and persist it. Absent, multiple, ambiguous, or needing historical correction ⇒ `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`. Override is HB-05's, added additively | Finance · Security · Product | **`OWNER APPROVED`** |
+| [D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary) | Owner attribution boundary | **HB-02 resolves the current unit owner from trusted repository state and accepts no owner field from the caller.** Deterministic single owner ⇒ use and persist it. Absent, multiple, ambiguous, or needing historical correction ⇒ `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`. Later correction is HB-05's separate command | Finance · Security · Product | **`OWNER APPROVED`** |
 | [D-HB02-CAL](DECISION_RATIFICATION_PACKET.md#d-hb02-cal--cairo-business-date-ownership) | Cairo business-date ownership | **HB-02 creates the narrowest repository-consistent Cairo business-date abstraction** required for deterministic validation of `check_out_date <= Cairo business date − 1`. This is no longer a readiness blocker, and it is explicitly **not** an application-wide time redesign | Engineering · Operations | **`OWNER APPROVED`** |
 
 ### 10.2 D-HB02-04 in full — the subject, and why it dissolves
 
 The original question was narrow and specific:
 
-> **How is `403 OWNER_OVERRIDE_FORBIDDEN` produced, given that `ExceptionHandlingMiddleware` has no `403`
-> branch (E-5)?**
+> **How is authorization refusal for a later owner correction produced?**
 
-It was a *transport* question about one error, not a policy question about ownership. The recommended answer
-at the time was to introduce `ForbiddenBusinessException` and add a fifth branch to the middleware switch.
+It was a transport question, not a policy question about ownership. Contract closure supersedes the earlier
+exception proposal: policy authorization already owns 403 responses.
 
 That answer is now wrong for HB-02, for a reason that has nothing to do with transport:
 [D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary) removes the owner override from the HB-02 request
 contract entirely. There is no `ownerAttribution` object and no `ownerId` field. **An override cannot be
 requested on this endpoint, so an override refusal cannot occur on this endpoint**, and building the
-mechanism that reports one would be building HB-05's behaviour inside HB-02 — precisely what the ticket
+mechanism that reports one would be building HB-05 behavior inside HB-02 — precisely what the ticket
 boundaries exist to prevent.
 
 The smallest repository-consistent resolution is therefore to build nothing:
 
 | Question | Resolution |
 |---|---|
-| Does HB-02 introduce `ForbiddenBusinessException`? | **No.** It is removed from §13 and from the task list |
+| Does HB-02 introduce a new forbidden-business exception? | **No.** |
 | Does HB-02 add a `403` branch to `ExceptionHandlingMiddleware`? | **No.** The middleware's four typed branches (E-5) are sufficient for every HB-02 error, because every HB-02 error is a `400`, `404` or `409` |
 | How does HB-02 report uncertain ownership, then? | `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`, thrown as `ConflictException`, which already maps to `409` at `ExceptionHandlingMiddleware.cs:53-56`. **No new exception type and no new middleware branch** |
-| Where does the `403` mechanism go? | **HB-05**, together with `bookings:override_owner`, the override field, the mandatory reason and the override audit. HB-05 introduces the exception type and the branch when it introduces the thing that throws it |
+| How is an unauthorized HB-05 correction refused? | The existing authorization policy returns 403 when `bookings:correct_owner_attribution` is absent. HB-05 introduces no new middleware branch |
 | Is the `403` from a *missing* `bookings:record_historical` affected? | **No.** That `403` is produced by the authorization policy before the action body runs; it carries an empty body and needs no exception type and no code (E-6) |
 
 **Consequence for the middleware diff.** HB-02 touches `ExceptionHandlingMiddleware` for exactly one reason
@@ -287,26 +286,38 @@ The smallest repository-consistent resolution is therefore to build nothing:
 
 ### 10.3 Decision detail for the locally-owned rows
 
-<a id="d-hb02-01"></a>**D-HB02-01 — route.** [Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract)
+#### D-HB02-01
+
+**Route.** [Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract)
 is normative and already carries this route and `200 OK`. Nothing in HB-02 diverges from it.
 
-<a id="d-hb02-02"></a>**D-HB02-02 — controller placement.** A separate controller costs one file and buys a
+#### D-HB02-02
+
+**Controller placement.** A separate controller costs one file and buys a
 single, greppable location for the privileged path. HB-07 asserts against that file; a security reviewer
 reads one attribute list rather than scanning `BookingsController`.
 
-<a id="d-hb02-07"></a>**D-HB02-07 — `actual_booked_at` is `DATE`.** Consistent with `check_in_date` and
+#### D-HB02-07
+
+**`actual_booked_at` is `DATE`.** Consistent with `check_in_date` and
 `check_out_date`, both `DATE` (`db/migrations/0016_create_bookings.sql`), and with
-[Master §11](00_MASTER_PLAN.md#11-proposed-data-model). A timestamp would reintroduce the timezone question
+[Master §11](00_MASTER_PLAN.md#11-ratified-data-model). A timestamp would reintroduce the timezone question
 that ADR-03 exists to settle.
 
-<a id="d-hb02-08"></a>**D-HB02-08 — `actual_booked_at <= check_in_date`.** Agreeing a booking after the stay
+#### D-HB02-08
+
+**`actual_booked_at <= check_in_date`.** Agreeing a booking after the stay
 began is operationally possible but overwhelmingly a typo. Rejecting it costs an operator one correction;
 accepting it silently corrupts the agreement-date dimension that Finance will reconcile against.
 
-<a id="d-hb02-09"></a>**D-HB02-09 — initial grant.** Seeding only SuperAdmin means the endpoint is live but
+#### D-HB02-09
+
+**Initial grant.** Seeding only SuperAdmin means the endpoint is live but
 unusable by anyone else until a deliberate grant. That is the pilot control described in §24.
 
-<a id="d-hb02-10"></a>**D-HB02-10 — no implied `bookings:write`.** Policies are independent claims (E-6). A
+#### D-HB02-10
+
+**No implied `bookings:write`.** Policies are independent claims (E-6). A
 role that can record history but cannot read bookings back is a usability trap, so `bookings:read` is
 granted alongside — but as a *documented pairing*, not as an implication in code.
 
@@ -501,7 +512,7 @@ graph TD
         OWN["Current-owner resolution<br/>(D-HB02-OWN)"]
         IDM["Idempotency claim + completion<br/>(D-HB02-IDEM)"]
         H4["HB-04 snapshot + payment (later)"]
-        H5["HB-05 owner override (later)"]
+        H5["HB-05 owner correction (later)"]
     end
     subgraph Data
         BK[("bookings<br/>+ provenance columns")]
@@ -596,7 +607,7 @@ sequenceDiagram
 | `RentalPlatform.Business/Services/HistoricalBookingService.cs` | The command handler and transaction owner | **New** |
 | `RentalPlatform.Business/Interfaces/IHistoricalBookingService.cs` | Interface | **New** |
 | `RentalPlatform.Business/Models/RecordHistoricalBookingCommand.cs` | Command + result records | **New** |
-| ~~`RentalPlatform.Business/Exceptions/ForbiddenBusinessException.cs`~~ | **Not created in HB-02.** Moves to HB-05 with the override that throws it (D-HB02-04, §10.2) | — |
+| New forbidden-business exception | **Not created.** Policy authorization handles HB-05 permission failures (D-HB02-04, §10.2) | — |
 | `RentalPlatform.Business/Exceptions/IBusinessErrorCode.cs` | The one-member interface carrying `Code` | **New** |
 | `RentalPlatform.Business/Exceptions/` (the four existing types) | Implement `IBusinessErrorCode` via an additive optional `code` argument; **every existing constructor keeps its signature** (D-HB02-03) | Edit |
 | `RentalPlatform.Business/Time/IBusinessClock.cs` + implementation | The Cairo business-date abstraction (D-HB02-CAL) | **New** |
@@ -690,10 +701,10 @@ Mass-assignment control, INV-01 / INV-11 / INV-12:
 | `bookingStatus` | Always `Completed` on this route | — |
 | `isHistorical` | Always `true` on this route | — |
 | `createdByAdminUserId` | The actor always comes from `ClaimTypes.NameIdentifier` (`BookingsController.cs:244-251` precedent) | — |
-| `ownerId`, `ownerAttribution` | **HB-02 accepts no owner input of any kind** ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)). The owner is resolved server-side from the unit | Explicit confirmation and override arrive **additively** with [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) |
-| `payment`, `paymentEvidence` | [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) is `OWNER APPROVED` for a **separate privileged command** | [HB-04 §11.4](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#114-historical-payment-recording) |
-| `fees`, `taxes`, `discounts`, `currency` | [OQ-05](DECISION_RATIFICATION_PACKET.md#oq-05--currency-model) and [OQ-06](DECISION_RATIFICATION_PACKET.md#oq-06--fee-tax-and-discount-model) are **`DEFERRED`**; the total is the truth in v1 | HB-04, if the deferrals are revisited |
-| `baseAmount`, `finalAmount`, `snapshot*`, any commission or split value | Derived or owned downstream | HB-02 derives them from `agreedAmount`; HB-05 owns the split |
+| `ownerId`, `ownerAttribution` | **HB-02 accepts no owner input of any kind** ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)). The owner is resolved server-side from the unit | Read-only review and a separate correction endpoint arrive with [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) |
+| `payment`, `paymentEvidence` | [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) is `OWNER APPROVED` for a **separate privileged command** | [HB-04 §11](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#11-historical-payment-recording--hb-04b-only) |
+| `fees`, `taxes`, `discounts`, `currency` | [OQ-05](DECISION_RATIFICATION_PACKET.md#oq-05--currency-model) and [OQ-06](DECISION_RATIFICATION_PACKET.md#oq-06--fee-tax-and-discount-model) are **`OWNER APPROVED — OUT OF V1`**; the total is the truth in v1 | A future owner-ratified ticket if that scope is revisited |
+| `baseAmount`, `finalAmount`, `snapshot*`, any commission or split value | Protected or nonexistent downstream values | HB-04A owns agreed/base/final coherence; no historical commission/split request exists |
 
 An unknown field is rejected rather than ignored.
 
@@ -737,11 +748,9 @@ path could in principle overwrite the captured amount. E-13 shows the *main* pat
 **Never silently guess. Never use an arbitrary request owner.** Refusing is visible and correctable;
 guessing credits money to the wrong person invisibly (D-OWN-01).
 
-HB-05 later adds explicit owner confirmation and the gated override — a distinct permission, a mandatory
-reason, previous and selected owner, actor and timestamp audit, and the payout implications. **That
-extension must be additive and backward-compatible:** a request valid under this section must remain valid
-after HB-05 ships, and HB-05's new fields must be optional-with-safe-default or arrive alongside their own
-permission.
+HB-05 later adds read-only review and a separate correction command with a distinct permission, mandatory
+reason, dedicated idempotency, immutable previous/selected-owner audit and payout-safety checks. The HB-02
+creation request remains unchanged after HB-05 ships.
 
 ### 14.3 Response contract — `HistoricalBookingResponse`
 
@@ -763,9 +772,8 @@ Superset of the existing `BookingDetailsResponse` shape (`BookingsController.cs:
 | `idempotencyKey` | `string` | Echo of the accepted header, so a replay is recognisable in the response itself |
 | `statusHistoryEventId` | `Guid` | The single truthful audit row, so the PR and the wizard can both point at it |
 
-Fields **not** present in v1, each arriving with the ticket that owns it:
-`snapshotCommissionRate` / `snapshotOwnerAmount` / `snapshotKazaAmount` and `ownerOverrideApplied` (HB-05);
-`recordedPayment` (HB-04). Adding them later is additive.
+Fields **not** present on this response include owner-correction details (HB-05) and historical-payment
+evidence (HB-04B). Those commands have their own stable persisted response contracts.
 
 ### 14.4 Error contract — machine-readable codes (D-HB02-03)
 
@@ -822,13 +830,13 @@ and so no ticket invents a second name for the same condition.
 | Code | Status | Owner | Condition |
 |---|---|---|---|
 | `HISTORICAL_DUPLICATE_BOOKING` | `409` | HB-03 | Exact or acknowledged-probable duplicate |
-| `OWNER_OVERRIDE_FORBIDDEN` | `403` | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) | Override requested without `bookings:override_owner`. **HB-05 introduces the exception type and the middleware branch that produce it** (§10.2) |
+| HB-05 policy denial | `403` | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) | Existing authorization response when `bookings:correct_owner_attribution` is absent; not a coded business error |
 | `STAY_DATES_IN_PAST` | `400` | [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) | Past stay dates on the **normal** endpoint, once REQ-16 hardening is activated |
 
 #### Relationship to the earlier lowercase names
 
 Earlier drafts of this pack wrote these codes in lowercase (`VALIDATION_ERROR`,
-`HISTORICAL_CHECKOUT_NOT_COMPLETED`, `CLIENT_PHONE_ALREADY_EXISTS`, `OWNER_ATTRIBUTION_REQUIRED`). Those were prose
+`HISTORICAL_CHECKOUT_NOT_COMPLETED`, `CLIENT_PHONE_ALREADY_EXISTS`). Those were prose
 labels in planning documents, never a shipped contract — **no deployed consumer reads them, because the
 envelope has no code field at all today (E-4)**. Renaming them now costs nothing and is the last moment at
 which it costs nothing. The `UPPER_SNAKE_CASE` set above is canonical; the lowercase forms are retired and
@@ -840,14 +848,14 @@ must not be reintroduced.
 
 ### 15.1 Columns owned by HB-02
 
-`PROPOSED`, consistent with [Master §11](00_MASTER_PLAN.md#11-proposed-data-model) and fixed by the
+`PROPOSED`, consistent with [Master §11](00_MASTER_PLAN.md#11-ratified-data-model) and fixed by the
 [migration-ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix). **HB-02 owns objects
 #1 … #13** and authors the **first** of three additive migrations. Financial columns belong to HB-04 (#14–#17)
-and owner columns to HB-05 (#18–#28); each ticket writes its own migration and they are applied in that
+and owner-correction audit/idempotency objects to HB-05 (#18–#22); each ticket writes its own migration and they are applied in that
 order. There is no "coordinated" migration.
 
-Object **#13** is now the `bookings:record_historical` seed **only**. `bookings:override_owner` moved to
-HB-05 with the override it gates ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)).
+Object **#13** is the `bookings:record_historical` seed only. HB-05 separately owns
+`bookings:correct_owner_attribution` ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)).
 
 | Column / object | Type | Null | Default | Constraint / index | Matrix # |
 |---|---|---|---|---|---|
@@ -955,7 +963,7 @@ admin action. `original_source` carries the business truth. Reporting reads `ori
 INSERT INTO rbac_role_template_permissions (role_template_id, permission_key, created_at)
 VALUES ('<SuperAdmin template id>', 'bookings:record_historical', CURRENT_TIMESTAMP)
 ON CONFLICT (role_template_id, permission_key) DO NOTHING;
--- bookings:override_owner is NOT seeded here. It is HB-05's, with the override it gates.
+-- HB-05's separate owner-correction permission is not seeded here.
 
 UPDATE admin_users SET updated_at = CURRENT_TIMESTAMP
 WHERE role_template_id = '<SuperAdmin template id>';
@@ -975,7 +983,7 @@ affected admins to obtain a token carrying the new `perm` claim (E-8).
 | Route gate | `[Authorize(Policy = PermissionKeys.BookingsRecordHistorical)]` on the action | E-6; INV-10 |
 | Permission registration | Constant **and** descriptor added to `PermissionKeys` — `All` derives from `Descriptors` (E-7), and a missing descriptor silently yields no policy, which ASP.NET surfaces as a 500 on first request | E-7 |
 | Owner resolution | The current unit owner is resolved **server-side** from trusted repository state; there is no owner field on the request. Uncertain ownership is refused with `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`, never guessed ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)) | INV-12, INV-17; D-OWN-01 |
-| Override gate | **Not present in HB-02.** No override can be requested, so none can be refused. `bookings:override_owner`, `ForbiddenBusinessException` and the `403` branch are all HB-05's (§10.2) | REQ-07; HB-05 |
+| Correction gate | **Not present in HB-02.** HB-05 exposes a separate endpoint gated by `bookings:correct_owner_attribution`; missing permission uses existing policy authorization (§10.2) | REQ-07; HB-05 |
 | Idempotency-key scoping | Keys are scoped to **actor + endpoint + key** (§19), so one operator's key can never replay or collide with another's, and the key namespace cannot be squatted across endpoints | INV-08 |
 | Actor identity | Read from `ClaimTypes.NameIdentifier`; never accepted from the body | INV-11; `BookingsController.cs:244-251` |
 | Mass assignment | Dedicated DTO; §14.2 exclusion list; no `AutoMapper`-style projection onto the entity | INV-01, INV-12 |
@@ -984,7 +992,7 @@ affected admins to obtain a token carrying the new `perm` claim (E-8).
 | Financial tampering | The caller supplies `agreedAmount` only — a single scalar, persisted verbatim and constrained `>= 0` by the existing `ck_bookings_*_non_negative` constraints (E-25). No fee, tax, discount, split, payment or payout value is accepted on this route ([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary)) | HB-04/HB-05 |
 | Audit immutability | Status history is append-only; nothing in this ticket adds an update or delete path to it | REQ-12 |
 | Logging | Structured, correlation-id bearing, **no PII** — no guest name, phone or email in logs or metric labels | [Master §18](00_MASTER_PLAN.md#18-security-and-compliance-review) |
-| Residual risk while REQ-16 hardening is unshipped | `bookings:write` still permits silent backdating on the normal endpoint. HB-02 **reduces** but does not close `RISK-10`; only the hardening — specified in HB-01 §11.2, shipped by [HB-08 §26.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#261-req-16-hardening-tasks--the-last-commits-on-this-branch) — closes it. Security accepts this window explicitly under [D-HARD-01](DECISION_RATIFICATION_PACKET.md#d-hard-01--normal-flow-hardening) | §23, §34 |
+| Residual risk while REQ-16 hardening is unshipped | `bookings:write` still permits silent backdating on the normal endpoint. HB-02 **reduces** but does not close `RISK-10`; only the hardening — specified in HB-01 §11.2, shipped by [HB-08 §17.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#171-req-16-hardening-tasks--a-later-independent-pr) — closes it. Security accepts this window explicitly under [D-HARD-01](DECISION_RATIFICATION_PACKET.md#d-hard-01--normal-flow-hardening) | §23, §34 |
 
 ---
 
@@ -1111,7 +1119,7 @@ ordering — claim first, complete in the same transaction — is why §11.5 for
 | Signal | Shape | Notes |
 |---|---|---|
 | Status-history row | The single row in §11.3 | The legally meaningful audit artefact |
-| Structured event | `booking.historical.recorded` — `bookingId`, `unitId`, `actorAdminUserId`, `recordedAt`, `checkInDate`, `checkOutDate`, `actualBookedAt`, `historicalEntryReason`, `originalSource`, `ownerId`, `overrideApplied`, `correlationId` | **No PII.** No guest name, phone or email |
+| Structured event | `booking.historical.recorded` — `bookingId`, `unitId`, `actorAdminUserId`, `recordedAt`, `checkInDate`, `checkOutDate`, `actualBookedAt`, `historicalEntryReason`, `originalSource`, `ownerId`, `correlationId` | **No PII.** No guest name, phone or email |
 | Metric | `historical_booking_created_total` | Counter |
 | Metric | `historical_booking_rejected_total{reason="not_complete"\|"overlap"\|"duplicate"\|"forbidden"\|"owner_attribution"\|"validation"}` | Label set closed; cardinality bounded by the code list in §14.4 |
 | Metric | `historical_booking_command_duration_seconds` | Histogram — the command holds a per-unit lock, so latency regressions matter |
@@ -1195,17 +1203,17 @@ HB-02 changes no report. It creates the **dimension** later reports need:
 4. Grant `bookings:record_historical` to the pilot role (D-HB02-09). Confirm affected admins receive a token
    carrying the claim.
 5. Pilot: 2–3 named operators, daily reconciliation of created rows against the stated reasons.
-6. Only then is REQ-16 hardening implemented and activated, as [HB-08 §24.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#241-ordering) step 9 ([Master §22](00_MASTER_PLAN.md#22-rollout-strategy)).
+6. Only then is REQ-16 hardening implemented and activated, as [HB-08 §16.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#161-ordering) step 9 ([Master §22](00_MASTER_PLAN.md#22-rollout-strategy)).
    Reversing steps 5 and 6 would leave operators with no way to record a past stay at all.
 
-`PROPOSED` — the pilot exit criterion is: ten historical bookings recorded, all reconciled, no
-misattribution, no duplicate, no notification observed.
+`OWNER APPROVED` — pilot exit uses the complete HB-08A evidence contract: all pilot rows reconcile across
+the recorded/stay axes, with no unexplained attribution, duplicate, evidence or side-effect discrepancy.
 
 ---
 
 ## 25. Feature flag strategy
 
-`PROPOSED` — **no runtime feature flag.** The permission *is* the flag, and it is a better one: it is
+`OWNER APPROVED` — **no runtime feature flag.** The permission *is* the flag, and it is a better one: it is
 server-enforced, per-user, auditable, revocable without a deploy, and already has admin tooling
 (`rbac_admin_user_permission_overrides` supports `grant`/`deny` per user, `CONFIRMED` at
 `db/migrations/0053_create_dynamic_rbac.sql:32-46`).
@@ -1230,9 +1238,9 @@ Ordered so that each step is independently reviewable and leaves the build green
 | 4 | Add `BookingHistoryEvents.HistoricalBookingRecorded` | Constant present; existing two constants untouched |
 | 5 | Write the migration + `_verify` + `_rollback`: five provenance columns, CHECKs `NOT VALID` then validated, partial indexes, `booking_original_sources` + its four seed rows + the FK, `idempotency_keys`, the `bookings:record_historical` seed, `UPDATE admin_users` | `_verify.sql` passes against a fresh and a populated database, and asserts exactly four seeded source codes |
 | 6 | Extend `Booking` entity and `BookingConfiguration` with the five properties | Column names and max lengths match the migration; existing mappings unchanged |
-| 7 | Add `PermissionKeys.BookingsRecordHistorical` **and** its `PermissionDescriptor` entry. **Not** `BookingsOverrideOwner` — that is HB-05's | `PermissionKeys.All.Count` increases by exactly 1; a test asserts every constant appears in `Descriptors` (guards E-7) |
+| 7 | Add `PermissionKeys.BookingsRecordHistorical` and its `PermissionDescriptor` entry. HB-05's separate correction permission is not part of this ticket | `PermissionKeys.All.Count` increases by exactly 1; a test asserts every constant appears in `Descriptors` (guards E-7) |
 | 8 | Add `IBusinessErrorCode`, implement it on the four existing exception types via additive optional constructor arguments, add the optional `Code` to `ApiResponse`/`ApiResponse<T>`, and propagate it in `ExceptionHandlingMiddleware` (D-HB02-03) | Existing error responses serialise identically apart from the new nullable property; **every existing constructor and factory overload keeps its signature**; the middleware's status switch is unchanged |
-| 9 | ~~Add `ForbiddenBusinessException` and its 403 branch~~ **Not in HB-02** (D-HB02-04, §10.2) | Nothing to do. If a diff adds a `403` branch to the middleware, treat it as a stop condition |
+| 9 | Add no new 403 business-exception branch (D-HB02-04, §10.2) | Nothing to do; later correction uses policy authorization |
 | 9b | Add `idempotency_keys` entity + `HistoricalIdempotencyStore` with claim / complete / replay (D-HB02-IDEM) | Replay returns the original booking; hash mismatch returns `409 IDEMPOTENCY_KEY_REUSED`; an incomplete claim returns `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` |
 | 10 | Define `RecordHistoricalBookingCommand` and its result record | No `CreatedAt`, `BookingStatus` or bare `OwnerId` field |
 | 11 | Implement `HistoricalBookingService`: boundary check, transaction, advisory lock, idempotency claim, current-owner resolution, active-source lookup, `CreateAsync(initialStatus: Completed)`, provenance + `agreedAmount` application, history-note rewrite, idempotency completion | The §11.5 ordering executes end to end with the HB-03/04/05 seams stubbed |
@@ -1276,7 +1284,7 @@ Ordered so that each step is independently reviewable and leaves the build green
 | AC-HB02-19 | **Given** two concurrent requests for the same unit and overlapping dates, **when** both run, **then** exactly one succeeds and the other receives a `409`. |
 | AC-HB02-20 | **Given** a request carrying an `externalReference` already used by another historical booking, **when** submitted, **then** `409` is returned rather than a 500. |
 | AC-HB02-21 | **Given** any exception-produced failure path, **then** the response body carries the machine-readable `code` from §14.4 in the `code` property — **not** inside `errors[0]` — alongside a human-readable `message`, and no stack trace. |
-| AC-HB02-22 | **Given** the deployed migration, **then** `PermissionKeys.All` contains `bookings:record_historical`, a policy exists for it, a SuperAdmin token issued after the migration carries the `perm` claim, and **`bookings:override_owner` is absent** (it arrives with HB-05). |
+| AC-HB02-22 | **Given** the deployed migration, **then** `PermissionKeys.All` contains `bookings:record_historical`, a policy exists for it, a SuperAdmin token issued after the migration carries the `perm` claim, and HB-05's separate correction permission is absent. |
 | AC-HB02-23 | **Given** an existing non-historical booking, **when** any existing booking endpoint is called, **then** its response is byte-identical to pre-change output except for additive properties. |
 | AC-HB02-24 | **Given** a historical booking whose recording admin is later deactivated, **when** its status history is rendered, **then** the row is still identified as a creation entry (E-18). |
 | AC-HB02-25 | **Given** a request supplying both `clientId` and `newClient`, or neither, **when** submitted, **then** `400 CLIENT_REFERENCE_INVALID` is returned and nothing is persisted. |
@@ -1323,8 +1331,8 @@ Ordered so that each step is independently reviewable and leaves the build green
 | NAC-HB02-20 | The endpoint is exposed to client, owner-portal or storefront principals. |
 | NAC-HB02-21 | The machine-readable code is emitted inside `errors[0]`, or any existing `ApiResponse` field is renamed, removed or changed in type. |
 | NAC-HB02-22 | An unrelated endpoint is forced to migrate to the coded-error contract as part of this ticket. |
-| NAC-HB02-23 | A `403` branch is added to `ExceptionHandlingMiddleware`, or `ForbiddenBusinessException` is introduced, by HB-02. |
-| NAC-HB02-24 | `bookings:override_owner` is defined, seeded or referenced as an HB-02 deliverable. |
+| NAC-HB02-23 | A new `403` business-exception branch is added to `ExceptionHandlingMiddleware` by HB-02. |
+| NAC-HB02-24 | `bookings:correct_owner_attribution` is defined, seeded or referenced as an HB-02 deliverable. |
 | NAC-HB02-25 | An owner id, owner-attribution object or override flag is accepted from the request body. |
 | NAC-HB02-26 | An owner is guessed, defaulted arbitrarily, or silently selected when ownership is absent, multiple or ambiguous. |
 | NAC-HB02-27 | `agreedAmount` is defaulted, recomputed, or overwritten from current unit pricing on this path. |
@@ -1415,7 +1423,7 @@ The seam signatures in §11.5 are fixed, so HB-03, HB-04 and HB-05 can start imm
 2. NAC-HB02-01 … NAC-HB02-38 are verified, each by an assertion rather than by inspection.
 3. Migration applied forward with `_verify.sql` passing; `_rollback.sql` exercised on a scratch database.
 4. `bookings:record_historical` appears in `PermissionKeys.All`, has a policy, and is seeded.
-   `bookings:override_owner` is **absent** — it is HB-05's.
+   `bookings:correct_owner_attribution` is absent — it is HB-05's.
 5. The full existing test suite is green with no modification to unrelated tests.
 6. The single-history-row property is asserted, not assumed.
 7. Zero notifications and zero invoices are asserted for a historical creation.
@@ -1489,8 +1497,8 @@ This limitation must appear verbatim in the release checklist, matching
 Stop and report rather than proceeding if:
 
 - HB-01 is not merged, or its ADRs are not ratified in writing.
-- A diff adds a `403` branch to `ExceptionHandlingMiddleware`, introduces `ForbiddenBusinessException`, or
-  defines `bookings:override_owner` — all three are HB-05's ([D-HB02-04](#102-d-hb02-04-in-full--the-subject-and-why-it-dissolves)).
+- A diff adds a business-exception `403` branch to `ExceptionHandlingMiddleware` or defines
+  `bookings:correct_owner_attribution` — neither belongs to HB-02 ([D-HB02-04](#102-d-hb02-04-in-full--the-subject-and-why-it-dissolves)).
 - A diff adds an owner field to the request DTO, or an invoice, payment, payout, fee, tax or discount write
   to the historical path.
 - A diff mirrors the `original_source` vocabulary as a hard-coded C# list instead of reading the table.
@@ -1501,7 +1509,7 @@ Stop and report rather than proceeding if:
 - Making the tests pass would require changing `BookingService.CreateAsync`'s behaviour for existing callers.
 - Direct-to-`Completed` creation turns out to trigger a side effect not listed in §21.
 - The implementation appears to need a `suppressNotifications`, `allowPastDates` or equivalent bypass flag.
-- The work starts requiring the agreed-amount protection, the conflict set, or the owner override — those
+- The work starts requiring the agreed-amount protection, the conflict set, or the owner-correction command — those
   are HB-04, HB-03 and HB-05, and pulling them in destroys the review boundary.
 - A second copy of the Cairo boundary expression seems necessary.
 - Any change to production data, or to a file outside the §13 list, would be needed.

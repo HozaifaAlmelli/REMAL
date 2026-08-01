@@ -32,10 +32,10 @@ than a reviewer who might catch the problem.
 | Status | Meaning |
 |---|---|
 | `OWNER APPROVED` | Decided by the sole owner on the date above. Implementation may proceed against it |
-| `DEFERRED` | Deliberately out of v1. Carries an accepted risk and a revisit trigger. **Not** an unresolved approval |
+| `OWNER APPROVED — OUT OF V1` | Decided by the sole owner and deliberately outside v1. Carries an accepted risk and a revisit trigger |
 | `BLOCKED BY TECHNICAL PREREQUISITE` | The decision itself is made; execution waits on a named technical prerequisite, not on a person |
 
-There is no `PENDING RATIFICATION` status in this project, and no decision is blocked on an unassigned role.
+No decision in this project awaits ratification, and no decision is blocked on an unassigned role.
 Any earlier text implying that a Product owner, Engineering owner, Finance approver or Security reviewer was
 "missing" has been withdrawn — those roles are lenses held by the owner, not vacancies.
 
@@ -51,11 +51,11 @@ Any earlier text implying that a Product owner, Engineering owner, Finance appro
 | [D-INV-01](#d-inv-01--invoice-policy) | Invoice policy | No automatic invoice from historical commands; existing manual workflow remains allowed; historical evidence stays unlinked | Product · Finance · Security | **`OWNER APPROVED`** |
 | [D-PAY-01](#d-pay-01--historical-payment-policy) | Historical payment policy | Separate privileged command; never inline | Finance · Security · Engineering | **`OWNER APPROVED`** |
 | [D-OWN-01](#d-own-01--owner-attribution) | Owner attribution | Default unit owner, explicit review, block on uncertainty | Product · Finance · Operations | **`OWNER APPROVED`** |
-| [D-OWN-02](#d-own-02--owner-override) | Owner override | Distinct permission, mandatory reason, full audit | Finance · Security · Engineering | **`OWNER APPROVED`** |
+| [D-OWN-02](#d-own-02--owner-correction) | Owner correction | Separate endpoint and permission, mandatory reason, idempotency, immutable audit, no-payout-only safety | Finance · Security · Engineering | **`OWNER APPROVED`** |
 | [D-MIG-01](#d-mig-01--migration-ownership) | Migration ownership | One owner per schema object; cross-ticket use is a dependency | Engineering · Operations | **`OWNER APPROVED`** |
 | [D-ROLL-01](#d-roll-01--rollout-sequence) | Rollout sequence | Implement → test → pilot → then harden | Product · Engineering · Operations | **`OWNER APPROVED`** |
-| [D-HARD-01](#d-hard-01--normal-flow-hardening) | Normal-flow hardening | HB-01 specifies; HB-08 implements and activates last | Product · Security · Engineering | **`OWNER APPROVED`** |
-| [D-TEST-01](#d-test-01--postgresql-test-requirement) | PostgreSQL test requirement | Real PostgreSQL integration testing is mandatory before HB-03 merges | Engineering · Operations | **`OWNER APPROVED`**, execution `BLOCKED BY TECHNICAL PREREQUISITE PRE-02` |
+| [D-HARD-01](#d-hard-01--normal-flow-hardening) | Normal-flow hardening | HB-08B is a separate later PR after HB-08A pilot evidence | Product · Security · Engineering | **`OWNER APPROVED`** |
+| [D-TEST-01](#d-test-01--postgresql-test-requirement) | PostgreSQL test requirement | PRE-02 is complete; HB-09 consumes explicit `KAZA_TEST_DB` PostgreSQL 16 infrastructure | Engineering · Operations | **`OWNER APPROVED`** |
 
 
 ### HB-02 decisions
@@ -69,7 +69,7 @@ live in the ticket.
 | ID | Decision | Outcome | Review lenses | Status |
 |---|---|---|---|---|
 | [D-HB02-03](#d-hb02-03--machine-readable-error-transport) | Machine-readable error transport | Optional `Code` on the shared `ApiResponse` contract; never in `errors[0]` | Engineering · Product | **`OWNER APPROVED`** |
-| [D-HB02-04](#d-hb02-04--producing-a-403-for-an-owner-override-refusal) | Producing a `403` for an owner-override refusal | Dissolved for HB-02 — no override exists there. Mechanism moves to HB-05 | Engineering · Security | **`OWNER APPROVED`** |
+| [D-HB02-04](#d-hb02-04--owner-correction-authorization-transport) | Owner-correction authorization transport | Dissolved for HB-02; HB-05 uses existing policy authorization with no new business 403 branch | Engineering · Security | **`OWNER APPROVED`** |
 | [D-HB02-05](#d-hb02-05--client-reference-contract) | Client reference contract | Exactly one of `clientId` / `newClient`; known phone refused with the existing id | Product · Engineering | **`OWNER APPROVED`** |
 | [D-HB02-06](#d-hb02-06--original_source-vocabulary) | `original_source` vocabulary | Database-backed lookup table, four seeded codes, active/inactive | Product · Finance · Engineering | **`OWNER APPROVED`** |
 | [D-HB02-IDEM](#d-hb02-idem--idempotency-ownership-and-contract) | Idempotency ownership and contract | HB-02 owns `idempotency_keys`; `Idempotency-Key` required | Engineering · Operations | **`OWNER APPROVED`** |
@@ -127,13 +127,67 @@ HB-03 conflict and duplicate reads preserve stored client ID and normalized phon
 soft deletion. This exception is read-only and local to HB-03; it exposes no PII and never restores, reuses,
 merges or mutates the unavailable client.
 
-### Deferred v1 scope decisions
+## Remaining-contract closure — 2026-08-01
+
+The Sole Project Owner approved the closure recommendations for HB-05 through HB-09. The ticket documents
+contain the full contracts; this section records the binding cross-ticket decisions.
+
+### HB-05 owner correction decisions
+
+| Decision | Owner-approved outcome |
+|---|---|
+| Endpoint/permission | `POST /api/internal/bookings/{bookingId:guid}/owner-attribution-corrections`; `bookings:correct_owner_attribution`; `200 OK` |
+| Target/reason | Explicit trusted owner ID; inactive non-deleted allowed with warning; deleted rejected; four-code reason list; `other` requires note |
+| Uncertainty | `OWNER_ATTRIBUTION_REQUIRES_REVIEW`; offline review; no determinability request flag |
+| Payout | Correction only with no payout row. Pending, Scheduled, Paid and Cancelled all block with `OWNER_CORRECTION_PAYOUT_REVIEW_REQUIRED`; zero payout mutation |
+| Idempotency/concurrency | Dedicated actor+endpoint+key store; canonical hash includes `expectedCurrentOwnerId`; server-derived booking lock; same-owner coded no-op; one winner and one stale-attribution loser for concurrent conflicts |
+| Audit | Append-only correction chain with previous/target owner and rate, actor, reason, timestamp and correction ID; one concise booking-history link |
+| Legacy rows | Migration preflight aborts when historical attribution evidence is incomplete; remediation requires owner-reviewed data; no current-owner/current-rate backfill |
+
+### HB-06 wizard decisions
+
+| Decision | Owner-approved outcome |
+|---|---|
+| Surface | Full page `/admin/bookings/historical/new`; secondary booking-list action; no modal |
+| Metadata | Conflict/duplicate UI uses approved safe IDs/dates only and `acknowledgedDuplicateOf`; no PII/amount leakage |
+| Owner review | Consume HB-05 read-only preview with stable IDs, warnings and capabilities; no browser financial calculation |
+| Payment UX | Create booking first; optional HB-04B payment second and only with permission; all four canonical methods; payment failure preserves booking and retries payment only |
+| Lifecycle/testing | Explicit Cancel and `beforeunload` warnings; no browser analytics v1; use `tsx --test` and existing Playwright |
+
+### HB-07 notification decisions
+
+v1 sends no automatic internal or external notification for booking creation, historical payment, or owner
+correction. The wizard warns the operator. Future dispatchers exclude historical records by default and need
+an explicit historical-safe contract. HB-07 performs one positive integration audit and uses structural plus
+PostgreSQL/pilot reconciliation evidence; it adds no per-request post-commit query or metrics platform.
+
+### HB-08 reporting and rollout decisions
+
+| Decision | Owner-approved outcome |
+|---|---|
+| Axes | Keep recorded date and add check-in-date stay-start axis; bucket each booking once; no per-night revenue |
+| Invoice/evidence | Manual invoices remain allowed. Historical evidence stays unlinked and is reported in dedicated count/amount columns, excluded from invoice-linked and ordinary orphan totals |
+| Observability | Durable domain audit + PII-free structured logs + DB reconciliation; no metrics platform v1 |
+| Consumers/default | Rollout blocks until external consumers are inventoried; historical included by default with breakdown and explicit opt-out |
+| Provenance/occupancy | `source='admin'`, canonical `original_source`; OccupancyWidget uses stay axis; full nightly redesign later |
+| APIs | Exact three routes and filters in HB-08; inclusive valid ranges capped at 24 months |
+| Delivery split | HB-08A reporting/rollout first; HB-08B normal-flow hardening in a separate PR after pilot evidence |
+
+### HB-09 test and release decisions
+
+PRE-01 and PRE-02 are complete. PostgreSQL tests require explicit `KAZA_TEST_DB`, use Category=PostgreSQL,
+and never fall back. Portal unit tests use `tsx --test`. CI derives code/scenario/test counts dynamically;
+there is no arbitrary coverage threshold. Backend, `backend-postgres`, schema parity, portal and relevant
+frontend checks become required only after successful hosted observation and owner-controlled branch
+protection. HB-09 PR completion and operational release approval are separate gates.
+
+### Owner-approved scope outside v1
 
 | ID | Subject | Status | Accepted risk | Revisit trigger |
 |---|---|---|---|---|
-| [OQ-05](#oq-05--currency-model) | Currency model | **`DEFERRED`** | Historical bookings cannot represent multi-currency financial snapshots | The platform introduces more than one supported transaction currency |
-| [OQ-06](#oq-06--fee-tax-and-discount-model) | Fee, tax and discount model | **`DEFERRED`** | Component-level financial breakdown may be unavailable | Legal, tax, invoicing or reporting requirements demand component-level values |
-| [OQ-07](#oq-07--paid-payout-correction) | Paid payout correction | **`DEFERRED`** | Corrections require manual handling until an adjustment ledger exists | A formal payout-adjustment or settlement-period model is introduced |
+| [OQ-05](#oq-05--currency-model) | Currency model | **`OWNER APPROVED — OUT OF V1`** | Historical bookings cannot represent multi-currency financial snapshots | The platform introduces more than one supported transaction currency |
+| [OQ-06](#oq-06--fee-tax-and-discount-model) | Fee, tax and discount model | **`OWNER APPROVED — OUT OF V1`** | Component-level financial breakdown may be unavailable | Legal, tax, invoicing or reporting requirements demand component-level values |
+| [OQ-07](#oq-07--paid-payout-correction) | Paid payout correction | **`OWNER APPROVED — OUT OF V1`** | Corrections require manual handling until an adjustment ledger exists | A formal payout-adjustment or settlement-period model is introduced |
 
 ### Active technical prerequisites
 
@@ -247,7 +301,7 @@ Future reconciliation between standalone evidence and invoices remains outside H
 
 | Field | Value |
 |---|---|
-| **Decision** | Historical booking and payment commands **will not automatically create or issue an invoice in v1**, and no invoice notification runs from them. Existing manual draft creation and normal issuance remain allowed. Historical payment evidence remains standalone and unlinked; future reconciliation is deferred. |
+| **Decision** | Historical booking and payment commands **will not automatically create or issue an invoice in v1**, and no invoice notification runs from them. Existing manual draft creation and normal issuance remain allowed. Historical payment evidence remains standalone and unlinked; future reconciliation is outside HB-04B. |
 | **Basis** | `CONFIRMED` — the only invoice auto-creation site is the `Booked → Confirmed` transition, `BookingLifecycleService.cs:186-200` (`:194` create, `:199` issue), which the historical flow never executes. Invoice numbers come from a **daily-reset** sequence, `InvoiceService.cs:500-518`, so a number asserts the date the document was produced. `reporting_finance_daily_summary.total_paid_amount` reaches payments only through `payments.invoice_id`, so an uninvoiced payment reports as zero cash received. Manual draft creation remains available for `Completed` bookings via `POST /api/internal/invoices/drafts`. |
 | **Review lenses** | Product · Finance · Security |
 | **Decision authority** | Sole Project Owner |
@@ -303,7 +357,7 @@ written. `SC-NOTIF-04` is the assertion that no invoice is auto-created.
 | No live collection | No gateway call, payment intent, payment link, invoice, payout or notification. Existing live-payment paths reject historical bookings |
 
 The complete PAY-01 through PAY-14 request, response, transaction, migration and error contract is canonical
-in [HB-04 §11.4](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#114-historical-payment-recording--hb-04b-only).
+in [HB-04 §11](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#11-historical-payment-recording--hb-04b-only).
 
 | Decision set | Binding outcome |
 |---|---|
@@ -344,30 +398,29 @@ payment in step 4 and posts it after the booking returns `200`, with an explicit
 unit changed hands between the stay and the recording, the system cannot resolve the correct owner. Guessing
 credits money to the wrong person silently. Refusing is visible and correctable.
 
-**Consequences.** HB-05 adds the mandatory review step and the three `snapshot_*` columns; owner attribution
-is immutable after creation; a dedicated correction workflow handles genuine mistakes; date-ranged ownership
-history is a separate future epic and must not block v1.
+**Consequences.** HB-05 adds a read-only review and a separate correction workflow. Existing snapshot truth
+is preserved; HB-05 adds no replacement snapshot columns. Date-ranged ownership history is a future epic.
 
 ---
 
-## D-OWN-02 — Owner override
+## D-OWN-02 — Owner correction
 
 | Field | Value |
 |---|---|
-| **Decision** | Owner override requires a **distinct privileged permission**. A **non-empty reason is mandatory**. Audit records must include **previous owner, selected owner, actor, timestamp and reason**. |
+| **Decision** | Correction uses `POST /api/internal/bookings/{bookingId:guid}/owner-attribution-corrections`, `bookings:correct_owner_attribution`, a required idempotency key, the review response's `expectedCurrentOwnerId` staleness precondition, explicit target owner and mandatory canonical reason. The expected ID is checked under the lock and is never an owner source of truth. The command preserves an immutable before/after chain. Correction is allowed only when the booking has no payout row; every payout state blocks with `OWNER_CORRECTION_PAYOUT_REVIEW_REQUIRED`. |
 | **Basis** | `CONFIRMED` — no existing endpoint accepts an owner id for a booking; `BookingService.cs:225` derives it from the unit. Permission keys follow an `area:action` convention in `RentalPlatform.API/Authorization/PermissionKeys.cs`, are `VARCHAR(50)`, and are seeded per the pattern at `db/migrations/0053_create_dynamic_rbac.sql`. Per-user grants and denies exist via `rbac_admin_user_permission_overrides`. |
 | **Review lenses** | Finance · Security · Engineering |
 | **Decision authority** | Sole Project Owner |
-| **Decision date** | 2026-07-29 |
+| **Decision date** | 2026-08-01 |
 | **Status** | **`OWNER APPROVED`** |
 
-**Why a second permission.** Recording a historical booking and redirecting who gets paid for it are
-different privileges. Collapsing them into one means anyone who can record can also redirect money.
-`bookings:override_owner` is granted to **no** role template by default and issued as a per-user grant.
-
-**Enforcement.** In-service, not merely at the policy layer, so the check cannot be lost if a route is
-refactored. An override emits `booking.historical.owner_override` carrying both owner ids and sharing the
-recording's correlation id. HB-08 alerts when the override rate exceeds the agreed threshold.
+**Enforcement.** The actor comes from claims. The dedicated idempotency scope is actor + endpoint + key; the
+server-derived booking lock serializes correction and payout inspection. Same-owner requests are coded no-ops,
+concurrent conflicts using the same reviewed precondition have one winner and one
+`OWNER_CORRECTION_STALE_ATTRIBUTION` loser, and replay returns the original persisted response without a second
+audit event. Inactive non-deleted targets are allowed with a warning; deleted targets are rejected. Reason
+codes are `ownership_changed_after_stay`, `booking_belonged_to_previous_owner_agreement`,
+`accounting_reconciliation`, and `other` (note required).
 
 ---
 
@@ -376,23 +429,23 @@ recording's correlation id. HB-08 alerts when the override rate exceeds the agre
 | Field | Value |
 |---|---|
 | **Decision** | The [migration-ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix) is authoritative. Every schema object has exactly one ticket owner. Cross-ticket use is represented as a **dependency**. No two tickets may claim ownership of the same column, index, constraint or table. |
-| **Basis** | `CONFIRMED` — migrations are raw SQL under `db/migrations/NNNN_name.sql` with paired `_verify.sql` and `_rollback.sql`, applied by `scripts/apply-migrations.sh`; there is no EF Core migrations directory. The latest observed number is `0057`. |
+| **Basis** | Migrations are raw SQL under `db/migrations/NNNN_name.sql` with verifier and evidence-based rollback artifacts. Planning does not reserve a migration number; each implementation branch inspects repository state. |
 | **Review lenses** | Engineering · Operations |
 | **Decision authority** | Sole Project Owner |
 | **Decision date** | 2026-07-29 |
 | **Status** | **`OWNER APPROVED`** |
 
-**Domain split.** **HB-02** owns historical-booking identity, audit metadata, reason, creation mode and
-booking-level lifecycle fields. **HB-04** owns the agreed financial snapshot and historical payment fields.
-**HB-05** owns owner commission, payout snapshot, attribution, override and adjustment-related fields.
-**HB-08** owns reporting views only.
+**Domain split.** **HB-02** owns historical-booking identity. **HB-04A** owns agreed snapshot/guard.
+**HB-04B** owns historical payment evidence and command idempotency. **HB-05** owns only the immutable
+owner-correction audit, correction idempotency and permission. **HB-08A** owns reporting views and additive
+report columns. HB-06, HB-07, HB-08B and HB-09 own no migration.
 
-**Ordering.** `HB-02 (#1–#13) → HB-04 (#14–#17) → HB-05 (#18–#28) → HB-08 (#29–#33)`. Each `_verify.sql`
+**Ordering.** `HB-02 → HB-04A/HB-04B → HB-05 → HB-08A`. Catalogue row numbers in Master §11.1 are not
+migration numbers. Each `_verify.sql`
 asserts the upstream columns it depends on **before** asserting its own objects, and fails loudly if they
 are absent.
 
-**Prerequisite.** [PRE-01](#pre-01--database-bootstrap-parity-for-migration-0057) must be resolved before
-these migrations land, because bootstrap parity is currently broken.
+**Prerequisite.** [PRE-01](#pre-01--database-bootstrap-parity-for-migration-0057) is complete.
 
 ---
 
@@ -442,8 +495,8 @@ stranding operations.
 1. The [PRE-00 historical data census](#pre-00--historical-data-census) sizes actual past-dated usage before anything changes.
 2. HB-08's reconciliation view detects ongoing normal-flow backdating as off-diagonal rows with
    `historical_count = 0`.
-3. The hardening change is the **last commit** on HB-08's branch, so it can be reverted alone if it blocks a
-   legitimate workflow ([HB-08 §34.1a](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#341a-the-req-16-hardening-rollback--independently-revertible)).
+3. The hardening change ships as a **separate HB-08B PR** after HB-08A pilot approval, so it can be reverted
+   alone if it blocks a legitimate workflow ([HB-08 §18.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#181-the-req-16-hardening-rollback--independently-revertible)).
 4. `AC-HB08-23` … `AC-HB08-26` are runtime assertions and `SC-REG-02` is a P0 release gate, so REQ-16 cannot
    be quietly dropped.
 
@@ -457,11 +510,11 @@ it sooner — in which case hardening is brought forward and operators get a doc
 | Field | Value |
 |---|---|
 | **Decision** | Real PostgreSQL integration testing is **mandatory before HB-03 may merge**. Mocked or in-memory persistence cannot prove lock, transaction, uniqueness, concurrency or database-constraint behaviour. |
-| **Basis** | `CONFIRMED` — `.github/workflows/pr-checks.yml` (90 lines) defines five jobs: `backend` (restore plus `dotnet build -c Release`), `api-container`, `frontend-demo`, `frontend-portal` and `compose-validate`. There is **no `dotnet test` step and no `services:` block** anywhere in the file. Existing tests use EF Core InMemory, which raises `TransactionIgnoredWarning`, cannot execute `ExecuteSqlInterpolatedAsync` (relational-only, and the mechanism advisory locks use), and enforces neither unique indexes nor `CHECK` constraints. |
+| **Basis** | PRE-02 is merged: CI executes Fast and PostgreSQL categories, provisions PostgreSQL 16, and the reusable fixture requires explicit `KAZA_TEST_DB` with no implicit development-database fallback. |
 | **Review lenses** | Engineering · Operations |
 | **Decision authority** | Sole Project Owner |
 | **Decision date** | 2026-07-29 |
-| **Status** | **`OWNER APPROVED`** — execution **`BLOCKED BY TECHNICAL PREREQUISITE PRE-02`** |
+| **Status** | **`OWNER APPROVED` — PRE-02 COMPLETE** |
 
 **What cannot be proven without it:**
 
@@ -516,12 +569,12 @@ the complete set, with statuses aligned to the repository's existing exception m
 
 ---
 
-## D-HB02-04 — Producing a `403` for an owner-override refusal
+## D-HB02-04 — Owner-correction authorization transport
 
 | Field | Value |
 |---|---|
-| **Subject, verbatim** | *"How is `403 OWNER_OVERRIDE_FORBIDDEN` produced, given that `ExceptionHandlingMiddleware` has no `403` branch?"* It was a transport question about one specific error, not a question about ownership policy. |
-| **Decision** | **Not applicable to HB-02; nothing is built there.** HB-02 accepts no owner input at all ([D-HB02-OWN](#d-hb02-own--owner-attribution-boundary)), so an override can never be requested on that endpoint and no override refusal can arise. `ForbiddenBusinessException` and the middleware's `403` branch are **HB-05's**, introduced alongside the override that throws them. HB-02's own uncertainty path is `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` through the **existing** `ConflictException` branch. |
+| **Subject** | Authorization transport for the later owner-attribution correction command. |
+| **Decision** | **Nothing is built in HB-02.** HB-02 accepts no owner input, so a correction cannot be requested on the creation endpoint. HB-05 requires `bookings:correct_owner_attribution`; a missing grant is handled by the existing ASP.NET authorization system as 403. HB-05 adds no new forbidden-business exception and no new middleware 403 branch. HB-02 ownership uncertainty remains `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW` through the existing coded conflict path. |
 | **Basis** | `CONFIRMED` — `ExceptionHandlingMiddleware.cs:45-72` has exactly four typed branches and no `403`. `ConflictException` → `409` already exists at `:53-56`. Every error HB-02 can produce is a `400`, `404` or `409`, so the existing switch is sufficient. |
 | **Review lenses** | Engineering · Security |
 | **Decision authority** | Sole Project Owner |
@@ -691,14 +744,12 @@ does not exist cannot be forged, cannot be mass-assigned, and cannot drift out o
 
 **Why `409` rather than `400`.** The request is well-formed; the *state* is not resolvable. `409` is the
 repository's existing conflict semantic (`ConflictException` → `409`), which also means HB-02 needs no new
-exception type and no new middleware branch — see [D-HB02-04](#d-hb02-04--producing-a-403-for-an-owner-override-refusal).
+exception type and no new middleware branch — see [D-HB02-04](#d-hb02-04--owner-correction-authorization-transport).
 
-**What HB-05 adds, additively.** Explicit owner confirmation and the gated override: a separate permission
-(`bookings:override_owner`), a mandatory reason, previous and selected owner, actor and timestamp audit, and
-the payout implications. **The extension must be backward-compatible** — a request valid under this decision
-must remain valid after HB-05 ships, so HB-05's new fields are optional-with-safe-default or arrive with
-their own permission. This is consistent with [D-OWN-01](#d-own-01--owner-attribution) and
-[D-OWN-02](#d-own-02--owner-override); it settles only *which ticket* carries which half.
+**What HB-05 adds, additively.** A read-only review and a separate correction command gated by
+`bookings:correct_owner_attribution`, with mandatory reason, previous and selected owner, trusted actor,
+timestamp, dedicated idempotency and an immutable correction chain. The command accepts no financial fields
+and blocks when any payout exists. The HB-02 creation request remains unchanged.
 
 **Accepted risk.** Until HB-05 ships, a unit that changed hands cannot have its historical stay recorded at
 all — the operator is blocked rather than given an override. That is the intended failure direction:
@@ -737,7 +788,7 @@ fixes *who builds the mechanism*.
 
 ---
 
-## Deferred v1 decisions
+## Owner-approved out-of-v1 decisions
 
 Each of these is a **deliberate scope decision**, not an unresolved approval.
 
@@ -750,7 +801,7 @@ Each of these is a **deliberate scope decision**, not an unresolved approval.
 | **Review lenses** | Finance · Engineering |
 | **Decision authority** | Sole Project Owner |
 | **Decision date** | 2026-07-29 |
-| **Status** | **`DEFERRED`** |
+| **Status** | **`OWNER APPROVED — OUT OF V1`** |
 | **Risk accepted** | Historical bookings cannot represent multi-currency financial snapshots |
 | **Revisit trigger** | The platform introduces more than one supported transaction currency |
 
@@ -766,7 +817,7 @@ Consequence: the historical command accepts no `currency` field, and one is expl
 | **Review lenses** | Finance · Product |
 | **Decision authority** | Sole Project Owner |
 | **Decision date** | 2026-07-29 |
-| **Status** | **`DEFERRED`** |
+| **Status** | **`OWNER APPROVED — OUT OF V1`** |
 | **Risk accepted** | Component-level financial breakdown may be unavailable |
 | **Revisit trigger** | Legal, tax, invoicing or reporting requirements demand component-level values |
 
@@ -782,12 +833,12 @@ rather than leaving it as a silent assumption.
 | **Review lenses** | Finance · Engineering · Operations |
 | **Decision authority** | Sole Project Owner |
 | **Decision date** | 2026-07-29 |
-| **Status** | **`DEFERRED`** |
+| **Status** | **`OWNER APPROVED — OUT OF V1`** |
 | **Risk accepted** | Corrections require manual handling until an adjustment ledger exists |
 | **Revisit trigger** | A formal payout-adjustment or settlement-period model is introduced |
 
-Consequence: HB-05's correction endpoint must **refuse loudly** on a paid payout rather than corrupt it, and
-emit a `settlement_locked` signal so the frequency of the gap is measurable.
+Consequence: HB-05's correction endpoint must **refuse loudly** whenever any payout row exists, return
+`OWNER_CORRECTION_PAYOUT_REVIEW_REQUIRED`, and leave every payout row unchanged.
 
 ---
 
@@ -805,15 +856,14 @@ Every ADR has a final status. Decision authority for all twelve is the Sole Proj
 | ADR-05 | A migration is required and accepted | Engineering · Operations | **`OWNER APPROVED`** — object ownership per [D-MIG-01](#d-mig-01--migration-ownership) |
 | ADR-06 | Overloading `internal_notes` for structured historical data is rejected | Engineering · Product | **`OWNER APPROVED`** |
 | ADR-07 | Operator-entered agreed amount, protected from automatic repricing | Finance · Engineering | **`OWNER APPROVED`** |
-| ADR-08 | Hybrid owner model: default unit owner, mandatory review, gated override, snapshot, block on unknown | Product · Finance · Security · Operations | **`OWNER APPROVED`** — see [D-OWN-01](#d-own-01--owner-attribution) and [D-OWN-02](#d-own-02--owner-override) |
+| ADR-08 | Deterministic current-owner attribution at creation; separate privileged correction; immutable chain; block on uncertainty or any payout | Product · Finance · Security · Operations | **`OWNER APPROVED`** — see [D-OWN-01](#d-own-01--owner-attribution) and [D-OWN-02](#d-own-02--owner-correction) |
 | ADR-09 | **Both** normal-flow hardening and the historical flow are in scope | Product · Security · Engineering | **`OWNER APPROVED`** — timing per [D-HARD-01](#d-hard-01--normal-flow-hardening) |
-| ADR-10 | Historical conflict detection must include `Completed` and `LeftEarly` | Engineering · Operations | **`OWNER APPROVED`** in design; **`BLOCKED BY TECHNICAL PREREQUISITE PRE-02`** for merge — the conflict, concurrency and uniqueness behaviour it depends on cannot be verified until real PostgreSQL tests exist. This is the one ADR where implementation evidence is genuinely required before the code lands |
+| ADR-10 | Historical conflict detection must include `Completed` and `LeftEarly` | Engineering · Operations | **`OWNER APPROVED` — implemented with PRE-02 PostgreSQL evidence** |
 | ADR-11 | Reporting gains a stay-period dimension | Finance · Engineering · Product | **`OWNER APPROVED`** |
 | ADR-12 | Inactive units allowed; soft-deleted units unsupported in v1 | Product · Engineering | **`OWNER APPROVED`** |
 
-**Summary:** 12 of 12 have a final status. 11 are `OWNER APPROVED` outright. ADR-10 is approved as a design
-decision but its merge is gated by `PRE-02`, which is a technical prerequisite, not an approval gap. No ADR
-is deferred, and none is pending for want of a role holder.
+**Summary:** 12 of 12 are `OWNER APPROVED`. PRE-01 and PRE-02 are complete; PRE-00 remains an operational
+release gate rather than a contract-approval gap.
 
 ---
 
@@ -967,23 +1017,23 @@ prerequisites are implementation work for later, separate PRs.
 | D-INV-01 | No automatic invoice from historical commands; manual invoices remain allowed; evidence stays unlinked | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 clarification |
 | D-PAY-01 | Separate privileged historical-payment command | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
 | D-OWN-01 | Default unit owner; explicit review; block on uncertainty | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
-| D-OWN-02 | Distinct permission; mandatory reason; full audit | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
+| D-OWN-02 | Separate owner-correction command; dedicated permission/idempotency; immutable audit; no-payout-only | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 closure |
 | D-MIG-01 | One owner per schema object; cross-ticket use is a dependency | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
 | D-ROLL-01 | Implement → test → pilot → harden | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
-| D-HARD-01 | HB-01 specifies; HB-08 implements and activates last | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
-| D-TEST-01 | Real PostgreSQL testing mandatory before HB-03 merges | `OWNER APPROVED`; execution `BLOCKED BY TECHNICAL PREREQUISITE PRE-02` | Sole Project Owner | 2026-07-29 |
+| D-HARD-01 | HB-08A reporting/pilot first; HB-08B hardening in a separate later PR | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 closure |
+| D-TEST-01 | Explicit `KAZA_TEST_DB` PostgreSQL foundation complete; HB-09 extends it | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 closure |
 | D-HB04-01 | Unrelated edits allowed; historical financial truth immutable | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 |
 | D-HB04-02 | `409 HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE` | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 |
 | D-HB04-03 | Guarded deterministic HB-02-row backfill | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 |
 | D-HB04-04 | HB-04A snapshot/guard and HB-04B payment split | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 |
-| OQ-05 | Single currency; no currency model in v1 | `DEFERRED` | Sole Project Owner | 2026-07-29 |
-| OQ-06 | No fee/tax/discount engine; agreed total is the snapshot | `DEFERRED` | Sole Project Owner | 2026-07-29 |
-| OQ-07 | Paid-payout correction is a manual process in v1 | `DEFERRED` | Sole Project Owner | 2026-07-29 |
+| OQ-05 | Single currency; no currency model in v1 | `OWNER APPROVED — OUT OF V1` | Sole Project Owner | 2026-07-29 |
+| OQ-06 | No fee/tax/discount engine; agreed total is the snapshot | `OWNER APPROVED — OUT OF V1` | Sole Project Owner | 2026-07-29 |
+| OQ-07 | Paid-payout correction is a manual process in v1 | `OWNER APPROVED — OUT OF V1` | Sole Project Owner | 2026-07-29 |
 | ADR-01 … ADR-09, ADR-11, ADR-12 | As tabulated above | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
-| ADR-10 | Historical conflict set incl. `Completed`/`LeftEarly` | `OWNER APPROVED` in design; merge `BLOCKED BY TECHNICAL PREREQUISITE PRE-02` | Sole Project Owner | 2026-07-29 |
+| ADR-10 | Historical conflict set incl. `Completed`/`LeftEarly` | `OWNER APPROVED`; PRE-02 gate discharged | Sole Project Owner | 2026-07-29 |
 | PRE-00 | Historical data census — read-only, non-production, sanitized aggregates | Active technical prerequisite. Blocks pilot and migration rollout approval; blocks HB-02 only on existing-row evidence | Sole Project Owner | 2026-07-29 |
-| PRE-01 | Database bootstrap parity for `0057`; rollback approach chosen by analysis | Active technical prerequisite. Blocks HB-02 | Sole Project Owner | 2026-07-29 |
-| PRE-02 | Baseline test execution and real-PostgreSQL infrastructure, delivered independently before HB-03 | Active technical prerequisite. Blocks HB-03. **Not delivered by HB-09** | Sole Project Owner | 2026-07-29 |
+| PRE-01 | Database bootstrap parity for `0057`; Strategy D rollback documentation | `COMPLETE` | Sole Project Owner | 2026-07-29 |
+| PRE-02 | Explicit real-PostgreSQL infrastructure delivered independently before HB-03 | `COMPLETE`; consumed by HB-09 | Sole Project Owner | 2026-07-29 |
 
-**Nothing in this programme is waiting on a person.** The only open items are `PRE-00`, `PRE-01` and
-`PRE-02` — all three technical, all three independent prerequisite PRs.
+**Nothing in this programme is waiting on an owner decision.** PRE-00 is the only outstanding operational
+prerequisite; PRE-01 and PRE-02 are complete.

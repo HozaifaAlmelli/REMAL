@@ -492,7 +492,7 @@ Notes:
 
 ### 11.9 `external_reference` uniqueness
 
-`PROPOSED`. Column defined in [Master §11](00_MASTER_PLAN.md#11-proposed-data-model) as
+`PROPOSED`. Column defined in [Master §11](00_MASTER_PLAN.md#11-ratified-data-model) as
 `bookings.external_reference VARCHAR(100) NULL`, migration authored under HB-04. HB-03 owns the rule:
 
 ```
@@ -709,7 +709,7 @@ complete.**
 the real-PostgreSQL provisioning, the reusable fixture and the transaction-capable setup that HB-03's tests
 require. It is explicitly **not** delivered by [HB-09](09_TICKET_TEST_AUTOMATION_AND_RELEASE_GATES.md),
 which runs after this ticket — an earlier revision said it was, which was circular. See
-[Master §21.1a](00_MASTER_PLAN.md#211a-pre-02-is-not-delivered-by-hb-09) and
+[Master §21.1a](00_MASTER_PLAN.md#211a-pre-02-is-complete-and-is-not-delivered-by-hb-09) and
 [D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement).
 
 Supporting index review (`PROPOSED`): `ix_bookings_unit_id` (`0016_create_bookings.sql:33`),
