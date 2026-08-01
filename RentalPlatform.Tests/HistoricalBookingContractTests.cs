@@ -19,6 +19,7 @@ using RentalPlatform.Business.Time;
 using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Enums;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Data.Exceptions;
 using Xunit;
 
 namespace RentalPlatform.Tests;
@@ -173,6 +174,31 @@ public sealed class HistoricalBookingContractTests
             body.RootElement.GetProperty("errors").EnumerateArray().Select(item => item.GetString()));
     }
 
+    [Fact]
+    public async Task MiddlewareTransportsHistoricalSnapshotImmutabilityAsCodedConflict()
+    {
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+        var middleware = new ExceptionHandlingMiddleware(
+            _ => throw new HistoricalFinancialSnapshotImmutableException(),
+            NullLogger<ExceptionHandlingMiddleware>.Instance);
+
+        await middleware.InvokeAsync(context);
+        context.Response.Body.Position = 0;
+        using var body = await JsonDocument.ParseAsync(context.Response.Body);
+
+        Assert.Equal(StatusCodes.Status409Conflict, context.Response.StatusCode);
+        Assert.Equal(
+            HistoricalErrorCodes.HistoricalFinancialSnapshotImmutable,
+            body.RootElement.GetProperty("code").GetString());
+        Assert.DoesNotContain(
+            HistoricalErrorCodes.HistoricalFinancialSnapshotImmutable,
+            body.RootElement.GetProperty("errors").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains(
+            HistoricalErrorCodes.HistoricalFinancialSnapshotImmutable,
+            HistoricalErrorCodes.All);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, true)]
@@ -203,6 +229,18 @@ public sealed class HistoricalBookingContractTests
     {
         var validator = new RecordHistoricalBookingRequestValidator();
         Assert.True(validator.Validate(ValidRequest() with { AgreedAmount = 0m }).IsValid);
+        Assert.True(validator.Validate(ValidRequest() with
+        {
+            AgreedAmount = 9_999_999_999.99m
+        }).IsValid);
+        Assert.False(validator.Validate(ValidRequest() with
+        {
+            AgreedAmount = 0.001m
+        }).IsValid);
+        Assert.False(validator.Validate(ValidRequest() with
+        {
+            AgreedAmount = 10_000_000_000m
+        }).IsValid);
 
         var invalid = validator.Validate(ValidRequest() with
         {
@@ -411,6 +449,7 @@ public sealed class HistoricalBookingContractTests
                 GuestCount = command.GuestCount,
                 BaseAmount = command.AgreedAmount,
                 FinalAmount = command.AgreedAmount,
+                AgreedAmount = command.AgreedAmount,
                 Source = "admin",
                 IsHistorical = true,
                 ActualBookedAt = command.ActualBookedAt,

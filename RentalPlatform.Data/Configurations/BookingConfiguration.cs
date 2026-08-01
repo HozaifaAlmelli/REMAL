@@ -61,6 +61,10 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
             .HasColumnType("decimal(12,2)")
             .IsRequired();
 
+        builder.Property(b => b.AgreedAmount)
+            .HasColumnName("agreed_amount")
+            .HasColumnType("decimal(12,2)");
+
         builder.Property(b => b.Source)
             .HasColumnName("source")
             .HasMaxLength(50)

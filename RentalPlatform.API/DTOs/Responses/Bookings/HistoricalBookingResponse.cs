@@ -27,7 +27,7 @@ public sealed record HistoricalBookingResponse
     public string? OriginalSource { get; init; }
     public string? OriginalSourceLabel { get; init; }
     public string? ExternalReference { get; init; }
-    public decimal AgreedAmount { get; init; }
+    public decimal? AgreedAmount { get; init; }
     public DateTime RecordedAt { get; init; }
     public Guid RecordedByAdminUserId { get; init; }
     public Guid IdempotencyKey { get; init; }

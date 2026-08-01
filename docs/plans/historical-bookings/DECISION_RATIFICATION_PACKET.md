@@ -80,6 +80,18 @@ live in the ticket.
 Nine of nine cross-ticket decisions and eight of eight HB-02 decisions have a final status. None is waiting
 on a person.
 
+### HB-04A decisions
+
+| ID | Decision | Outcome | Review lenses | Status |
+|---|---|---|---|---|
+| [D-HB04-01](#d-hb04-01--repricing-guard-scope) | Repricing guard scope | Unrelated edits remain possible; historical financial truth is immutable at the central persistence boundary | Finance · Engineering | **`OWNER APPROVED`** |
+| [D-HB04-02](#d-hb04-02--immutable-financial-error) | Immutable-financial error | `409 HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE` | Product · Engineering | **`OWNER APPROVED`** |
+| [D-HB04-03](#d-hb04-03--guarded-existing-row-backfill) | Existing-row backfill | Preflight every HB-02 invariant, then set `agreed_amount = final_amount` atomically; abort on ambiguity | Finance · Engineering · Operations | **`OWNER APPROVED`** |
+| [D-HB04-04](#d-hb04-04--delivery-split) | Delivery split | HB-04A owns snapshot/guard; HB-04B retains historical-payment ownership in a separate PR | Finance · Security · Engineering | **`OWNER APPROVED`** |
+
+All four HB-04A implementation decisions are final. HB-04B remains an HB-04 delivery slice, not work
+transferred to HB-05 or another ticket.
+
 ### HB-03 decisions
 
 The sole owner ratified the four HB-03 policy gates on 2026-08-01. These decisions govern only the privileged
@@ -168,6 +180,59 @@ HB-08 extracts the expression into a shared resolver so the job and the validato
 
 **Operational note.** A stay ending today must wait until tomorrow to be recorded. This is intended and must
 appear in the operator documentation, because it will otherwise be reported as a bug.
+
+---
+
+## D-HB04-01 — Repricing guard scope
+
+| Field | Value |
+|---|---|
+| **Decision** | Historical bookings may receive unrelated edits permitted by existing authorization and status rules, but `agreed_amount`, `base_amount` and `final_amount` are immutable after creation. Any direct or indirect mutation or recalculation is rejected atomically. |
+| **Error** | `409 HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE` |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-08-01 |
+| **Status** | **`OWNER APPROVED`** |
+
+The guard is enforced at the central EF persistence boundary so tracked and detached repository updates
+cannot bypass it. Creation-time population is allowed; unchanged decimal values do not constitute a
+mutation. There is no request-controlled bypass or correction path in HB-04A.
+
+## D-HB04-02 — Immutable financial error
+
+| Field | Value |
+|---|---|
+| **Decision** | `HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE` is the canonical HB-04A code for an attempted historical financial mutation or repricing. |
+| **HTTP status** | `409 Conflict` |
+| **Transport** | Shared `ApiResponse.Code`; never `errors[0]` |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-08-01 |
+| **Status** | **`OWNER APPROVED`** |
+
+## D-HB04-03 — Guarded existing-row backfill
+
+| Field | Value |
+|---|---|
+| **Decision** | Migration HB-04A backfills `agreed_amount = final_amount` only for coherent post-0059 HB-02 historical rows, after an all-row preflight proves required provenance and `base_amount = final_amount >= 0`. Any violation aborts the transaction before any row is changed. |
+| **Prohibited sources** | Current unit price, owner terms, fees, taxes, discounts, currency conversion, invoices, payments, payouts or any pricing service |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-08-01 |
+| **Status** | **`OWNER APPROVED`** |
+
+Non-historical rows retain `agreed_amount = NULL`. The migration adds a validated coherence constraint:
+historical rows require `agreed_amount = base_amount = final_amount`; non-historical rows require no
+historical snapshot. Deployment must coordinate API and migration while historical writes are quiesced.
+
+## D-HB04-04 — Delivery split
+
+| Field | Value |
+|---|---|
+| **Decision** | HB-04A delivers `agreed_amount`, deterministic backfill, API mapping and repricing protection. HB-04B separately delivers the privileged historical-payment command and payment actor schema. |
+| **Ownership** | Both slices remain HB-04-owned; HB-04B is not transferred to HB-05 |
+| **Decision authority** | Sole Project Owner |
+| **Decision date** | 2026-08-01 |
+| **Status** | **`OWNER APPROVED`** |
+
+HB-04A creates no payment, payment evidence, invoice, payout, permission or notification behavior.
 
 ---
 
@@ -884,6 +949,10 @@ prerequisites are implementation work for later, separate PRs.
 | D-ROLL-01 | Implement → test → pilot → harden | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
 | D-HARD-01 | HB-01 specifies; HB-08 implements and activates last | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
 | D-TEST-01 | Real PostgreSQL testing mandatory before HB-03 merges | `OWNER APPROVED`; execution `BLOCKED BY TECHNICAL PREREQUISITE PRE-02` | Sole Project Owner | 2026-07-29 |
+| D-HB04-01 | Unrelated edits allowed; historical financial truth immutable | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 |
+| D-HB04-02 | `409 HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE` | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 |
+| D-HB04-03 | Guarded deterministic HB-02-row backfill | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 |
+| D-HB04-04 | HB-04A snapshot/guard and HB-04B payment split | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 |
 | OQ-05 | Single currency; no currency model in v1 | `DEFERRED` | Sole Project Owner | 2026-07-29 |
 | OQ-06 | No fee/tax/discount engine; agreed total is the snapshot | `DEFERRED` | Sole Project Owner | 2026-07-29 |
 | OQ-07 | Paid-payout correction is a manual process in v1 | `DEFERRED` | Sole Project Owner | 2026-07-29 |

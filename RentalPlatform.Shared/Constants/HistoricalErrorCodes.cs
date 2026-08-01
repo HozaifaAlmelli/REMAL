@@ -19,6 +19,8 @@ public static class HistoricalErrorCodes
     public const string ExternalReferenceAlreadyExists = "EXTERNAL_REFERENCE_ALREADY_EXISTS";
     public const string HistoricalOverlapConflict = "HISTORICAL_OVERLAP_CONFLICT";
     public const string HistoricalDuplicateBooking = "HISTORICAL_DUPLICATE_BOOKING";
+    public const string HistoricalFinancialSnapshotImmutable =
+        "HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -38,6 +40,7 @@ public static class HistoricalErrorCodes
         OwnerAttributionRequiresReview,
         ExternalReferenceAlreadyExists,
         HistoricalOverlapConflict,
-        HistoricalDuplicateBooking
+        HistoricalDuplicateBooking,
+        HistoricalFinancialSnapshotImmutable
     };
 }

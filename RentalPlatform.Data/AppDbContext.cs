@@ -2,7 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Data.Exceptions;
 using RentalPlatform.Data.ReadModels;
 
 namespace RentalPlatform.Data;
@@ -70,14 +72,60 @@ public class AppDbContext : DbContext
 
     public override int SaveChanges()
     {
+        EnforceHistoricalFinancialSnapshotImmutability();
         ApplyTimestampsAndSoftDelete();
         return base.SaveChanges();
     }
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        await EnforceHistoricalFinancialSnapshotImmutabilityAsync(cancellationToken);
         ApplyTimestampsAndSoftDelete();
-        return base.SaveChangesAsync(cancellationToken);
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void EnforceHistoricalFinancialSnapshotImmutability()
+    {
+        foreach (var entry in ModifiedBookingEntries())
+        {
+            var databaseValues = entry.GetDatabaseValues();
+            EnsureHistoricalFinancialSnapshotUnchanged(entry.Entity, databaseValues);
+        }
+    }
+
+    private async Task EnforceHistoricalFinancialSnapshotImmutabilityAsync(
+        CancellationToken cancellationToken)
+    {
+        foreach (var entry in ModifiedBookingEntries())
+        {
+            var databaseValues = await entry.GetDatabaseValuesAsync(cancellationToken);
+            EnsureHistoricalFinancialSnapshotUnchanged(entry.Entity, databaseValues);
+        }
+    }
+
+    private IEnumerable<EntityEntry<Booking>> ModifiedBookingEntries() =>
+        ChangeTracker.Entries<Booking>()
+            .Where(entry => entry.State == EntityState.Modified);
+
+    private static void EnsureHistoricalFinancialSnapshotUnchanged(
+        Booking current,
+        PropertyValues? databaseValues)
+    {
+        if (databaseValues is null ||
+            !databaseValues.GetValue<bool>(nameof(Booking.IsHistorical)))
+        {
+            return;
+        }
+
+        var unchanged = current.IsHistorical &&
+            current.AgreedAmount == databaseValues.GetValue<decimal?>(nameof(Booking.AgreedAmount)) &&
+            current.BaseAmount == databaseValues.GetValue<decimal>(nameof(Booking.BaseAmount)) &&
+            current.FinalAmount == databaseValues.GetValue<decimal>(nameof(Booking.FinalAmount));
+
+        if (!unchanged)
+        {
+            throw new HistoricalFinancialSnapshotImmutableException();
+        }
     }
 
     private void ApplyTimestampsAndSoftDelete()

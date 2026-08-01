@@ -24,7 +24,7 @@ evidence base** for the release gate defined in [HB-09](09_TICKET_TEST_AUTOMATIO
 | Expected to fail against `8dafb5a` | Exactly **one** — `SC-REG-02`. See [the expected-to-fail set](#the-expected-to-fail-set) |
 | Base commit for all citations | `8dafb5a` |
 | Executable in production? | **No**, except the explicitly marked read-only smoke subset in [P14](#p14-production-smoke-restrictions) |
-| Relationship to acceptance criteria | Every `AC-HBnn-nn` and `NAC-HBnn-nn` — 189 and 135 respectively, 324 in total — is covered by a contiguous range mapping in [§Traceability matrices](#traceability-matrices), and no identifier is unmapped |
+| Relationship to acceptance criteria | Every currently ratified `AC-HBnn-nn` and `NAC-HBnn-nn` — 179 and 131 respectively, 310 in total — is covered by a contiguous range mapping in [§Traceability matrices](#traceability-matrices), and no identifier is unmapped; HB-04B adds its own criteria in its separate PR |
 | Canonical endpoint | `POST /api/internal/bookings/historical`, success `200 OK` — see [P16](#p16-canonical-contract-and-decided-behaviour) |
 | Decisions governing these scenarios | All final. Invoice and historical-payment policy are `OWNER APPROVED` — see [P16.2](#p16-canonical-contract-and-decided-behaviour) |
 
@@ -1405,10 +1405,10 @@ row.
 | **Preconditions** | `U-ACTIVE-1` current pricing yields 4 500.00 for the window |
 | **Test data** | `agreed_amount = 3900.00` |
 | **Steps** | 1. `H-CREATE`. |
-| **Expected — UI** | The computed reference and the agreed amount are both shown, clearly distinguished |
+| **Expected — UI** | The agreed amount is shown as the historical financial truth |
 | **Expected — API** | `200` |
-| **Expected — DB** | `agreed_amount = 3900.00`, `final_amount = 3900.00`; `base_amount` retains the computed 4 500.00 as a reference |
-| **Expected — Audit** | Audit event records both figures |
+| **Expected — DB** | `agreed_amount = base_amount = final_amount = 3900.00`; current pricing is not persisted into the historical snapshot |
+| **Expected — Audit** | Audit event records the agreed truth |
 | **Expected — Financial** | Balance computed from 3 900.00 |
 | **Expected — Owner** | Split computed from 3 900.00 |
 | **Expected — Notification** | Unchanged |
@@ -1448,7 +1448,7 @@ row.
 | **Steps** | 1. Apply the permitted non-financial edit. 2. Re-read the booking. |
 | **Expected — UI** | Amount unchanged |
 | **Expected — API** | `200` for the permitted edit |
-| **Expected — DB** | `agreed_amount` and `final_amount` both still 3 900.00 — **not** recomputed to 4 500.00; the three `snapshot_*` values unchanged |
+| **Expected — DB** | `agreed_amount`, `base_amount` and `final_amount` all still 3 900.00 — **not** recomputed to 4 500.00 |
 | **Expected — Audit** | The notes change is recorded; no financial-change entry |
 | **Expected — Financial** | Balance unchanged |
 | **Expected — Owner** | Snapshot unchanged |
@@ -1464,7 +1464,7 @@ a false claim that this scenario fails against today's code.
 |---|---|---|---|
 | **Current verified defect** | `UpdatePendingAsync` unconditionally recomputes `BaseAmount` and `FinalAmount` from *current* pricing and reassigns both, for every booking it is allowed to touch | `CONFIRMED` — `BookingService.cs:428` (`CalculatePricingAsync`), `:439-440` (`booking.BaseAmount = booking.FinalAmount = pricing.TotalPrice`) | Real. This is the mechanism REQ-05 exists to contain |
 | **Not a current defect** | "Today's code overwrites the amount of a *completed* historical booking" | **Refuted.** `UpdatePendingAsync` rejects any booking whose status is not `Prospecting` or `Relevant`, throwing `ConflictException` → `409`, at `BookingService.cs:385-387`. A booking created directly in `Completed` (ADR-04) is therefore unreachable by this path today | Must not be asserted. A historical booking cannot currently be edited at all through this route |
-| **Prospective invariant (what this scenario tests)** | After a historical booking is created, any edit the system *permits* on it must preserve the agreed financial snapshot | `PROPOSED` — depends on HB-04's `ApplyPricingSnapshot` guard **and** on `D-HB04-01`, which decides whether historical bookings become editable at all | The scenario protects the invariant against the day the status gate changes, a new edit path is added, or `D-HB04-01` opens field-level editing |
+| **Owner-approved invariant (what this scenario tests)** | After a historical booking is created, any edit the system permits must preserve the agreed financial snapshot | [D-HB04-01](DECISION_RATIFICATION_PACKET.md#d-hb04-01--repricing-guard-scope) | The scenario protects every current and future repository mutation path |
 
 **Why keep it as `P0` when it cannot fail today.** The `409` at `:385-387` is a *status* gate, not a
 *financial* one. It was written to protect confirmed bookings from date changes, not to protect historical
@@ -2919,18 +2919,18 @@ with a citation.
 | **Priority · Category · Automate** | P0 · Migration · YES (CI) |
 | **Traceability** | REQ-05 · HB-04 |
 | **Preconditions** | Database at the pre-feature schema with representative data |
-| **Test data** | Existing bookings and payments |
-| **Steps** | 1. Apply the migration. 2. Run its verify script. |
+| **Test data** | Normal bookings plus coherent and deliberately incoherent post-0059 HB-02 historical rows |
+| **Steps** | 1. Prove incoherent data aborts with no row changed. 2. Correct the disposable row. 3. Apply migration `0060`. 4. Run its verifier. |
 | **Expected — UI** | n/a |
 | **Expected — API** | n/a |
-| **Expected — DB** | New columns present; existing rows have `is_historical = false` and nulls elsewhere |
+| **Expected — DB** | Coherent historical rows have `agreed_amount = final_amount`; normal rows remain NULL; both HB-04A constraints exist and are validated |
 | **Expected — Audit** | No audit rows created or changed |
-| **Expected — Financial** | No existing amount altered |
+| **Expected — Financial** | Existing `base_amount`/`final_amount` are unchanged; only deterministic `agreed_amount` is populated |
 | **Expected — Owner** | No attribution altered |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Existing reports unchanged |
 | **Cleanup** | Restore the snapshot |
-| **Diagnostics** | Verify-script output; row counts before and after must match exactly |
+| **Diagnostics** | Verifier catalogs, preflight violation count, row counts and all-or-nothing transaction evidence |
 
 #### SC-MIG-02 — Old frontend against the new backend
 
@@ -2998,19 +2998,19 @@ with a citation.
 |---|---|
 | **Priority · Category · Automate** | **P0** · Migration · NO (manual, staging only) |
 | **Traceability** | REQ-05 · HB-04 |
-| **Preconditions** | Staging with at least one historical booking |
+| **Preconditions** | Disposable PostgreSQL with at least one HB-04A snapshot |
 | **Test data** | Attempt the migration rollback |
 | **Steps** | 1. Record a historical booking. 2. Attempt rollback. 3. Inspect. |
-| **Expected — UI** | Booking still exists but is indistinguishable from a normal one |
-| **Expected — API** | Historical fields absent |
-| **Expected — DB** | `agreed_amount`, `is_historical` and the snapshot columns are gone; **the agreed price is unrecoverable** |
-| **Expected — Audit** | The history row survives but its context is lost |
-| **Expected — Financial** | **Data loss** — the agreed amount cannot be reconstructed |
-| **Expected — Owner** | Commission snapshot lost |
+| **Expected — UI** | n/a |
+| **Expected — API** | n/a |
+| **Expected — DB** | Rollback succeeds only when every `agreed_amount` is still reconstructable from coherent HB-02 amounts; otherwise it fails before dropping anything |
+| **Expected — Audit** | Unchanged |
+| **Expected — Financial** | No truth is discarded silently |
+| **Expected — Owner** | Unchanged |
 | **Expected — Notification** | Unchanged |
 | **Expected — Reporting** | Historical rows become invisible as historical |
-| **Cleanup** | Restore from backup |
-| **Diagnostics** | Proves the release-checklist rule: **rollback is safe only before the first historical booking is recorded**. Must never be attempted in production after go-live |
+| **Cleanup** | Disposable database removal |
+| **Diagnostics** | Proves guarded safe and unsafe paths; production rollback still requires backup/restore rehearsal and explicit approval |
 
 ---
 
@@ -3758,8 +3758,8 @@ a range unambiguously includes every member.
 | Requirements `REQ-01 … REQ-20` | 20 | 20 | 0 | 0 | 0 |
 | Architecture decisions `ADR-01 … ADR-12` | 12 | 12 | 0 | 0 | 0 |
 | Tickets `HB-01 … HB-09` | 9 | 9 | 0 | 0 | 0 |
-| Acceptance criteria `AC-HBnn-nn` | 189 | 189 | 0 | 0 | 0 |
-| Negative acceptance criteria `NAC-HBnn-nn` | 135 | 135 | 0 | 0 | 0 |
+| Acceptance criteria `AC-HBnn-nn` | 179 | 179 | 0 | 0 | 0 |
+| Negative acceptance criteria `NAC-HBnn-nn` | 131 | 131 | 0 | 0 | 0 |
 | Reliability scenarios `SC-GROUP-nn` | 159 | 159 | 0 | 0 | 0 |
 | Scenario groups | 17 | 17 | 0 | 0 | 0 |
 
@@ -3791,20 +3791,21 @@ a range unambiguously includes every member.
 ### Ticket to acceptance criteria
 
 Every AC and NAC identifier in this pack is covered by exactly one range below. Each range is **contiguous
-from `01`**, so membership is unambiguous: `AC-HB04-17` is in `AC-HB04-01 … AC-HB04-24` and nowhere else.
+from `01`**, so membership is unambiguous: `AC-HB04-14` is in `AC-HB04-01 … AC-HB04-14` and nowhere else.
 
 | Ticket | Acceptance criteria | Count | Negative acceptance criteria | Count | Requirements covered |
 |---|---|---|---|---|---|
 | HB-01 | `AC-HB01-01` … `AC-HB01-10` | 10 | `NAC-HB01-01` … `NAC-HB01-08` | 8 | REQ-16 (specification) |
 | HB-02 | `AC-HB02-01` … `AC-HB02-24` | 24 | `NAC-HB02-01` … `NAC-HB02-20` | 20 | REQ-01, REQ-02, REQ-03, REQ-04, REQ-11, REQ-12, REQ-19 |
 | HB-03 | `AC-HB03-01` … `AC-HB03-20` | 20 | `NAC-HB03-01` … `NAC-HB03-14` | 14 | REQ-09, REQ-10, REQ-15, REQ-17, REQ-19, REQ-20 |
-| HB-04 | `AC-HB04-01` … `AC-HB04-24` | 24 | `NAC-HB04-01` … `NAC-HB04-16` | 16 | REQ-05, REQ-06, REQ-14 |
+| HB-04A | `AC-HB04-01` … `AC-HB04-14` | 14 | `NAC-HB04-01` … `NAC-HB04-12` | 12 | REQ-05, REQ-14 |
+| HB-04B | Payment criteria defined in its separate PR | — | Payment criteria defined in its separate PR | — | REQ-06, REQ-14 |
 | HB-05 | `AC-HB05-01` … `AC-HB05-24` | 24 | `NAC-HB05-01` … `NAC-HB05-16` | 16 | REQ-07, REQ-08 |
 | HB-06 | `AC-HB06-01` … `AC-HB06-24` | 24 | `NAC-HB06-01` … `NAC-HB06-15` | 15 | REQ-01, REQ-11 |
 | HB-07 | `AC-HB07-01` … `AC-HB07-15` | 15 | `NAC-HB07-01` … `NAC-HB07-14` | 14 | REQ-13, REQ-14 |
 | HB-08 | `AC-HB08-01` … `AC-HB08-26` | 26 | `NAC-HB08-01` … `NAC-HB08-18` | 18 | REQ-12, REQ-14, REQ-15, REQ-16 (implementation), REQ-18 |
 | HB-09 | `AC-HB09-01` … `AC-HB09-22` | 22 | `NAC-HB09-01` … `NAC-HB09-14` | 14 | All — HB-09 automates the pack |
-| **Total** | | **189** | | **135** | 20 of 20 |
+| **Total currently ratified** | | **179** | | **131** | 20 of 20 |
 
 `AC-HB08-23` … `AC-HB08-26` and `NAC-HB08-16` … `NAC-HB08-18` are the REQ-16 hardening criteria, added when
 implementation moved from HB-01 to HB-08. They are the runtime counterparts of `AC-HB01-01` … `AC-HB01-05`,
@@ -3822,16 +3823,16 @@ these 17 groups, and every group resolves to a ticket and its criterion range.
 | `SC-AVAIL-01` … `-12` | 12 | HB-03 | `AC-HB03-01` … `-20`, `NAC-HB03-01` … `-14` | REQ-09, REQ-15, REQ-17 |
 | `SC-DUP-01` … `-08` | 8 | HB-03 | same range | REQ-10 |
 | `SC-SEC-01` … `-12` | 12 | HB-02, HB-05, HB-06 | `AC-HB02-*`, `AC-HB05-*`, `AC-HB06-*` | REQ-11, REQ-07 |
-| `SC-FIN-01` … `-14` | 14 | HB-04, HB-05 | `AC-HB04-01` … `-24`, `AC-HB05-*` | REQ-05, REQ-08 |
-| `SC-PAY-01` … `-10` | 10 | HB-04 | `AC-HB04-01` … `-24`, `NAC-HB04-01` … `-16` | REQ-06 |
+| `SC-FIN-01` … `-14` | 14 | HB-04A, HB-05 | `AC-HB04-01` … `-14`, `AC-HB05-*` | REQ-05, REQ-08 |
+| `SC-PAY-01` … `-10` | 10 | HB-04B | HB-04B criteria | REQ-06 |
 | `SC-OWN-01` … `-17` | 17 | HB-05 | `AC-HB05-01` … `-24`, `NAC-HB05-01` … `-16` | REQ-07, REQ-08 |
 | `SC-NOTIF-01` … `-12` | 12 | HB-07 | `AC-HB07-01` … `-15`, `NAC-HB07-01` … `-14` | REQ-13, REQ-14 |
 | `SC-AUDIT-01` … `-06` | 6 | HB-02, HB-08 | `AC-HB02-*`, `AC-HB08-11` … `-13` | REQ-12 |
 | `SC-REP-01` … `-14` | 14 | HB-08 | `AC-HB08-01` … `-22` | REQ-18, REQ-14 |
 | `SC-UI-01` … `-10` | 10 | HB-06 | `AC-HB06-01` … `-24`, `NAC-HB06-01` … `-15` | REQ-01, REQ-11 |
-| `SC-TXN-01` … `-06` | 6 | HB-02, HB-04 | `AC-HB02-13`, `-14`, `AC-HB04-20` | REQ-19 |
+| `SC-TXN-01` … `-06` | 6 | HB-02, HB-04A, HB-04B | `AC-HB02-13`, `-14`, `AC-HB04-11`; HB-04B criteria | REQ-19 |
 | `SC-REG-01` … `-07` | 7 | HB-08 (hardening), HB-09 | `AC-HB08-23` … `-26`, `AC-HB09-*` | REQ-15, REQ-16 |
-| `SC-MIG-01` … `-05` | 5 | HB-04, HB-06, HB-08 | `AC-HB04-23`, `-24`, `AC-HB08-05`, `-06` | REQ-05, REQ-11, REQ-15 |
+| `SC-MIG-01` … `-05` | 5 | HB-04A, HB-06, HB-08 | `AC-HB04-07` … `-14`, `AC-HB08-05`, `-06` | REQ-05, REQ-11, REQ-15 |
 | `SC-PERF-01` … `-04` | 4 | HB-03, HB-08 | `AC-HB03-*`, `AC-HB08-13` | REQ-09, REQ-10, REQ-12, REQ-18 |
 | `SC-CONC-01` … `-05` | 5 | HB-03 | `AC-HB03-01` … `-20` | REQ-09, REQ-19 |
 | **Total** | **159** | | | 20 of 20 |
@@ -3868,7 +3869,8 @@ these 17 groups, and every group resolves to a ticket and its criterion range.
 | HB-01 | **None executed against HB-01 itself** — it ships no code. It *specifies* the behaviour that `SC-REG-01`…`SC-REG-06` and `SC-DATE-01`…`SC-DATE-10` verify, and those scenarios run against HB-02's boundary and HB-08's hardening. HB-01's own criteria are document-satisfiable (`AC-HB01-01` … `AC-HB01-10`) |
 | HB-02 | `SC-HAPPY-01`…`SC-HAPPY-07`, `SC-DATE-01`…`SC-DATE-10`, `SC-AUDIT-01`…`SC-AUDIT-06`, `SC-SEC-06`, `SC-SEC-07`, `SC-SEC-09`, `SC-TXN-01`…`SC-TXN-06` |
 | HB-03 | `SC-AVAIL-01`…`SC-AVAIL-12`, `SC-DUP-01`…`SC-DUP-08`, `SC-CONC-01`…`SC-CONC-05`, `SC-PERF-01`, `SC-PERF-02` |
-| HB-04 | `SC-FIN-01`…`SC-FIN-14`, `SC-PAY-01`…`SC-PAY-10`, `SC-NOTIF-04`, `SC-NOTIF-05`, `SC-MIG-01`, `SC-MIG-05` |
+| HB-04A | `SC-FIN-01`…`SC-FIN-04`, `SC-FIN-09`, `SC-FIN-10`, `SC-FIN-13`, `SC-FIN-14`, `SC-NOTIF-04`, `SC-NOTIF-05`, `SC-MIG-01`, `SC-MIG-05` |
+| HB-04B | `SC-PAY-01`…`SC-PAY-10` and payment-dependent financial scenarios |
 | HB-05 | `SC-OWN-01`…`SC-OWN-17`, `SC-SEC-08`, `SC-SEC-11`, `SC-FIN-05`, `SC-FIN-06` |
 | HB-06 | `SC-UI-01`…`SC-UI-10`, `SC-MIG-03` |
 | HB-07 | `SC-NOTIF-01`…`SC-NOTIF-12`, `SC-PAY-09` |

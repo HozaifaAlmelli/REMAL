@@ -17,6 +17,7 @@ public class Booking
     public int GuestCount { get; set; }
     public decimal BaseAmount { get; set; }
     public decimal FinalAmount { get; set; }
+    public decimal? AgreedAmount { get; set; }
     public string Source { get; set; } = null!;
     public string? InternalNotes { get; set; }
     public bool IsHistorical { get; set; }

@@ -257,6 +257,7 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
         booking.ExternalReference = externalReference;
         booking.BaseAmount = command.AgreedAmount;
         booking.FinalAmount = command.AgreedAmount;
+        booking.AgreedAmount = command.AgreedAmount;
         _unitOfWork.Bookings.Update(booking);
 
         var history = await _unitOfWork.BookingStatusHistories.Query()

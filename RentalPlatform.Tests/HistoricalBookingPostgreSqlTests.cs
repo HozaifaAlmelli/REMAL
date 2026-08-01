@@ -17,6 +17,7 @@ using RentalPlatform.Business.Services;
 using RentalPlatform.Business.Time;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Data.Exceptions;
 using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Enums;
 using RentalPlatform.Tests.Infrastructure;
@@ -69,6 +70,7 @@ public sealed class HistoricalBookingPostgreSqlTests
         Assert.Equal(BookingStatus.Completed, result.Booking.BookingStatus);
         Assert.Equal(300m, result.Booking.BaseAmount);
         Assert.Equal(300m, result.Booking.FinalAmount);
+        Assert.Equal(300m, result.Booking.AgreedAmount);
         Assert.Equal(data.Owner.Id, result.Booking.OwnerId);
         Assert.Equal("admin", result.Booking.Source);
         Assert.Equal("offline_record", result.Booking.OriginalSource);
@@ -95,9 +97,14 @@ public sealed class HistoricalBookingPostgreSqlTests
         Assert.Equal(200, idempotency.ResponseStatus);
         Assert.NotNull(idempotency.CompletedAt);
 
+        data.Unit.BasePricePerNight = 9_999m;
+        await context.SaveChangesAsync();
+
         var replay = await service.RecordAsync(command);
         Assert.True(replay.IsReplay);
         Assert.Equal(result.Booking.Id, replay.Booking.Id);
+        Assert.Equal(300m, replay.Booking.AgreedAmount);
+        Assert.Equal(300m, replay.Booking.FinalAmount);
         Assert.Equal(1, await context.Bookings.CountAsync(item => item.Id == result.Booking.Id));
         Assert.Equal(1, await context.BookingStatusHistories.CountAsync(item => item.BookingId == result.Booking.Id));
         Assert.Equal(1, Interlocked.Read(ref createdMeasurements));
@@ -131,6 +138,9 @@ public sealed class HistoricalBookingPostgreSqlTests
         var initial = await controller.RecordHistoricalBooking(request, CancellationToken.None);
         var initialBody = Assert.IsType<OkObjectResult>(initial.Result).Value;
         var initialJson = JsonSerializer.Serialize(initialBody, JsonSerializerOptions.Web);
+
+        data.Unit.BasePricePerNight = 8_888m;
+        await context.SaveChangesAsync();
 
         var replay = await controller.RecordHistoricalBooking(request, CancellationToken.None);
         var replayBody = Assert.IsType<OkObjectResult>(replay.Result).Value;
@@ -989,6 +999,232 @@ public sealed class HistoricalBookingPostgreSqlTests
     }
 
     [Fact]
+    public async Task HistoricalSnapshotAllowsUnrelatedEditsAndRejectsTrackedAndDetachedRepricing()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var data = await SeedAsync(context);
+        var result = await CreateService(context, new DateOnly(2026, 8, 1))
+            .RecordAsync(CreateCommand(data, Guid.NewGuid(), agreedAmount: 4800m));
+
+        var bookingUnitOfWork = new UnitOfWork(context);
+        var bookingService = new BookingService(
+            bookingUnitOfWork,
+            new UnitAvailabilityService(bookingUnitOfWork));
+        var updateError = await Assert.ThrowsAsync<ConflictException>(() =>
+            bookingService.UpdatePendingAsync(
+                result.Booking.Id,
+                result.Booking.CheckInDate,
+                result.Booking.CheckOutDate,
+                result.Booking.GuestCount,
+                result.Booking.Source,
+                result.Booking.AssignedAdminUserId,
+                "Sanitized attempted generic repricing.",
+                CancellationToken.None));
+        Assert.Equal(
+            HistoricalErrorCodes.HistoricalFinancialSnapshotImmutable,
+            updateError.Code);
+
+        context.ChangeTracker.Clear();
+        var tracked = await context.Bookings.SingleAsync(item => item.Id == result.Booking.Id);
+        tracked.InternalNotes = "Sanitized unrelated edit.";
+        await context.SaveChangesAsync();
+
+        context.ChangeTracker.Clear();
+        var detachedSnapshot = await context.Bookings.AsNoTracking()
+            .Where(item => item.Id == result.Booking.Id)
+            .Select(item => new
+            {
+                Booking = item,
+                Xmin = EF.Property<uint>(item, "xmin")
+            })
+            .SingleAsync();
+        var detachedUnrelated = detachedSnapshot.Booking;
+        detachedUnrelated.AssignedAdminUserId = data.Admin.Id;
+        detachedUnrelated.CreatedAt = DateTime.SpecifyKind(detachedUnrelated.CreatedAt, DateTimeKind.Utc);
+        detachedUnrelated.UpdatedAt = DateTime.SpecifyKind(detachedUnrelated.UpdatedAt, DateTimeKind.Utc);
+        var detachedEntry = context.Bookings.Update(detachedUnrelated);
+        detachedEntry.Property<uint>("xmin").OriginalValue = detachedSnapshot.Xmin;
+        await context.SaveChangesAsync();
+
+        context.ChangeTracker.Clear();
+        tracked = await context.Bookings.SingleAsync(item => item.Id == result.Booking.Id);
+        tracked.FinalAmount = 4800.01m;
+        var trackedError = await Assert.ThrowsAsync<HistoricalFinancialSnapshotImmutableException>(
+            () => context.SaveChangesAsync());
+        Assert.Equal(
+            HistoricalErrorCodes.HistoricalFinancialSnapshotImmutable,
+            trackedError.Code);
+
+        context.ChangeTracker.Clear();
+        var detached = await context.Bookings.AsNoTracking()
+            .SingleAsync(item => item.Id == result.Booking.Id);
+        detached.BaseAmount = 4799m;
+        context.Bookings.Update(detached);
+        await Assert.ThrowsAsync<HistoricalFinancialSnapshotImmutableException>(
+            () => context.SaveChangesAsync());
+
+        context.ChangeTracker.Clear();
+        var persisted = await context.Bookings.AsNoTracking()
+            .SingleAsync(item => item.Id == result.Booking.Id);
+        Assert.Equal("Sanitized unrelated edit.", persisted.InternalNotes);
+        Assert.Equal(data.Admin.Id, persisted.AssignedAdminUserId);
+        Assert.Equal(4800m, persisted.AgreedAmount);
+        Assert.Equal(4800m, persisted.BaseAmount);
+        Assert.Equal(4800m, persisted.FinalAmount);
+
+        var normal = AddBooking(
+            context,
+            data,
+            data.Client.Id,
+            BookingStatus.Prospecting,
+            new DateOnly(2027, 3, 1),
+            new DateOnly(2027, 3, 2));
+        await context.SaveChangesAsync();
+        var updatedNormal = await bookingService.UpdatePendingAsync(
+            normal.Id,
+            new DateOnly(2027, 3, 1),
+            new DateOnly(2027, 3, 3),
+            1,
+            "admin",
+            null,
+            "Sanitized normal repricing regression.",
+            CancellationToken.None);
+        Assert.Equal(2 * data.Unit.BasePricePerNight, updatedNormal.FinalAmount);
+        Assert.Null(updatedNormal.AgreedAmount);
+    }
+
+    [Fact]
+    public async Task Migration0060BackfillsCoherentHb02RowsAndRollsBackWhenReconstructable()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        SeededData data;
+        await using (var context = database.CreateDbContext())
+            data = await SeedAsync(context);
+
+        await using var connection = await database.OpenConnectionAsync();
+        var migrationSql = await File.ReadAllTextAsync(MigrationPath(
+            "0060_add_historical_financial_snapshot.sql"));
+        var verifierSql = await File.ReadAllTextAsync(MigrationPath(
+            "0060_add_historical_financial_snapshot_verify.sql"));
+        var rollbackSql = await File.ReadAllTextAsync(MigrationPath(
+            "0060_add_historical_financial_snapshot_rollback.sql"));
+
+        await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, rollbackSql);
+        Assert.False(await ColumnExistsAsync(connection, "bookings", "agreed_amount"));
+
+        await InsertPre0060BookingAsync(connection, data, false, 75m, 75m, true);
+        await InsertPre0060BookingAsync(connection, data, true, 0m, 0m, true);
+        await InsertPre0060BookingAsync(connection, data, true, 300m, 300m, true);
+
+        await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, migrationSql);
+        await ExecuteSqlAsync(connection, verifierSql);
+
+        await using (var values = new NpgsqlCommand(
+            "SELECT is_historical, final_amount, agreed_amount FROM bookings ORDER BY final_amount",
+            connection))
+        await using (var reader = await values.ExecuteReaderAsync())
+        {
+            var rows = new List<(bool Historical, decimal Final, decimal? Agreed)>();
+            while (await reader.ReadAsync())
+                rows.Add((reader.GetBoolean(0), reader.GetDecimal(1),
+                    reader.IsDBNull(2) ? null : reader.GetDecimal(2)));
+
+            Assert.Contains(rows, row => row == (true, 0m, 0m));
+            Assert.Contains(rows, row => row == (true, 300m, 300m));
+            Assert.Contains(rows, row => row == (false, 75m, null));
+        }
+
+        await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, rollbackSql);
+        Assert.False(await ColumnExistsAsync(connection, "bookings", "agreed_amount"));
+        Assert.Equal(3L, await BookingCountAsync(connection));
+    }
+
+    [Fact]
+    public async Task Migration0060PreflightIsAllOrNothingForAmbiguousHistoricalRows()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        SeededData data;
+        await using (var context = database.CreateDbContext())
+            data = await SeedAsync(context);
+
+        await using var connection = await database.OpenConnectionAsync();
+        var migrationSql = await File.ReadAllTextAsync(MigrationPath(
+            "0060_add_historical_financial_snapshot.sql"));
+        var rollbackSql = await File.ReadAllTextAsync(MigrationPath(
+            "0060_add_historical_financial_snapshot_rollback.sql"));
+
+        await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, rollbackSql);
+        await ExecuteSqlAsync(
+            connection,
+            "ALTER TABLE bookings DROP CONSTRAINT ck_bookings_historical_fields_coherent");
+        await InsertPre0060BookingAsync(connection, data, true, 100m, 101m, true);
+        await InsertPre0060BookingAsync(connection, data, true, 200m, 200m, false);
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(
+            () => PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, migrationSql));
+        Assert.Contains("2 historical booking row(s)", exception.ToString(), StringComparison.Ordinal);
+        await ExecuteSqlAsync(connection, "ROLLBACK");
+        Assert.False(await ColumnExistsAsync(connection, "bookings", "agreed_amount"));
+        Assert.Equal(2L, await BookingCountAsync(connection));
+    }
+
+    [Fact]
+    public async Task Migration0060VerifierAndRollbackRejectInvalidSnapshotState()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        SeededData data;
+        Guid bookingId;
+        await using (var context = database.CreateDbContext())
+        {
+            data = await SeedAsync(context);
+            var result = await CreateService(context, new DateOnly(2026, 8, 1))
+                .RecordAsync(CreateCommand(data, Guid.NewGuid(), agreedAmount: 300m));
+            bookingId = result.Booking.Id;
+        }
+
+        await using var connection = await database.OpenConnectionAsync();
+        var verifierSql = await File.ReadAllTextAsync(MigrationPath(
+            "0060_add_historical_financial_snapshot_verify.sql"));
+        var rollbackSql = await File.ReadAllTextAsync(MigrationPath(
+            "0060_add_historical_financial_snapshot_rollback.sql"));
+
+        var coherenceError = await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            connection,
+            "UPDATE bookings SET agreed_amount = 301 WHERE id = $1",
+            bookingId));
+        Assert.Equal(PostgresErrorCodes.CheckViolation, coherenceError.SqlState);
+        Assert.Equal(
+            "ck_bookings_historical_agreed_amount_coherent",
+            coherenceError.ConstraintName);
+
+        await ExecuteSqlAsync(
+            connection,
+            "ALTER TABLE bookings DROP CONSTRAINT ck_bookings_historical_agreed_amount_coherent");
+        var nonNegativeError = await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            connection,
+            "UPDATE bookings SET agreed_amount = -1 WHERE id = $1",
+            bookingId));
+        Assert.Equal(PostgresErrorCodes.CheckViolation, nonNegativeError.SqlState);
+        Assert.Equal("ck_bookings_agreed_amount_non_negative", nonNegativeError.ConstraintName);
+
+        await ExecuteSqlAsync(
+            connection,
+            "ALTER TABLE bookings DROP CONSTRAINT ck_bookings_agreed_amount_non_negative");
+        await Assert.ThrowsAnyAsync<Exception>(() => ExecuteSqlAsync(connection, verifierSql));
+
+        await ExecuteSqlAsync(
+            connection,
+            "UPDATE bookings SET agreed_amount = 301 WHERE id = $1",
+            bookingId);
+        var rollbackError = await Assert.ThrowsAnyAsync<Exception>(
+            () => PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, rollbackSql));
+        Assert.Contains("Unsafe rollback refused", rollbackError.ToString(), StringComparison.Ordinal);
+        Assert.True(await ColumnExistsAsync(connection, "bookings", "agreed_amount"));
+        Assert.Equal(1L, await BookingCountAsync(connection));
+    }
+
+    [Fact]
     public async Task MigrationEnforcesVocabularyCoherenceAndConcurrentUniqueIndex()
     {
         await using var database = await _fixture.CreateTestDatabaseAsync();
@@ -1347,6 +1583,79 @@ public sealed class HistoricalBookingPostgreSqlTests
         CreatedAt = DateTime.UtcNow,
         UpdatedAt = DateTime.UtcNow
     };
+
+    private static async Task InsertPre0060BookingAsync(
+        NpgsqlConnection connection,
+        SeededData data,
+        bool isHistorical,
+        decimal baseAmount,
+        decimal finalAmount,
+        bool coherentProvenance)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            INSERT INTO bookings (
+                id, client_id, unit_id, owner_id, booking_status,
+                check_in_date, check_out_date, guest_count, base_amount, final_amount,
+                source, internal_notes, is_historical, actual_booked_at,
+                historical_entry_reason, original_source, external_reference,
+                created_at, updated_at
+            ) VALUES (
+                $1, $2, $3, $4, $5,
+                DATE '2026-01-01', DATE '2026-01-02', 1, $6, $7,
+                'admin', 'Sanitized pre-0060 migration fixture', $8, $9,
+                $10, $11, $12,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+            connection);
+        command.Parameters.AddWithValue(Guid.NewGuid());
+        command.Parameters.AddWithValue(data.Client.Id);
+        command.Parameters.AddWithValue(data.Unit.Id);
+        command.Parameters.AddWithValue(data.Owner.Id);
+        command.Parameters.AddWithValue(isHistorical ? "completed" : "prospecting");
+        command.Parameters.AddWithValue(baseAmount);
+        command.Parameters.AddWithValue(finalAmount);
+        command.Parameters.AddWithValue(isHistorical);
+        command.Parameters.AddWithValue(
+            coherentProvenance && isHistorical
+                ? new DateOnly(2025, 12, 15)
+                : DBNull.Value);
+        command.Parameters.AddWithValue(
+            coherentProvenance && isHistorical
+                ? HistoricalEntryReasons.OfflineBookingRecordedAfterStay
+                : DBNull.Value);
+        command.Parameters.AddWithValue(
+            coherentProvenance && isHistorical ? "offline_record" : DBNull.Value);
+        command.Parameters.AddWithValue($"sanitized-pre0060-{Guid.NewGuid():N}");
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<bool> ColumnExistsAsync(
+        NpgsqlConnection connection,
+        string tableName,
+        string columnName)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = $1
+                  AND column_name = $2)
+            """,
+            connection);
+        command.Parameters.AddWithValue(tableName);
+        command.Parameters.AddWithValue(columnName);
+        return (bool)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<long> BookingCountAsync(NpgsqlConnection connection)
+    {
+        await using var command = new NpgsqlCommand("SELECT count(*) FROM bookings", connection);
+        return Convert.ToInt64(await command.ExecuteScalarAsync());
+    }
 
     private static string MigrationPath(string fileName) => Path.Combine(
         Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..")),

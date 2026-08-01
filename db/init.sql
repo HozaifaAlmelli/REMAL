@@ -180,4 +180,7 @@
 \echo '=== Running migration 0059: add historical booking external reference index ==='
 \i /docker-entrypoint-initdb.d/migrations/0059_add_historical_booking_external_reference_index.sql
 
+\echo '=== Running migration 0060: add historical financial snapshot ==='
+\i /docker-entrypoint-initdb.d/migrations/0060_add_historical_financial_snapshot.sql
+
 \echo '=== All migrations completed successfully ==='
