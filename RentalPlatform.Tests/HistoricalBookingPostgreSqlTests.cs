@@ -109,7 +109,7 @@ public sealed class HistoricalBookingPostgreSqlTests
 
         var duplicateReference = await Assert.ThrowsAsync<ConflictException>(() =>
             service.RecordAsync(command with { IdempotencyKey = Guid.NewGuid() }));
-        Assert.Equal(HistoricalErrorCodes.ExternalReferenceAlreadyExists, duplicateReference.Code);
+        Assert.Equal(HistoricalErrorCodes.HistoricalDuplicateBooking, duplicateReference.Code);
         Assert.Equal(1, await context.Bookings.CountAsync(item => item.Id == result.Booking.Id));
     }
 
@@ -392,7 +392,10 @@ public sealed class HistoricalBookingPostgreSqlTests
         var first = await service.RecordAsync(CreateCommand(data, key));
         var second = await service.RecordAsync(CreateCommand(data, key) with
         {
-            ActorAdminUserId = secondAdmin.Id
+            ActorAdminUserId = secondAdmin.Id,
+            CheckInDate = new DateOnly(2026, 7, 17),
+            CheckOutDate = new DateOnly(2026, 7, 19),
+            ActualBookedAt = new DateOnly(2026, 7, 15)
         });
 
         Assert.NotEqual(first.Booking.Id, second.Booking.Id);
@@ -591,8 +594,8 @@ public sealed class HistoricalBookingPostgreSqlTests
         {
             Id = Guid.NewGuid(),
             UnitId = data.Unit.Id,
-            StartDate = new DateOnly(2026, 7, 20),
-            EndDate = new DateOnly(2026, 7, 21),
+            StartDate = new DateOnly(2026, 7, 17),
+            EndDate = new DateOnly(2026, 7, 18),
             Reason = "maintenance",
             Status = DateBlockStatus.Approved,
             CreatedAt = DateTime.UtcNow,
@@ -603,6 +606,9 @@ public sealed class HistoricalBookingPostgreSqlTests
         context.ChangeTracker.Clear();
         var blocked = CreateCommand(data, Guid.NewGuid()) with
         {
+            CheckInDate = new DateOnly(2026, 7, 17),
+            CheckOutDate = new DateOnly(2026, 7, 19),
+            ActualBookedAt = new DateOnly(2026, 7, 15),
             ExternalReference = $"sanitized-blocked-{Guid.NewGuid():N}"
         };
         var blockError = await Assert.ThrowsAsync<ConflictException>(() => service.RecordAsync(blocked));
@@ -635,7 +641,247 @@ public sealed class HistoricalBookingPostgreSqlTests
             ExternalReference = $"sanitized-overlap-{Guid.NewGuid():N}"
         };
         var overlapError = await Assert.ThrowsAsync<ConflictException>(() => service.RecordAsync(overlap));
+        AssertStableCode(overlapError, HistoricalErrorCodes.HistoricalDuplicateBooking);
+    }
+
+    [Fact]
+    public async Task ExactDuplicateHardConflictAndAdjacentStayUseHistoricalRules()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var data = await SeedAsync(context);
+        var exact = AddBooking(context, data, data.Client.Id, BookingStatus.Completed,
+            new DateOnly(2026, 7, 20), new DateOnly(2026, 7, 22));
+        await context.SaveChangesAsync();
+
+        var exactError = await Assert.ThrowsAsync<ConflictException>(() =>
+            CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(
+                CreateCommand(data, Guid.NewGuid())));
+        AssertStableCode(exactError, HistoricalErrorCodes.HistoricalDuplicateBooking);
+        Assert.Equal(exact.Id, exactError.Metadata!["duplicateOf"]);
+
+        context.Bookings.Remove(exact);
+        var otherClient = AddClient(context, "31");
+        var hardConflict = AddBooking(context, data, otherClient.Id, BookingStatus.LeftEarly,
+            new DateOnly(2026, 7, 19), new DateOnly(2026, 7, 21));
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var overlapError = await Assert.ThrowsAsync<ConflictException>(() =>
+            CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(
+                CreateCommand(data, Guid.NewGuid())));
         AssertStableCode(overlapError, HistoricalErrorCodes.HistoricalOverlapConflict);
+
+        var adjacent = CreateCommand(data, Guid.NewGuid()) with
+        {
+            CheckInDate = hardConflict.CheckOutDate,
+            CheckOutDate = hardConflict.CheckOutDate.AddDays(2),
+            ActualBookedAt = hardConflict.CheckOutDate.AddDays(-5),
+            ExternalReference = $"sanitized-adjacent-{Guid.NewGuid():N}"
+        };
+        var accepted = await CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(adjacent);
+        Assert.Equal(BookingStatus.Completed, accepted.Booking.BookingStatus);
+    }
+
+    [Fact]
+    public async Task SoftHoldProbableDuplicateRequiresExactAcknowledgement()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var data = await SeedAsync(context);
+        var softHold = AddBooking(context, data, data.Client.Id, BookingStatus.Prospecting,
+            new DateOnly(2026, 7, 19), new DateOnly(2026, 7, 21));
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var command = CreateCommand(data, Guid.NewGuid());
+        var warning = await Assert.ThrowsAsync<ConflictException>(() =>
+            CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(command));
+        AssertStableCode(warning, HistoricalErrorCodes.HistoricalDuplicateBooking);
+        Assert.Equal("probable", warning.Metadata!["matchReason"]);
+        Assert.Equal(true, warning.Metadata["requiresAcknowledgement"]);
+        var safePayload = JsonSerializer.Serialize(warning.Metadata);
+        Assert.DoesNotContain(data.Client.Phone, safePayload, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.Client.Name, safePayload, StringComparison.Ordinal);
+
+        var stale = await Assert.ThrowsAsync<BusinessValidationException>(() =>
+            CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(command with
+            {
+                IdempotencyKey = Guid.NewGuid(),
+                AcknowledgedDuplicateOf = new[] { Guid.NewGuid() }
+            }));
+        AssertStableCode(stale, HistoricalErrorCodes.ValidationError);
+
+        var accepted = await CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(command with
+        {
+            IdempotencyKey = Guid.NewGuid(),
+            AcknowledgedDuplicateOf = new[] { softHold.Id }
+        });
+        Assert.True(accepted.Booking.IsHistorical);
+        Assert.Equal(BookingStatus.Prospecting,
+            await context.Bookings.AsNoTracking()
+                .Where(item => item.Id == softHold.Id)
+                .Select(item => item.BookingStatus)
+                .SingleAsync());
+    }
+
+    [Fact]
+    public async Task SameIdentityNonExactHardOverlapCanProceedOnlyAfterAcknowledgement()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var data = await SeedAsync(context);
+        var candidate = AddBooking(context, data, data.Client.Id, BookingStatus.Completed,
+            new DateOnly(2026, 7, 19), new DateOnly(2026, 7, 21));
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var command = CreateCommand(data, Guid.NewGuid());
+        var warning = await Assert.ThrowsAsync<ConflictException>(() =>
+            CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(command));
+        AssertStableCode(warning, HistoricalErrorCodes.HistoricalDuplicateBooking);
+
+        var accepted = await CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(command with
+        {
+            IdempotencyKey = Guid.NewGuid(),
+            AcknowledgedDuplicateOf = new[] { candidate.Id }
+        });
+        Assert.True(accepted.Booking.IsHistorical);
+        Assert.Equal(2, await context.Bookings.AsNoTracking().CountAsync());
+    }
+
+    [Fact]
+    public async Task NonMatchingSoftHoldAndIgnoredStatusesDoNotBlock()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var data = await SeedAsync(context);
+        var otherClient = AddClient(context, "33");
+        AddBooking(context, data, otherClient.Id, BookingStatus.Relevant,
+            new DateOnly(2026, 7, 20), new DateOnly(2026, 7, 22));
+        AddBooking(context, data, otherClient.Id, BookingStatus.Cancelled,
+            new DateOnly(2026, 7, 20), new DateOnly(2026, 7, 22));
+        AddBooking(context, data, otherClient.Id, BookingStatus.NotRelevant,
+            new DateOnly(2026, 7, 20), new DateOnly(2026, 7, 22));
+        AddBooking(context, data, otherClient.Id, BookingStatus.NoAnswer,
+            new DateOnly(2026, 7, 20), new DateOnly(2026, 7, 22));
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var accepted = await CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(
+            CreateCommand(data, Guid.NewGuid()));
+
+        Assert.True(accepted.Booking.IsHistorical);
+        Assert.Equal(4, await context.Bookings.AsNoTracking().CountAsync(item => !item.IsHistorical));
+    }
+
+    [Fact]
+    public async Task OnlyCurrentApprovedDateBlocksRequireExactAcknowledgement()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var data = await SeedAsync(context);
+        var approved = AddDateBlock(context, data.Unit.Id, DateBlockStatus.Approved);
+        var pending = AddDateBlock(context, data.Unit.Id, DateBlockStatus.PendingApproval);
+        AddDateBlock(context, data.Unit.Id, DateBlockStatus.Rejected);
+        AddDateBlock(context, data.Unit.Id, DateBlockStatus.Approved, deleted: true);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var command = CreateCommand(data, Guid.NewGuid());
+        var warning = await Assert.ThrowsAsync<ConflictException>(() =>
+            CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(command));
+        AssertStableCode(warning, HistoricalErrorCodes.HistoricalOverlapConflict);
+        Assert.Equal(true, warning.Metadata!["requiresAcknowledgement"]);
+
+        var stale = await Assert.ThrowsAsync<BusinessValidationException>(() =>
+            CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(command with
+            {
+                IdempotencyKey = Guid.NewGuid(),
+                AcknowledgedDateBlockIds = new[] { pending.Id }
+            }));
+        AssertStableCode(stale, HistoricalErrorCodes.ValidationError);
+
+        var accepted = await CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(command with
+        {
+            IdempotencyKey = Guid.NewGuid(),
+            AcknowledgedDateBlockIds = new[] { approved.Id }
+        });
+        Assert.True(accepted.Booking.IsHistorical);
+        Assert.Equal(4, await context.DateBlocks.AsNoTracking().CountAsync());
+    }
+
+    [Fact]
+    public async Task SoftDeletedClientDoesNotHideExistingOccupancy()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var data = await SeedAsync(context);
+        var deletedClient = AddClient(context, "32");
+        var existing = AddBooking(context, data, deletedClient.Id, BookingStatus.Completed,
+            new DateOnly(2026, 7, 20), new DateOnly(2026, 7, 22));
+        deletedClient.DeletedAt = DateTime.UtcNow;
+        deletedClient.IsActive = false;
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var error = await Assert.ThrowsAsync<ConflictException>(() =>
+            CreateService(context, new DateOnly(2026, 8, 1)).RecordAsync(
+                CreateCommand(data, Guid.NewGuid())));
+        AssertStableCode(error, HistoricalErrorCodes.HistoricalOverlapConflict);
+        Assert.Equal(1, await context.Bookings.AsNoTracking().CountAsync(item => item.Id == existing.Id));
+    }
+
+    [Fact]
+    [Trait(TestCategories.Name, TestCategories.Concurrency)]
+    public async Task ConcurrentDifferentKeysProduceOneBookingAndOneDuplicateWithoutPartialRows()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        Guid unitId;
+        Guid clientId;
+        Guid adminId;
+        Guid secondAdminId;
+        await using (var setup = database.CreateDbContext())
+        {
+            var data = await SeedAsync(setup);
+            unitId = data.Unit.Id;
+            clientId = data.Client.Id;
+            adminId = data.Admin.Id;
+            var secondAdmin = new AdminUser
+            {
+                Id = Guid.NewGuid(),
+                Name = "Sanitized HB03 Concurrent Admin",
+                Email = $"hb03-concurrent-{Guid.NewGuid():N}@example.test",
+                PasswordHash = "test-only-hash",
+                RoleTemplateId = Guid.Parse("10000000-0000-0000-0000-000000000001"),
+                IsActive = true
+            };
+            setup.AdminUsers.Add(secondAdmin);
+            await setup.SaveChangesAsync();
+            secondAdminId = secondAdmin.Id;
+        }
+
+        await using var firstContext = database.CreateDbContext();
+        await using var secondContext = database.CreateDbContext();
+        var first = CreateStandaloneCommand(unitId, clientId, adminId, Guid.NewGuid());
+        var second = CreateStandaloneCommand(unitId, clientId, secondAdminId, Guid.NewGuid());
+        var outcomes = await Task.WhenAll(
+            CaptureOutcomeAsync(CreateService(firstContext, new DateOnly(2026, 8, 1)), first),
+            CaptureOutcomeAsync(CreateService(secondContext, new DateOnly(2026, 8, 1)), second));
+
+        Assert.Single(outcomes, outcome => outcome.Result is not null);
+        var loser = Assert.Single(outcomes, outcome => outcome.Error is not null).Error!;
+        AssertStableCode(loser, HistoricalErrorCodes.HistoricalDuplicateBooking);
+
+        await using var verification = database.CreateDbContext();
+        var bookingId = Assert.Single(await verification.Bookings.AsNoTracking()
+            .Where(item => item.UnitId == unitId && item.IsHistorical)
+            .Select(item => item.Id)
+            .ToListAsync());
+        Assert.Single(await verification.BookingStatusHistories.AsNoTracking()
+            .Where(item => item.BookingId == bookingId).ToListAsync());
+        Assert.Single(await verification.IdempotencyKeys.AsNoTracking()
+            .Where(item => item.BookingId == bookingId).ToListAsync());
     }
 
     [Fact]
@@ -719,6 +965,7 @@ public sealed class HistoricalBookingPostgreSqlTests
             clientService,
             new FixedBusinessClock(new DateOnly(2026, 8, 1)),
             idempotency,
+            new HistoricalConflictService(unitOfWork),
             NullLogger<HistoricalBookingService>.Instance);
         var newPhone = TestPhone("24");
         var command = CreateCommand(data, Guid.NewGuid()) with
@@ -1190,6 +1437,7 @@ public sealed class HistoricalBookingPostgreSqlTests
             clientService,
             new FixedBusinessClock(cairoToday),
             idempotency,
+            new HistoricalConflictService(unitOfWork),
             NullLogger<HistoricalBookingService>.Instance);
     }
 
@@ -1228,6 +1476,93 @@ public sealed class HistoricalBookingPostgreSqlTests
         data.Admin.Id,
         idempotencyKey,
         "sanitized-pg-test");
+
+    private static RecordHistoricalBookingCommand CreateStandaloneCommand(
+        Guid unitId,
+        Guid clientId,
+        Guid adminId,
+        Guid idempotencyKey) => new(
+        unitId,
+        clientId,
+        null,
+        new DateOnly(2026, 7, 20),
+        new DateOnly(2026, 7, 22),
+        2,
+        new DateOnly(2026, 7, 15),
+        HistoricalEntryReasons.OfflineBookingRecordedAfterStay,
+        null,
+        "offline_record",
+        null,
+        300m,
+        null,
+        "Sanitized historical booking test.",
+        adminId,
+        idempotencyKey,
+        "sanitized-pg-concurrency");
+
+    private static Booking AddBooking(
+        AppDbContext context,
+        SeededData data,
+        Guid clientId,
+        BookingStatus status,
+        DateOnly checkIn,
+        DateOnly checkOut)
+    {
+        var booking = new Booking
+        {
+            Id = Guid.NewGuid(),
+            ClientId = clientId,
+            UnitId = data.Unit.Id,
+            OwnerId = data.Owner.Id,
+            BookingStatus = status,
+            CheckInDate = checkIn,
+            CheckOutDate = checkOut,
+            GuestCount = 1,
+            BaseAmount = 100m,
+            FinalAmount = 100m,
+            Source = "admin",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Bookings.Add(booking);
+        return booking;
+    }
+
+    private static Client AddClient(AppDbContext context, string phonePrefix)
+    {
+        var client = new Client
+        {
+            Id = Guid.NewGuid(),
+            Name = "Sanitized HB03 Client",
+            Phone = TestPhone(phonePrefix),
+            PasswordHash = "test-only-hash",
+            IsActive = true
+        };
+        context.Clients.Add(client);
+        return client;
+    }
+
+    private static DateBlock AddDateBlock(
+        AppDbContext context,
+        Guid unitId,
+        DateBlockStatus status,
+        bool deleted = false)
+    {
+        var block = new DateBlock
+        {
+            Id = Guid.NewGuid(),
+            UnitId = unitId,
+            StartDate = new DateOnly(2026, 7, 20),
+            EndDate = new DateOnly(2026, 7, 21),
+            Reason = "sanitized-test-block",
+            Status = status,
+            DeletedAt = deleted ? DateTime.UtcNow : null,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.DateBlocks.Add(block);
+        return block;
+    }
 
     private static async Task<SeededData> SeedAsync(AppDbContext context)
     {

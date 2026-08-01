@@ -57,7 +57,9 @@ public sealed class HistoricalBookingsController : ControllerBase
                 request.InternalNotes,
                 actorAdminUserId,
                 idempotencyKey,
-                HttpContext.TraceIdentifier),
+                HttpContext.TraceIdentifier,
+                request.AcknowledgedDuplicateOf,
+                request.AcknowledgedDateBlockIds),
             cancellationToken);
 
         return Ok(ApiResponse<HistoricalBookingResponse>.CreateSuccess(

@@ -72,7 +72,19 @@ public sealed class RecordHistoricalBookingRequestValidator
             .Must(amount => decimal.Round(amount, 2) == amount)
             .WithMessage("AgreedAmount must be a non-negative decimal with no more than two decimal places.")
             .WithErrorCode(HistoricalErrorCodes.ValidationError);
+
+        RuleFor(request => request.AcknowledgedDuplicateOf)
+            .Must(HaveDistinctNonEmptyIds)
+            .WithMessage("AcknowledgedDuplicateOf must contain distinct, non-empty booking IDs.")
+            .WithErrorCode(HistoricalErrorCodes.ValidationError);
+        RuleFor(request => request.AcknowledgedDateBlockIds)
+            .Must(HaveDistinctNonEmptyIds)
+            .WithMessage("AcknowledgedDateBlockIds must contain distinct, non-empty date-block IDs.")
+            .WithErrorCode(HistoricalErrorCodes.ValidationError);
     }
+
+    private static bool HaveDistinctNonEmptyIds(IReadOnlyList<Guid>? ids) =>
+        ids is not null && ids.All(id => id != Guid.Empty) && ids.Distinct().Count() == ids.Count;
 }
 
 public sealed class NewHistoricalClientRequestValidator

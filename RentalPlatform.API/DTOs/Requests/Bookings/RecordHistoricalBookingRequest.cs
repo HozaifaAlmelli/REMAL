@@ -19,6 +19,8 @@ public sealed record RecordHistoricalBookingRequest
     public decimal AgreedAmount { get; init; }
     public Guid? AssignedAdminUserId { get; init; }
     public string? InternalNotes { get; init; }
+    public IReadOnlyList<Guid> AcknowledgedDuplicateOf { get; init; } = Array.Empty<Guid>();
+    public IReadOnlyList<Guid> AcknowledgedDateBlockIds { get; init; } = Array.Empty<Guid>();
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

@@ -23,6 +23,7 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
     private readonly IClientService _clientService;
     private readonly IBusinessClock _clock;
     private readonly IHistoricalIdempotencyStore _idempotencyStore;
+    private readonly IHistoricalConflictService _conflictService;
     private readonly ILogger<HistoricalBookingService> _logger;
 
     public HistoricalBookingService(
@@ -31,6 +32,7 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
         IClientService clientService,
         IBusinessClock clock,
         IHistoricalIdempotencyStore idempotencyStore,
+        IHistoricalConflictService conflictService,
         ILogger<HistoricalBookingService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -38,6 +40,7 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
         _clientService = clientService;
         _clock = clock;
         _idempotencyStore = idempotencyStore;
+        _conflictService = conflictService;
         _logger = logger;
     }
 
@@ -83,7 +86,7 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
             var duration = Stopwatch.GetElapsedTime(startedAt).TotalSeconds;
             HistoricalBookingTelemetry.RecordSucceeded(duration, result.IsReplay);
             _logger.LogInformation(
-                "booking.historical.recorded BookingId={BookingId} UnitId={UnitId} ActorAdminUserId={ActorAdminUserId} RecordedAt={RecordedAt} CheckInDate={CheckInDate} CheckOutDate={CheckOutDate} ActualBookedAt={ActualBookedAt} HistoricalEntryReason={HistoricalEntryReason} OriginalSource={OriginalSource} OwnerId={OwnerId} OverrideApplied={OverrideApplied} CorrelationId={CorrelationId} IsReplay={IsReplay}",
+                "booking.historical.recorded BookingId={BookingId} UnitId={UnitId} ActorAdminUserId={ActorAdminUserId} RecordedAt={RecordedAt} CheckInDate={CheckInDate} CheckOutDate={CheckOutDate} ActualBookedAt={ActualBookedAt} HistoricalEntryReason={HistoricalEntryReason} OriginalSource={OriginalSource} OwnerId={OwnerId} OverrideApplied={OverrideApplied} AcknowledgedDuplicateIds={AcknowledgedDuplicateIds} AcknowledgedDateBlockIds={AcknowledgedDateBlockIds} CorrelationId={CorrelationId} IsReplay={IsReplay}",
                 result.Booking.Id,
                 result.Booking.UnitId,
                 result.RecordedByAdminUserId,
@@ -95,6 +98,8 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
                 result.Booking.OriginalSource,
                 result.Booking.OwnerId,
                 false,
+                string.Join(',', command.AcknowledgedDuplicateOf ?? Array.Empty<Guid>()),
+                string.Join(',', command.AcknowledgedDateBlockIds ?? Array.Empty<Guid>()),
                 command.CorrelationId,
                 result.IsReplay);
             return result;
@@ -103,7 +108,9 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
         {
             var reason = MapRejectionReason((exception as IBusinessErrorCode)?.Code);
             var duration = Stopwatch.GetElapsedTime(startedAt).TotalSeconds;
-            HistoricalBookingTelemetry.RecordRejected(reason, duration);
+            var match = (exception as IBusinessErrorMetadata)?.Metadata?
+                .GetValueOrDefault("matchReason") as string;
+            HistoricalBookingTelemetry.RecordRejected(reason, duration, match);
             _logger.LogInformation(
                 "Historical booking rejected Reason={Reason} UnitId={UnitId} ActorAdminUserId={ActorAdminUserId} CheckInDate={CheckInDate} CheckOutDate={CheckOutDate} CorrelationId={CorrelationId}",
                 reason,
@@ -153,6 +160,12 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
                 "Soft-deleted units cannot be used for historical booking creation.",
                 HistoricalErrorCodes.UnitDeletedUnsupported);
         }
+        if (command.GuestCount > unit.MaxGuests)
+        {
+            throw new BusinessValidationException(
+                $"Guest count ({command.GuestCount}) exceeds unit maximum capacity ({unit.MaxGuests}).",
+                HistoricalErrorCodes.ValidationError);
+        }
 
         var ownerExists = unit.OwnerId != Guid.Empty && await _unitOfWork.Owners.Query()
             .AnyAsync(owner =>
@@ -195,15 +208,23 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
             }
         }
 
-        var clientId = await ResolveClientIdAsync(command, cancellationToken);
         var externalReference = NormalizeOptional(command.ExternalReference);
-        if (externalReference is not null && await _unitOfWork.Bookings.Query()
-                .AnyAsync(booking => booking.ExternalReference == externalReference, cancellationToken))
-        {
-            throw new ConflictException(
-                "The external reference is already assigned to another booking.",
-                HistoricalErrorCodes.ExternalReferenceAlreadyExists);
-        }
+        var clientIdentity = await ResolveClientIdentityAsync(command, cancellationToken);
+        await _conflictService.ValidateAsync(
+            new HistoricalConflictRequest(
+                command.UnitId,
+                command.CheckInDate,
+                command.CheckOutDate,
+                clientIdentity.ClientId,
+                clientIdentity.NormalizedPhone,
+                externalReference,
+                command.AcknowledgedDuplicateOf ?? Array.Empty<Guid>(),
+                command.AcknowledgedDateBlockIds ?? Array.Empty<Guid>()),
+            cancellationToken);
+
+        var clientId = clientIdentity.RequiresCreation
+            ? await CreateClientAsync(command.NewClient!, cancellationToken)
+            : clientIdentity.ClientId;
 
         var booking = await _bookingService.CreateAsync(
             clientId,
@@ -226,7 +247,8 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
                 AdminUserNotFoundErrorCode: HistoricalErrorCodes.AdminUserNotFound,
                 GuestCapacityErrorCode: HistoricalErrorCodes.ValidationError,
                 OperationalConflictErrorCode: HistoricalErrorCodes.HistoricalOverlapConflict,
-                ConfirmedOverlapErrorCode: HistoricalErrorCodes.HistoricalOverlapConflict));
+                ConfirmedOverlapErrorCode: HistoricalErrorCodes.HistoricalOverlapConflict,
+                AvailabilityPolicy: BookingAvailabilityPolicy.HistoricalAuthoritative));
 
         booking.IsHistorical = true;
         booking.ActualBookedAt = command.ActualBookedAt;
@@ -252,26 +274,30 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
         return await LoadResultAsync(command, booking.Id, isReplay: false, cancellationToken);
     }
 
-    private async Task<Guid> ResolveClientIdAsync(
+    private async Task<PendingClientIdentity> ResolveClientIdentityAsync(
         RecordHistoricalBookingCommand command,
         CancellationToken cancellationToken)
     {
         if (command.ClientId.HasValue)
         {
-            var clientExists = await _unitOfWork.Clients.Query()
-                .AnyAsync(client =>
+            var client = await _unitOfWork.Clients.Query()
+                .AsNoTracking()
+                .SingleOrDefaultAsync(client =>
                     client.Id == command.ClientId.Value &&
                     client.IsActive &&
                     client.DeletedAt == null,
                     cancellationToken);
-            if (!clientExists)
+            if (client is null)
             {
                 throw new NotFoundException(
                     $"Active client with ID {command.ClientId.Value} was not found.",
                     HistoricalErrorCodes.ClientNotFound);
             }
 
-            return command.ClientId.Value;
+            return new PendingClientIdentity(
+                client.Id,
+                HistoricalConflictService.NormalizePhone(client.Phone),
+                RequiresCreation: false);
         }
 
         var newClient = command.NewClient!;
@@ -297,6 +323,16 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
                 HistoricalErrorCodes.ValidationError);
         }
 
+        return new PendingClientIdentity(
+            Guid.Empty,
+            HistoricalConflictService.NormalizePhone(newClient.Phone),
+            RequiresCreation: true);
+    }
+
+    private async Task<Guid> CreateClientAsync(
+        NewHistoricalClient newClient,
+        CancellationToken cancellationToken)
+    {
         Client createdClient;
         try
         {
@@ -456,9 +492,19 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
 
         if (postgresException?.ConstraintName == "ux_bookings_external_reference")
         {
+            var existingBookingId = await _unitOfWork.Bookings.Query()
+                .AsNoTracking()
+                .Where(item => item.ExternalReference == NormalizeOptional(command.ExternalReference))
+                .Select(item => (Guid?)item.Id)
+                .FirstOrDefaultAsync(cancellationToken);
             return new ConflictException(
                 "The external reference is already assigned to another booking.",
-                HistoricalErrorCodes.ExternalReferenceAlreadyExists);
+                HistoricalErrorCodes.ExternalReferenceAlreadyExists,
+                new Dictionary<string, object?>
+                {
+                    ["duplicateOf"] = existingBookingId,
+                    ["matchReason"] = "external_reference"
+                });
         }
 
         if (command.NewClient is not null && postgresException?.ConstraintName == "ux_clients_phone")
@@ -514,6 +560,8 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
     {
         HistoricalErrorCodes.HistoricalCheckoutNotCompleted => "not_complete",
         HistoricalErrorCodes.OwnerAttributionRequiresReview => "owner_attribution",
+        HistoricalErrorCodes.HistoricalOverlapConflict => "overlap",
+        HistoricalErrorCodes.HistoricalDuplicateBooking => "duplicate",
         HistoricalErrorCodes.ValidationError or
         HistoricalErrorCodes.ClientReferenceInvalid or
         HistoricalErrorCodes.OriginalSourceInvalid or
@@ -523,4 +571,9 @@ public sealed class HistoricalBookingService : IHistoricalBookingService
 
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private sealed record PendingClientIdentity(
+        Guid ClientId,
+        string NormalizedPhone,
+        bool RequiresCreation);
 }
