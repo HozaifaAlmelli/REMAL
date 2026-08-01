@@ -80,6 +80,41 @@ live in the ticket.
 Nine of nine cross-ticket decisions and eight of eight HB-02 decisions have a final status. None is waiting
 on a person.
 
+### HB-03 decisions
+
+The sole owner ratified the four HB-03 policy gates on 2026-08-01. These decisions govern only the privileged
+historical-recording path and do not change normal availability behavior.
+
+| ID | Decision | Outcome | Review lenses | Status |
+|---|---|---|---|---|
+| [D-HB03-01](#d-hb03-01--soft-hold-treatment) | Soft-hold treatment | `Prospecting` and `Relevant` never hard-block; they are probable candidates only when D-HB03-04 matches | Product · Operations | **`OWNER APPROVED`** |
+| [D-HB03-02](#d-hb03-02--date-block-acknowledgement) | Date-block acknowledgement | Every current approved, non-deleted overlapping block must be acknowledged by exact ID; invalid IDs are rejected | Product · Operations · Engineering | **`OWNER APPROVED`** |
+| [D-HB03-04](#d-hb03-04--probable-duplicate-threshold) | Probable-duplicate threshold | Same unit + occupied-night overlap + same trusted client or normalized phone | Product · Engineering | **`OWNER APPROVED`** |
+| [D-HB03-08](#d-hb03-08--soft-deleted-client-visibility) | Soft-deleted-client visibility | Preserve read-only occupancy identity for HB-03 checks without exposing or mutating the client | Security · Engineering | **`OWNER APPROVED`** |
+
+## D-HB03-01 — Soft-hold treatment
+
+`Prospecting` and `Relevant` are excluded from authoritative historical conflicts. They participate only as
+probable-duplicate candidates when D-HB03-04 matches and are never modified, closed, converted or deleted.
+
+## D-HB03-02 — Date-block acknowledgement
+
+Only approved, non-deleted blocks overlapping the requested half-open stay participate. The request must name
+the complete current set of IDs. Missing, stale, unknown, duplicate, non-overlapping, wrong-unit, pending,
+rejected and deleted IDs are rejected. Acknowledgement records awareness and never mutates a date block.
+
+## D-HB03-04 — Probable-duplicate threshold
+
+A candidate is probable only when it uses the same unit, overlaps by at least one occupied night, and matches
+either trusted client ID or the client subsystem's normalized phone identity. Adjacency, names, fuzzy matching,
+amount, notes, source and assignee are not identity signals.
+
+## D-HB03-08 — Soft-deleted-client visibility
+
+HB-03 conflict and duplicate reads preserve stored client ID and normalized phone identity even after client
+soft deletion. This exception is read-only and local to HB-03; it exposes no PII and never restores, reuses,
+merges or mutates the unavailable client.
+
 ### Deferred v1 scope decisions
 
 | ID | Subject | Status | Accepted risk | Revisit trigger |

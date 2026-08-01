@@ -213,27 +213,30 @@ public class BookingService : IBookingService
         var pricingStartDate = checkInDate;
         var pricingEndDate = checkOutDate.AddDays(-1);
 
-        // --- Operational availability check (date blocks) ---
-        UnitAvailabilityResult availability;
-        try
+        if (creationOptions?.AvailabilityPolicy != BookingAvailabilityPolicy.HistoricalAuthoritative)
         {
-            availability = await _availabilityService.CheckOperationalAvailabilityAsync(
-                unitId,
-                pricingStartDate,
-                pricingEndDate,
-                cancellationToken: cancellationToken,
-                allowInactiveUnit: creationOptions?.AllowInactiveUnit == true);
-        }
-        catch (NotFoundException exception) when (creationOptions?.UnitNotFoundErrorCode is not null)
-        {
-            throw new NotFoundException(exception.Message, creationOptions.UnitNotFoundErrorCode);
-        }
-        if (!availability.IsAvailable)
-        {
-            var message = $"Unit {unitId} is not operationally available for the requested dates: {availability.Reason}";
-            throw creationOptions?.OperationalConflictErrorCode is null
-                ? new ConflictException(message)
-                : new ConflictException(message, creationOptions.OperationalConflictErrorCode);
+            // --- Operational availability check (date blocks) ---
+            UnitAvailabilityResult availability;
+            try
+            {
+                availability = await _availabilityService.CheckOperationalAvailabilityAsync(
+                    unitId,
+                    pricingStartDate,
+                    pricingEndDate,
+                    cancellationToken: cancellationToken,
+                    allowInactiveUnit: creationOptions?.AllowInactiveUnit == true);
+            }
+            catch (NotFoundException exception) when (creationOptions?.UnitNotFoundErrorCode is not null)
+            {
+                throw new NotFoundException(exception.Message, creationOptions.UnitNotFoundErrorCode);
+            }
+            if (!availability.IsAvailable)
+            {
+                var message = $"Unit {unitId} is not operationally available for the requested dates: {availability.Reason}";
+                throw creationOptions?.OperationalConflictErrorCode is null
+                    ? new ConflictException(message)
+                    : new ConflictException(message, creationOptions.OperationalConflictErrorCode);
+            }
         }
 
         if (rejectSoftHoldOverlaps)
@@ -246,14 +249,17 @@ public class BookingService : IBookingService
                 cancellationToken);
         }
 
-        // --- Confirmed booking overlap check ---
-        await EnsureNoConfirmedOverlap(
-            unitId,
-            checkInDate,
-            checkOutDate,
-            excludeBookingId: null,
-            cancellationToken,
-            creationOptions?.ConfirmedOverlapErrorCode);
+        if (creationOptions?.AvailabilityPolicy != BookingAvailabilityPolicy.HistoricalAuthoritative)
+        {
+            // --- Confirmed booking overlap check ---
+            await EnsureNoConfirmedOverlap(
+                unitId,
+                checkInDate,
+                checkOutDate,
+                excludeBookingId: null,
+                cancellationToken,
+                creationOptions?.ConfirmedOverlapErrorCode);
+        }
 
         // --- Pricing snapshot ---
         var pricing = await _availabilityService.CalculatePricingAsync(

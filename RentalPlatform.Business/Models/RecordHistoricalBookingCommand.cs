@@ -24,7 +24,9 @@ public sealed record RecordHistoricalBookingCommand(
     string? InternalNotes,
     Guid ActorAdminUserId,
     Guid IdempotencyKey,
-    string? CorrelationId);
+    string? CorrelationId,
+    IReadOnlyList<Guid>? AcknowledgedDuplicateOf = null,
+    IReadOnlyList<Guid>? AcknowledgedDateBlockIds = null);
 
 public sealed record HistoricalBookingResult(
     Booking Booking,

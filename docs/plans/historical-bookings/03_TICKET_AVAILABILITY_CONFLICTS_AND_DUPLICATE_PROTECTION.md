@@ -301,14 +301,14 @@ names the perspectives applied — it is not a list of separate approvers.
 
 | ID | Decision | Reason it is open | Impact if wrong | Recommended default | Review lens | Blocks? |
 |---|---|---|---|---|---|---|
-| D-01 | Do soft holds (`Prospecting`, `Relevant`) participate in **historical** conflict detection? | A stale lead for the same offline deal is the most likely artefact an operator will meet; blocking on it prevents recording the truth | Too strict → operators cannot record real stays; too loose → nothing (soft holds occupy no real nights) | **Exclude** from the hard conflict set; **include** as a probable-duplicate signal (§11.8) | Product · Operations | **Yes** |
-| D-02 | Does an overlapping `date_block` block a historical stay? | A block is a statement about intended future unavailability; a completed stay is a statement of fact. `Status` is also unfiltered today (§5.3) | Hard-block → maintenance entries veto real history; ignore → genuine data conflicts go unnoticed | **Warn + require acknowledgement**, counting only `status = 'approved'` and `deleted_at IS NULL` blocks | Operations | **Yes** |
+| D-01 | Do soft holds (`Prospecting`, `Relevant`) participate in **historical** conflict detection? | A stale lead for the same offline deal is the most likely artefact an operator will meet; blocking on it prevents recording the truth | Too strict → operators cannot record real stays; too loose → nothing (soft holds occupy no real nights) | **Exclude from the hard conflict set; include only as a probable-duplicate signal when D-04's overlap and identity threshold is met. Never mutate the soft hold.** | Product · Operations | **`OWNER APPROVED`** |
+| D-02 | Does an overlapping `date_block` block a historical stay? | A block is a statement about intended future unavailability; a completed stay is a statement of fact. `Status` is also unfiltered today (§5.3) | Hard-block → maintenance entries veto real history; ignore → genuine data conflicts go unnoticed | **Approved, non-deleted overlapping blocks require acknowledgement by the complete exact ID set. Missing, stale, duplicate, non-overlapping, wrong-unit, pending, rejected or deleted IDs are rejected; no block is mutated.** | Operations | **`OWNER APPROVED`** |
 | D-03 | Exact duplicate → hard `409`, or idempotent absorb returning the existing booking? | Both are defensible; absorbing hides operator error, blocking breaks safe retries | Wrong choice produces either duplicate records or confusing 409s on network retry | **`409 HISTORICAL_DUPLICATE_BOOKING` by default; absorb (`200` + the original booking) only on an exact `Idempotency-Key` replay, which is HB-02's mechanism.** The two checks answer different questions: idempotency asks *"is this the same request?"*, HB-03 asks *"is this the same booking?"* | Product · Engineering | **`OWNER APPROVED`** |
-| D-04 | Probable-duplicate thresholds | Scoring is a product judgement, not a technical one | Too sensitive → acknowledgement fatigue, operators click through; too lax → duplicates land | Any night overlap **AND** (same `client_id` OR same normalised phone); amount similarity is advisory only, never a trigger on its own | Product | No |
+| D-04 | Probable-duplicate thresholds | Scoring is a product judgement, not a technical one | Too sensitive → acknowledgement fatigue, operators click through; too lax → duplicates land | **Same unit AND at least one overlapping occupied night AND (same trusted `client_id` OR same server-normalised phone).** Adjacency, names, fuzzy matches, amount, notes, source and assignee never trigger it | Product | **`OWNER APPROVED`** |
 | D-05 | Adopt a PostgreSQL `EXCLUDE` constraint as a hard backstop? | Never used in this codebase (§5.7); operational cost is real (§11.11) | Skipping it leaves the guarantee application-level only | **No in v1.** Ship the app-level guard + reconciliation query; raise a deferred hardening ticket once the census proves the table is clean | Engineering | No |
 | D-06 | How is the error **code** transported, given `ApiResponse` has none (§5.8)? | [Master §12](00_MASTER_PLAN.md#12-api-and-command-design) specifies codes the envelope cannot carry | HB-06 cannot distinguish `HISTORICAL_OVERLAP_CONFLICT` from `HISTORICAL_DUPLICATE_BOOKING` and will string-match messages | Add an optional `code` (and `details`) to `ApiResponse` — purely additive, existing clients ignore it | Engineering | **Yes** |
 | D-07 | Final route and success status for the historical endpoint | An earlier draft carried both `/api/bookings/historical` and `/api/internal/bookings/historical`, and both `200` and `201` | A published contract that does not exist, and scenarios asserting the wrong status | **RESOLVED.** `POST /api/internal/bookings/historical` returning **`200 OK`**, matching the live prefix (`BookingsController.cs:21`) and the repository's universal `Ok(ApiResponse<T>...)` pattern (`:114`, `:135`). Recorded normatively at [Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract); every document and scenario now restates it | Engineering | No — resolved |
-| D-08 | Should the historical conflict query keep the `b.Client.DeletedAt == null` filter (§5.5)? | A soft-deleted client's completed stay still occupied the unit | Keeping it → real occupancy invisible → double-booked nights | **Drop the client filter** in the historical query; keep `b.Unit.DeletedAt == null` | Engineering | **Yes** |
+| D-08 | Should the historical conflict query keep the `b.Client.DeletedAt == null` filter (§5.5)? | A soft-deleted client's completed stay still occupied the unit | Keeping it → real occupancy invisible → double-booked nights | **Drop the client filter only for HB-03 conflict/duplicate reads. Compare stored client identity read-only, expose no PII, and never restore, reuse or mutate the deleted client.** | Engineering | **`OWNER APPROVED`** |
 
 ---
 
@@ -356,8 +356,8 @@ public static readonly BookingStatus[] HistoricalConflictStatuses =
 | `Cancelled` | No | Terminal, holds nothing (`BookingStatusTransitions.cs:19`) | `PROPOSED` |
 | `NotRelevant` | No | Terminal dead lead (`:17`) | `PROPOSED` |
 | `NoAnswer` | No | Never in any hold set today; represents no commitment | `PROPOSED` |
-| `Prospecting` | No — see D-01 | Soft hold; feeds the duplicate detector instead | `DECISION REQUIRED` |
-| `Relevant` | No — see D-01 | Same | `DECISION REQUIRED` |
+| `Prospecting` | No — see D-01 | Soft hold; feeds the duplicate detector only when D-04 matches | `OWNER APPROVED` |
+| `Relevant` | No — see D-01 | Same | `OWNER APPROVED` |
 
 Note the set is deliberately **not** `FinanceEligibleStatuses` (`:61-68`), even though the membership happens to
 coincide today. They answer different questions — "may money be attached?" versus "were these nights
@@ -413,11 +413,10 @@ naive `<=`/`>=` implementation gets wrong; they are mandatory.
 
 ### 11.5 Date blocks in the historical path
 
-`PROPOSED`, subject to `D-02`. The historical query returns overlapping date blocks as **advisory**, not
-blocking, and applies two filters the current service does not: `deleted_at IS NULL` (already applied,
-`UnitAvailabilityService.cs:41`) **and** `status = 'approved'`. A `pending_approval` or `rejected` block is
-irrelevant to what physically happened. The wizard shows the block and requires acknowledgement; the API
-requires the acknowledgement flag before it will proceed.
+`OWNER APPROVED` by D-02. The historical query returns only overlapping `status = 'approved'`,
+`deleted_at IS NULL` date blocks as acknowledgement requirements. The request must acknowledge the complete
+current set by exact ID; a blanket boolean and missing, stale, duplicate, non-overlapping or wrong-unit IDs are
+invalid. `pending_approval`, `rejected` and deleted blocks require no acknowledgement. No block is mutated.
 
 ### 11.6 Inactive and soft-deleted units
 
@@ -475,7 +474,7 @@ differently by different operators. Name may contribute to a *display* hint; it 
 | Class | Definition | Outcome | Error / signal |
 |---|---|---|---|
 | **Exact duplicate** | Same `unit_id` **AND** same `check_in_date` **AND** same `check_out_date` **AND** same `client_id`, in any status within `HistoricalConflictStatuses` | Block, or absorb under a replayed idempotency key (`D-03`) | `409 HISTORICAL_DUPLICATE_BOOKING` |
-| **External-reference duplicate** | Same non-null `external_reference` | Block unconditionally — the operator has asserted a unique external identity | `409 HISTORICAL_DUPLICATE_BOOKING` |
+| **External-reference duplicate** | Same non-null `external_reference` | Block unconditionally — the operator has asserted a unique external identity | `409 EXTERNAL_REFERENCE_ALREADY_EXISTS` (HB-02 transport) |
 | **Probable duplicate** | Night overlap on the same unit **AND** (same `client_id` **OR** same normalised phone). Amount proximity is displayed, never decisive (`D-04`) | Block **until** the request carries an explicit acknowledgement token, then allow | `409` + machine-readable candidate list; retry with `acknowledgedDuplicateOf: [ids]` |
 | **Soft-hold echo** | An overlapping `Prospecting`/`Relevant` booking for the same client — the half-entered lead for this same deal | Advisory only; feeds the probable-duplicate list (D-01) | Warning payload |
 | **Legitimate repeat** | Same client, same unit, **non-overlapping** nights | Allow with no friction | — |
@@ -584,7 +583,7 @@ flowchart TD
     X1 -->|yes, different client| E5[409 HISTORICAL_OVERLAP_CONFLICT]
     X1 -->|yes, same client<br/>identical dates| E6[409 HISTORICAL_DUPLICATE_BOOKING]
     X1 -->|no| EX{external_reference<br/>already used?}
-    EX -->|yes| E6
+    EX -->|yes| E9[409 EXTERNAL_REFERENCE_ALREADY_EXISTS]
     EX -->|no| P{Probable duplicate?<br/>overlap AND<br/>same client or phone}
     P -->|yes, unacknowledged| E7[409 + candidate list]
     P -->|yes, acknowledged ids match| Q
@@ -671,7 +670,7 @@ introduces.
 |---|---|---|---|
 | Night overlap with a `HistoricalConflictStatuses` booking | 409 | `HISTORICAL_OVERLAP_CONFLICT` | `conflicts[]`: `{ bookingId, status, checkInDate, checkOutDate }` — no client PII |
 | Exact duplicate (unit + dates + client) | 409 | `HISTORICAL_DUPLICATE_BOOKING` | `duplicateOf: bookingId`, `matchReason: "exact"` |
-| `external_reference` already used | 409 | `HISTORICAL_DUPLICATE_BOOKING` | `duplicateOf: bookingId`, `matchReason: "external_reference"` |
+| `external_reference` already used | 409 | `EXTERNAL_REFERENCE_ALREADY_EXISTS` | `duplicateOf: bookingId`, `matchReason: "external_reference"`; HB-02 owns this transport |
 | Probable duplicate, unacknowledged | 409 | `HISTORICAL_DUPLICATE_BOOKING` | `candidates[]` + `requiresAcknowledgement: true`, `matchReason: "probable"` |
 | Approved date block overlaps, unacknowledged (D-02) | 409 | `HISTORICAL_OVERLAP_CONFLICT` | `dateBlocks[]` + `requiresAcknowledgement: true` |
 | Unit soft-deleted | 400 | `UNIT_DELETED_UNSUPPORTED` | — |
@@ -884,9 +883,8 @@ bookings, which is precisely the outcome `RISK-01` exists to prevent. If Ops req
 supported mechanism is **revoking the permission**, which is auditable through the existing RBAC override
 tables (`rbac_admin_user_permission_overrides`, F-14).
 
-`DECISION REQUIRED` folded into `D-04`: whether the probable-duplicate **thresholds** should be
-configuration-driven so they can be tuned without a deploy. Recommended default: yes for thresholds, no for the
-rules themselves. Non-blocking.
+`OWNER APPROVED` by D-04: v1 uses the fixed, explicit threshold in §11.8. It is not runtime-configurable;
+changing booking identity policy requires a reviewed code change rather than an operational toggle.
 
 ---
 
@@ -943,7 +941,7 @@ Ordered; each independently checkable.
 | AC-HB03-07 | **Given** a unit with `IsActive == false` and `DeletedAt == null`, **when** a historical booking is recorded, **then** it succeeds (ADR-12, REQ-17). |
 | AC-HB03-08 | **Given** a unit with `DeletedAt != null`, **when** a historical booking is recorded, **then** `400 UNIT_DELETED_UNSUPPORTED`. |
 | AC-HB03-09 | **Given** an identical historical booking (same unit, dates, client) already exists, **when** recorded again without an idempotency replay, **then** `409 HISTORICAL_DUPLICATE_BOOKING` with `matchReason: "exact"`. |
-| AC-HB03-10 | **Given** a booking with `external_reference = "X"`, **when** another historical booking supplies `"X"`, **then** `409 HISTORICAL_DUPLICATE_BOOKING` with `matchReason: "external_reference"`. |
+| AC-HB03-10 | **Given** a booking with `external_reference = "X"`, **when** another historical booking supplies `"X"`, **then** `409 EXTERNAL_REFERENCE_ALREADY_EXISTS` with `matchReason: "external_reference"`. |
 | AC-HB03-11 | **Given** an overlapping booking for the same client with different dates, **when** recorded, **then** `409` with `requiresAcknowledgement: true` and a candidate list; **when** retried with those ids acknowledged, **then** it succeeds. |
 | AC-HB03-12 | **Given** the same client and unit with **non-overlapping** dates, **when** recorded, **then** it succeeds with no acknowledgement required. |
 | AC-HB03-13 | **Given** two different clients with the same name, **when** the second books non-overlapping dates, **then** no duplicate signal is raised. |
@@ -962,7 +960,7 @@ Ordered; each independently checkable.
 | NAC-HB03-01 | `HoldingStatuses`, `SoftHoldStatuses`, `ActiveAvailabilityHoldStatuses` and `FinanceEligibleStatuses` must not be modified. |
 | NAC-HB03-02 | A `Completed` or `LeftEarly` booking must not suppress future availability in the storefront, the portal, or any existing caller. |
 | NAC-HB03-03 | No boolean bypass (`force`, `skipConflictCheck`, `allowOverlap`) may exist on any request, service method, or configuration key. |
-| NAC-HB03-04 | Two bookings in `HistoricalConflictStatuses` must never exist on the same unit with intersecting nights — including under concurrency. |
+| NAC-HB03-04 | Two different-identity bookings in `HistoricalConflictStatuses` must never exist on the same unit with intersecting nights, including under concurrency. The only exception is D-04's explicit acknowledgement of a server-identified same-client or same-normalized-phone probable duplicate; exact duplicates remain blocked. |
 | NAC-HB03-05 | Customer name must not be an input to any duplicate-blocking decision. |
 | NAC-HB03-06 | No notification, no invoice, no payout and no background-job action may result from a conflict check, a duplicate check, or a rejection. |
 | NAC-HB03-07 | The 30-second `RecentDuplicateWindow` (`BookingService.cs:19`) must not be widened, reused, or presented as the business duplicate guard. |

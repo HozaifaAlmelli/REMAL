@@ -39,6 +39,8 @@ public static class HistoricalRequestHasher
                 writer.WriteEndObject();
             }
             writer.WriteString("originalSource", Normalize(command.OriginalSource)?.ToLowerInvariant());
+            WriteGuidArray(writer, "acknowledgedDuplicateOf", command.AcknowledgedDuplicateOf);
+            WriteGuidArray(writer, "acknowledgedDateBlockIds", command.AcknowledgedDateBlockIds);
             writer.WriteString("unitId", command.UnitId.ToString("N"));
             writer.WriteEndObject();
         }
@@ -60,5 +62,16 @@ public static class HistoricalRequestHasher
             writer.WriteString(propertyName, value.Value.ToString("N"));
         else
             writer.WriteNull(propertyName);
+    }
+
+    private static void WriteGuidArray(
+        Utf8JsonWriter writer,
+        string propertyName,
+        IReadOnlyList<Guid>? values)
+    {
+        writer.WriteStartArray(propertyName);
+        foreach (var value in (values ?? Array.Empty<Guid>()).OrderBy(value => value))
+            writer.WriteStringValue(value.ToString("N"));
+        writer.WriteEndArray();
     }
 }

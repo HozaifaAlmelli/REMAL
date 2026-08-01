@@ -26,6 +26,102 @@ namespace RentalPlatform.Tests;
 [Trait(TestCategories.Name, TestCategories.Fast)]
 public sealed class HistoricalBookingContractTests
 {
+    [Theory]
+    [InlineData("2026-06-05", "2026-06-10", false)]
+    [InlineData("2026-06-05", "2026-06-11", true)]
+    [InlineData("2026-06-10", "2026-06-15", true)]
+    [InlineData("2026-06-11", "2026-06-14", true)]
+    [InlineData("2026-06-08", "2026-06-20", true)]
+    [InlineData("2026-06-14", "2026-06-20", true)]
+    [InlineData("2026-06-15", "2026-06-20", false)]
+    [InlineData("2026-06-16", "2026-06-20", false)]
+    [InlineData("2026-06-01", "2026-06-05", false)]
+    [InlineData("2026-06-09", "2026-06-10", false)]
+    [InlineData("2026-06-14", "2026-06-15", true)]
+    [InlineData("2026-06-15", "2026-06-16", false)]
+    public void HistoricalOverlapUsesHalfOpenOccupiedNights(
+        string checkIn,
+        string checkOut,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            HistoricalConflictService.Overlaps(
+                DateOnly.Parse(checkIn),
+                DateOnly.Parse(checkOut),
+                new DateOnly(2026, 6, 10),
+                new DateOnly(2026, 6, 15)));
+    }
+
+    [Fact]
+    public void HistoricalConflictStatusSetIsSeparateAndExact()
+    {
+        Assert.Equal(
+            new[]
+            {
+                BookingStatus.Booked,
+                BookingStatus.Confirmed,
+                BookingStatus.CheckIn,
+                BookingStatus.Completed,
+                BookingStatus.LeftEarly
+            },
+            BookingStatusTransitions.HistoricalConflictStatuses);
+        Assert.DoesNotContain(BookingStatus.Prospecting, BookingStatusTransitions.HistoricalConflictStatuses);
+        Assert.DoesNotContain(BookingStatus.Relevant, BookingStatusTransitions.HistoricalConflictStatuses);
+        Assert.Equal(
+            new[] { BookingStatus.Prospecting, BookingStatus.Relevant },
+            BookingStatusTransitions.SoftHoldStatuses);
+    }
+
+    [Fact]
+    public void ProbableIdentityMatchesByTrustedClientOrNormalizedPhoneOnly()
+    {
+        var firstClient = Guid.NewGuid();
+        var secondClient = Guid.NewGuid();
+
+        Assert.True(HistoricalConflictService.IdentityMatches(
+            firstClient, "201000000001", firstClient, "201000000099"));
+        Assert.True(HistoricalConflictService.IdentityMatches(
+            firstClient, "201000000001", secondClient, "201000000001"));
+        Assert.False(HistoricalConflictService.IdentityMatches(
+            firstClient, "201000000001", secondClient, "201000000002"));
+    }
+
+    [Fact]
+    public void ValidatorRejectsMalformedAcknowledgementIds()
+    {
+        var duplicate = Guid.NewGuid();
+        var result = new RecordHistoricalBookingRequestValidator().Validate(
+            ValidRequest() with
+            {
+                AcknowledgedDuplicateOf = new[] { duplicate, duplicate },
+                AcknowledgedDateBlockIds = new[] { Guid.Empty }
+            });
+
+        Assert.Equal(2, result.Errors.Count);
+        Assert.All(result.Errors, failure =>
+            Assert.Equal(HistoricalErrorCodes.ValidationError, failure.ErrorCode));
+    }
+
+    [Fact]
+    public void CanonicalHashNormalizesAcknowledgementOrder()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var command = ValidCommand(Guid.NewGuid()) with
+        {
+            AcknowledgedDuplicateOf = new[] { first, second },
+            AcknowledgedDateBlockIds = new[] { second, first }
+        };
+        var reordered = command with
+        {
+            AcknowledgedDuplicateOf = new[] { second, first },
+            AcknowledgedDateBlockIds = new[] { first, second }
+        };
+
+        Assert.Equal(HistoricalRequestHasher.Compute(command), HistoricalRequestHasher.Compute(reordered));
+    }
+
     [Fact]
     public void ApiResponseCarriesCodeAndSafeMetadataWithoutUsingErrors()
     {
@@ -210,6 +306,11 @@ public sealed class HistoricalBookingContractTests
         Assert.DoesNotContain("createdByAdminUserId", requestProperties);
         Assert.DoesNotContain("bookingStatus", requestProperties);
         Assert.DoesNotContain("isHistorical", requestProperties);
+        Assert.Contains("acknowledgedDuplicateOf", requestProperties);
+        Assert.Contains("acknowledgedDateBlockIds", requestProperties);
+        Assert.DoesNotContain("force", requestProperties);
+        Assert.DoesNotContain("skipConflictCheck", requestProperties);
+        Assert.DoesNotContain("allowOverlap", requestProperties);
 
         var service = new CapturingHistoricalBookingService();
         var controller = new HistoricalBookingsController(service)

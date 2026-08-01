@@ -18,6 +18,7 @@ public static class HistoricalErrorCodes
     public const string OwnerAttributionRequiresReview = "OWNER_ATTRIBUTION_REQUIRES_REVIEW";
     public const string ExternalReferenceAlreadyExists = "EXTERNAL_REFERENCE_ALREADY_EXISTS";
     public const string HistoricalOverlapConflict = "HISTORICAL_OVERLAP_CONFLICT";
+    public const string HistoricalDuplicateBooking = "HISTORICAL_DUPLICATE_BOOKING";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -36,6 +37,7 @@ public static class HistoricalErrorCodes
         IdempotencyRequestInProgress,
         OwnerAttributionRequiresReview,
         ExternalReferenceAlreadyExists,
-        HistoricalOverlapConflict
+        HistoricalOverlapConflict,
+        HistoricalDuplicateBooking
     };
 }

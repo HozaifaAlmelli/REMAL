@@ -22,9 +22,12 @@ internal static class HistoricalBookingTelemetry
             new KeyValuePair<string, object?>("outcome", isReplay ? "replayed" : "created"));
     }
 
-    public static void RecordRejected(string reason, double durationSeconds)
+    public static void RecordRejected(string reason, double durationSeconds, string? match = null)
     {
-        Rejected.Add(1, new KeyValuePair<string, object?>("reason", reason));
+        Rejected.Add(
+            1,
+            new KeyValuePair<string, object?>("reason", reason),
+            new KeyValuePair<string, object?>("match", match ?? "none"));
         Duration.Record(durationSeconds, new KeyValuePair<string, object?>("outcome", "rejected"));
     }
 }
