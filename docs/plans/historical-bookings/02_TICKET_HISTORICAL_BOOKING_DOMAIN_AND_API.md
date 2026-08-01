@@ -286,26 +286,38 @@ The smallest repository-consistent resolution is therefore to build nothing:
 
 ### 10.3 Decision detail for the locally-owned rows
 
-<a id="d-hb02-01"></a>**D-HB02-01 — route.** [Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract)
+#### D-HB02-01
+
+**Route.** [Master §12.1](00_MASTER_PLAN.md#121-the-canonical-historical-contract)
 is normative and already carries this route and `200 OK`. Nothing in HB-02 diverges from it.
 
-<a id="d-hb02-02"></a>**D-HB02-02 — controller placement.** A separate controller costs one file and buys a
+#### D-HB02-02
+
+**Controller placement.** A separate controller costs one file and buys a
 single, greppable location for the privileged path. HB-07 asserts against that file; a security reviewer
 reads one attribute list rather than scanning `BookingsController`.
 
-<a id="d-hb02-07"></a>**D-HB02-07 — `actual_booked_at` is `DATE`.** Consistent with `check_in_date` and
+#### D-HB02-07
+
+**`actual_booked_at` is `DATE`.** Consistent with `check_in_date` and
 `check_out_date`, both `DATE` (`db/migrations/0016_create_bookings.sql`), and with
 [Master §11](00_MASTER_PLAN.md#11-ratified-data-model). A timestamp would reintroduce the timezone question
 that ADR-03 exists to settle.
 
-<a id="d-hb02-08"></a>**D-HB02-08 — `actual_booked_at <= check_in_date`.** Agreeing a booking after the stay
+#### D-HB02-08
+
+**`actual_booked_at <= check_in_date`.** Agreeing a booking after the stay
 began is operationally possible but overwhelmingly a typo. Rejecting it costs an operator one correction;
 accepting it silently corrupts the agreement-date dimension that Finance will reconcile against.
 
-<a id="d-hb02-09"></a>**D-HB02-09 — initial grant.** Seeding only SuperAdmin means the endpoint is live but
+#### D-HB02-09
+
+**Initial grant.** Seeding only SuperAdmin means the endpoint is live but
 unusable by anyone else until a deliberate grant. That is the pilot control described in §24.
 
-<a id="d-hb02-10"></a>**D-HB02-10 — no implied `bookings:write`.** Policies are independent claims (E-6). A
+#### D-HB02-10
+
+**No implied `bookings:write`.** Policies are independent claims (E-6). A
 role that can record history but cannot read bookings back is a usability trap, so `bookings:read` is
 granted alongside — but as a *documented pairing*, not as an implication in code.
 
@@ -690,7 +702,7 @@ Mass-assignment control, INV-01 / INV-11 / INV-12:
 | `isHistorical` | Always `true` on this route | — |
 | `createdByAdminUserId` | The actor always comes from `ClaimTypes.NameIdentifier` (`BookingsController.cs:244-251` precedent) | — |
 | `ownerId`, `ownerAttribution` | **HB-02 accepts no owner input of any kind** ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)). The owner is resolved server-side from the unit | Read-only review and a separate correction endpoint arrive with [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) |
-| `payment`, `paymentEvidence` | [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) is `OWNER APPROVED` for a **separate privileged command** | [HB-04 §11.4](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#114-historical-payment-recording--hb-04b-only) |
+| `payment`, `paymentEvidence` | [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) is `OWNER APPROVED` for a **separate privileged command** | [HB-04 §11](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#11-historical-payment-recording--hb-04b-only) |
 | `fees`, `taxes`, `discounts`, `currency` | [OQ-05](DECISION_RATIFICATION_PACKET.md#oq-05--currency-model) and [OQ-06](DECISION_RATIFICATION_PACKET.md#oq-06--fee-tax-and-discount-model) are **`OWNER APPROVED — OUT OF V1`**; the total is the truth in v1 | A future owner-ratified ticket if that scope is revisited |
 | `baseAmount`, `finalAmount`, `snapshot*`, any commission or split value | Protected or nonexistent downstream values | HB-04A owns agreed/base/final coherence; no historical commission/split request exists |
 
@@ -980,7 +992,7 @@ affected admins to obtain a token carrying the new `perm` claim (E-8).
 | Financial tampering | The caller supplies `agreedAmount` only — a single scalar, persisted verbatim and constrained `>= 0` by the existing `ck_bookings_*_non_negative` constraints (E-25). No fee, tax, discount, split, payment or payout value is accepted on this route ([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary)) | HB-04/HB-05 |
 | Audit immutability | Status history is append-only; nothing in this ticket adds an update or delete path to it | REQ-12 |
 | Logging | Structured, correlation-id bearing, **no PII** — no guest name, phone or email in logs or metric labels | [Master §18](00_MASTER_PLAN.md#18-security-and-compliance-review) |
-| Residual risk while REQ-16 hardening is unshipped | `bookings:write` still permits silent backdating on the normal endpoint. HB-02 **reduces** but does not close `RISK-10`; only the hardening — specified in HB-01 §11.2, shipped by [HB-08 §26.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#261-req-16-hardening-tasks--a-later-independent-pr) — closes it. Security accepts this window explicitly under [D-HARD-01](DECISION_RATIFICATION_PACKET.md#d-hard-01--normal-flow-hardening) | §23, §34 |
+| Residual risk while REQ-16 hardening is unshipped | `bookings:write` still permits silent backdating on the normal endpoint. HB-02 **reduces** but does not close `RISK-10`; only the hardening — specified in HB-01 §11.2, shipped by [HB-08 §17.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#171-req-16-hardening-tasks--a-later-independent-pr) — closes it. Security accepts this window explicitly under [D-HARD-01](DECISION_RATIFICATION_PACKET.md#d-hard-01--normal-flow-hardening) | §23, §34 |
 
 ---
 
@@ -1191,7 +1203,7 @@ HB-02 changes no report. It creates the **dimension** later reports need:
 4. Grant `bookings:record_historical` to the pilot role (D-HB02-09). Confirm affected admins receive a token
    carrying the claim.
 5. Pilot: 2–3 named operators, daily reconciliation of created rows against the stated reasons.
-6. Only then is REQ-16 hardening implemented and activated, as [HB-08 §24.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#241-ordering) step 9 ([Master §22](00_MASTER_PLAN.md#22-rollout-strategy)).
+6. Only then is REQ-16 hardening implemented and activated, as [HB-08 §16.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#161-ordering) step 9 ([Master §22](00_MASTER_PLAN.md#22-rollout-strategy)).
    Reversing steps 5 and 6 would leave operators with no way to record a past stay at all.
 
 `OWNER APPROVED` — pilot exit uses the complete HB-08A evidence contract: all pilot rows reconcile across

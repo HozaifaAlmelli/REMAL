@@ -148,7 +148,7 @@ SQL, constraint names, PII and gateway details are never exposed.
 HB-04 creates no automatic invoice, payout, notification, payment link, charge, authorization, refund,
 reversal, owner override or external accounting entry. HB-04B never mutates the HB-04A snapshot.
 
-### 11.4 Historical payment recording — HB-04B only
+## 11. Historical payment recording — HB-04B only
 
 Historical payment recording is the separate endpoint and transaction in §§4–8. It is never inline with
 historical booking creation. The wizard may offer it only after booking success and only to an operator with

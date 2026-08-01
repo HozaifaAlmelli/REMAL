@@ -192,40 +192,40 @@ payments.invoice_id IS NULL`; invoice-linked totals must count only `is_historic
 payments; ordinary orphan totals must exclude historical evidence. Catalog verifier and rollback preserve the
 prior view definitions. No table or write-side schema is owned by HB-08.
 
-## 24. Migration and rollout plan
+## 16. Migration and rollout plan
 
-### 24.1 Ordering
+### 16.1 Ordering
 
 Implement HB-08A after HB-05 domain truth. Verify fresh and upgrade schemas, consumer compatibility and
 reconciliation. Complete PRE-00 and safety rehearsals before pilot. Pilot HB-08A and the historical flow.
 Only after pilot exit may HB-08B be implemented and activated.
 
-### 24.3 Pilot definition
+### 16.2 Pilot definition
 
 The pilot is least-privilege, low-volume, reversible, and reconciled daily across recorded/stay axes,
 historical evidence, invoices and payouts. It is not production-wide enablement.
 
-## 26. Detailed implementation tasks
+## 17. Detailed implementation tasks
 
 Implement the three read models/routes, append-only breakdowns, safe UI consumption, structured logs,
 consumer inventory, reconciliation and rollout evidence. Keep HB-08A and HB-08B in separate PRs.
 
-### 26.1 REQ-16 hardening tasks — a later independent PR
+### 17.1 REQ-16 hardening tasks — a later independent PR
 
 Add server-side normal-flow past-date rejection, stable error transport and regressions only after pilot
 approval. Do not alter the historical endpoint. The hardening commit/PR must be independently revertible.
 
-## 34. Rollback strategy
+## 18. Rollback strategy
 
 HB-08A rollback restores prior view definitions and backend/UI reporting code without deleting booking,
 payment, invoice or audit data. Deployment remains gated by verified backup and isolated rehearsal.
 
-### 34.1a The REQ-16 hardening rollback — independently revertible
+### 18.1 The REQ-16 hardening rollback — independently revertible
 
 HB-08B can be reverted without reverting historical creation or reporting. Reversion reopens the pre-existing
 normal past-date behavior only; it does not touch stored historical records.
 
-## 35. Readiness
+## 19. Readiness
 
 The contract is closed. HB-08 overall is **BLOCKED BY DEPENDENCY** until HB-05 is implemented; rollout is
 additionally blocked by PRE-00 and the release gates. HB-08B remains blocked by successful pilot evidence.

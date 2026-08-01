@@ -357,7 +357,7 @@ written. `SC-NOTIF-04` is the assertion that no invoice is auto-created.
 | No live collection | No gateway call, payment intent, payment link, invoice, payout or notification. Existing live-payment paths reject historical bookings |
 
 The complete PAY-01 through PAY-14 request, response, transaction, migration and error contract is canonical
-in [HB-04 §11.4](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#114-historical-payment-recording--hb-04b-only).
+in [HB-04 §11](04_TICKET_FINANCIAL_SNAPSHOT_AND_HISTORICAL_PAYMENTS.md#11-historical-payment-recording--hb-04b-only).
 
 | Decision set | Binding outcome |
 |---|---|
@@ -411,7 +411,7 @@ is preserved; HB-05 adds no replacement snapshot columns. Date-ranged ownership 
 | **Basis** | `CONFIRMED` — no existing endpoint accepts an owner id for a booking; `BookingService.cs:225` derives it from the unit. Permission keys follow an `area:action` convention in `RentalPlatform.API/Authorization/PermissionKeys.cs`, are `VARCHAR(50)`, and are seeded per the pattern at `db/migrations/0053_create_dynamic_rbac.sql`. Per-user grants and denies exist via `rbac_admin_user_permission_overrides`. |
 | **Review lenses** | Finance · Security · Engineering |
 | **Decision authority** | Sole Project Owner |
-| **Decision date** | 2026-07-29 |
+| **Decision date** | 2026-08-01 |
 | **Status** | **`OWNER APPROVED`** |
 
 **Enforcement.** The actor comes from claims. The dedicated idempotency scope is actor + endpoint + key; the
@@ -496,7 +496,7 @@ stranding operations.
 2. HB-08's reconciliation view detects ongoing normal-flow backdating as off-diagonal rows with
    `historical_count = 0`.
 3. The hardening change ships as a **separate HB-08B PR** after HB-08A pilot approval, so it can be reverted
-   alone if it blocks a legitimate workflow ([HB-08 §34.1a](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#341a-the-req-16-hardening-rollback--independently-revertible)).
+   alone if it blocks a legitimate workflow ([HB-08 §18.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#181-the-req-16-hardening-rollback--independently-revertible)).
 4. `AC-HB08-23` … `AC-HB08-26` are runtime assertions and `SC-REG-02` is a P0 release gate, so REQ-16 cannot
    be quietly dropped.
 

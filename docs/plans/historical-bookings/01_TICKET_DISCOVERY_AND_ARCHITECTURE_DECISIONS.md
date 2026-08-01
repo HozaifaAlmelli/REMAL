@@ -416,7 +416,7 @@ not. The historical service composes `CreateAsync` and performs its own pre-vali
 operator-actionable message naming the historical flow as the correct route.
 
 **11.2.7 Rollout sequencing.** Hardening is implemented inside HB-08 and activated **last**, as step 9 of
-[HB-08 §24.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#241-ordering) — after the historical
+[HB-08 §16.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#161-ordering) — after the historical
 flow is deployed, permissioned and verified with pilot users. Enabling it earlier would remove a capability
 operators currently rely on with nothing in its place. See §24.
 
@@ -450,7 +450,7 @@ graph TD
 No application source file is edited by this ticket.
 
 **Specified here, implemented only by the later independent
-[HB-08B](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#261-req-16-hardening-tasks--a-later-independent-pr)**
+[HB-08B](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#171-req-16-hardening-tasks--a-later-independent-pr)**
 after pilot approval — `OWNER APPROVED`:
 
 | Path | Change |
@@ -470,7 +470,7 @@ after pilot approval — `OWNER APPROVED`:
 The behavioural change it *specifies* — previously-accepted past-dated create/update requests returning
 `400 STAY_DATES_IN_PAST` — is shipped by HB-08. It **is** a breaking change for any caller relying on the
 current permissiveness; see §23 and
-[HB-08 §24.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#241-ordering).
+[HB-08 §16.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#161-ordering).
 
 ---
 
@@ -567,7 +567,7 @@ The hardening sequencing it ratifies, and which HB-08 executes, is:
 2. Deploy the historical flow; grant `bookings:record_historical` to pilot users.
 3. Verify pilot users can record historical bookings.
 4. **Then** implement and activate hardening —
-   [HB-08 §24.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#241-ordering) step 9.
+   [HB-08 §16.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#161-ordering) step 9.
 5. Monitor `booking_create_rejected_total` for one week.
 
 Reversing steps 2 and 4 would strand operators with no way to record a past stay. This ordering is a
@@ -583,7 +583,7 @@ which is exactly what REQ-16 removes, and a second source of truth that can disa
 
 The release-gate mechanism is concrete, not aspirational: HB-08 cannot mark its Definition of Done complete
 until the pilot exit criteria in
-[HB-08 §24.3](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#243-pilot-definition) are met, and the
+[HB-08 §16.2](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#162-pilot-definition) are met, and the
 hardening is delivered in a separate HB-08B PR after HB-08A pilot approval.
 
 If Ops requires an emergency stop for the *historical* flow, the mechanism already exists and is not a flag:
@@ -615,7 +615,7 @@ HB-01 produces documents and read-only evidence. Nothing here compiles.
 
 The corresponding **code** tasks — shared Cairo resolver, `ValidateStayDates` extension, update-path guard,
 typed error, per-path regression tests, boundary and DST tests, rejection metric, operator documentation —
-are enumerated in [HB-08 §26](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#26-detailed-implementation-tasks).
+are enumerated in [HB-08 §17](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#17-detailed-implementation-tasks).
 
 ---
 
@@ -759,7 +759,7 @@ The rollback plan for the behaviour HB-01 specifies belongs to HB-08B and is sta
 drift: the hardening change is a pure code change with no schema component, ships in a **separate later
 HB-08B PR**, and can therefore be reverted on its own without disturbing the historical flow, the
 migrations, or any recorded historical booking. No data migration means no data-loss exposure. See
-[HB-08 §34](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#34-rollback-strategy).
+[HB-08 §18](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#18-rollback-strategy).
 
 ---
 

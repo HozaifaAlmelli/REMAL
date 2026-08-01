@@ -151,7 +151,7 @@ Recording it must answer, separately and truthfully:
 | Silently mutating a finalized owner settlement | REQ-07/REQ-08 |
 | Replaying past notifications | REQ-13 |
 | Payment-gateway simulation or fabricated transaction identifiers | REQ-06 |
-| Date-ranged ownership history model | Owner-approved future epic outside v1 — [HB-05 §35](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md#35-future-architecture-epic-date-ranged-unit-ownership) |
+| Date-ranged ownership history model | Owner-approved future epic outside v1 — [HB-05 §17](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md#17-future-architecture-epic-date-ranged-unit-ownership) |
 | Broad refactor of booking, pricing, or reporting subsystems | Risk containment |
 
 ---
@@ -910,8 +910,8 @@ The real PostgreSQL suite now exists. HB-09 must keep these scenarios executable
 7. Portal deploy.
 8. HB-08's reporting views.
 9. Pilot, then broaden the permission.
-10. **REQ-16 normal-flow hardening implemented and activated last** — [HB-08 §26.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#261-req-16-hardening-tasks--a-later-independent-pr)
-    and §24.1 step 9 — after operators demonstrably have the historical path.
+10. **REQ-16 normal-flow hardening implemented and activated last** — [HB-08 §17.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#171-req-16-hardening-tasks--a-later-independent-pr)
+    and §16.1 step 9 — after operators demonstrably have the historical path.
 
 **Rollback limitations:** automated rollback may drop `agreed_amount` only when every populated snapshot is
 still exactly reconstructable from the pre-0060 HB-02 truth (`agreed_amount = base_amount = final_amount`)
@@ -940,7 +940,7 @@ remove a capability they are currently (accidentally) relying on. Ship the histo
 then harden. REQ-16 is therefore **specified** by
 [HB-01 §11.2](01_TICKET_DISCOVERY_AND_ARCHITECTURE_DECISIONS.md#112-normal-flow-hardening--specification)
 and **implemented and activated** by
-[HB-08 §26.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#261-req-16-hardening-tasks--a-later-independent-pr)
+[HB-08 §17.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#171-req-16-hardening-tasks--a-later-independent-pr)
 as the last commit on the last ticket that touches production behaviour.
 
 The control is a **deployment-order release gate**, not a runtime feature flag: HB-08 cannot close its
@@ -979,13 +979,13 @@ Project Owner; the column is not a list of people.
 | RISK-07 | Reporting mismatch stay vs recorded period | Financial | High | Med | High | Stay-period dimension (F-09) | Monthly reconciliation | Finance | HB-08 |
 | RISK-08 | Timezone boundary error at Cairo midnight | Correctness | Med | Low | Med | Reuse the job's exact cutoff expression | Boundary tests | Eng | HB-02 |
 | RISK-09 | Partial transaction leaves booking without payment | Data integrity | Low | High | Med | Single transaction (INV-05) | Orphan scan | Eng | HB-02 |
-| RISK-10 | Unauthorized access / permission bypass via normal endpoint | Security | **High until REQ-16** | High | **Critical** | Normal-flow hardening — specified in HB-01 §11.2, implemented and activated in HB-08 §26.1 | Endpoint audit | Security | HB-01 (spec) → **HB-08** (impl) |
+| RISK-10 | Unauthorized access / permission bypass via normal endpoint | Security | **High until REQ-16** | High | **Critical** | Normal-flow hardening — specified in HB-01 §11.2, implemented and activated in HB-08 §17.1 | Endpoint audit | Security | HB-01 (spec) → **HB-08** (impl) |
 | RISK-11 | Cross-portfolio owner or unit injection | Security | Med | High | High | Portfolio scoping (INV-12) | Security tests | Security | HB-05 |
 | RISK-12 | Client duplication on match-or-create | Data quality | Med | Low | Low | Reuse existing matching | Client dupe report | Eng | HB-02 |
 | RISK-13 | Migration rollback destroys agreed amounts | Operational | Low | High | Med | Rollback only before first record | Release checklist | Eng | HB-04 |
 | RISK-14 | Manual invoice number implies the wrong economic date (F-10) | Accounting | Med | Med | Med | [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) allows manual draft/issuance but keeps historical evidence unlinked. The number and `IssuedAt` describe document creation; stay and payment dates remain separate reporting axes | Invoice audit and axis-aware reporting | Finance | HB-04, HB-08 |
 | RISK-15 | Payment actor unknown (F-12) | Audit | Med | Med | Med | Add `created_by_admin_user_id` in the separate payment slice | Audit review | Eng | HB-04B |
-| RISK-16 | Hardening breaks a legitimate existing workflow | Operational | Med | Med | Med | Ship historical first; size the exposure with the `PRE-00` census; measure rejections; the hardening commit is independently revertible (HB-08 §34.1a) | 400-rate monitoring | Operations | PRE-00 (census) → **HB-08** (impl) |
+| RISK-16 | Hardening breaks a legitimate existing workflow | Operational | Med | Med | Med | Ship historical first; size the exposure with the `PRE-00` census; measure rejections; the hardening commit is independently revertible (HB-08 §18.1) | 400-rate monitoring | Operations | PRE-00 (census) → **HB-08** (impl) |
 | RISK-17 | Database-level guarantees claimed but never executed, because CI runs no tests | Quality | **High until PRE-02 closes** | High | High | [D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement): the baseline suite is a merge gate for HB-03; until then every such claim is labelled unverified | PR review; [§21.1](#211-prerequisites-before-any-historical-migration-lands) | Engineering | **PRE-02** |
 | RISK-18 | A CI or local schema built from `db/init.sql` diverges from production because `0057` is omitted | Operational | **Certain today** | Med | Med | `PRE-01` prerequisite PR before HB-02 and any feature migration | Schema diff against production | Engineering | PRE-01 |
 

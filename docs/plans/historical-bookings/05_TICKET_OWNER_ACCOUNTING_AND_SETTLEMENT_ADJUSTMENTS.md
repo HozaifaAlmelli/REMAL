@@ -283,7 +283,7 @@ HB-05 is **READY**: endpoint, permission, request/response, errors, idempotency,
 migration ownership, legacy behavior, AC/NAC and scenario ownership are final. Done requires all tests and
 catalog verification green, no side effects, and no deployment action.
 
-## 35. Future architecture epic: date-ranged unit ownership
+## 17. Future architecture epic: date-ranged unit ownership
 
 Date-ranged unit-owner contracts and automated historical ownership inference remain a separate future epic.
 They are not needed to implement this explicit, auditable correction command.
