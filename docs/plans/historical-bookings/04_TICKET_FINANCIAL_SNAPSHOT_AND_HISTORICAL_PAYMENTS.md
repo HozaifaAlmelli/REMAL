@@ -1,5 +1,11 @@
 # HB-04 — Financial Snapshot & Historical Payments
 
+> **Owner-ratified delivery split (2026-08-01):** this branch and PR are **HB-04A — Historical Financial
+> Snapshot and Repricing Guard**. HB-04A owns `bookings.agreed_amount`, deterministic post-HB-02 backfill,
+> coherence, API mapping and immutable financial enforcement. **HB-04B** remains HB-04-owned and will
+> separately deliver the privileged historical-payment command and payment actor schema. All payment-command
+> sections below specify HB-04B and are excluded from HB-04A implementation.
+
 > [README](README.md) · [Master Plan](00_MASTER_PLAN.md) · Prev: [HB-03](03_TICKET_AVAILABILITY_CONFLICTS_AND_DUPLICATE_PROTECTION.md) ·
 > Depends on: [HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md) · Feeds: [HB-06](06_TICKET_HISTORICAL_BOOKING_WIZARD_UI.md), [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) ·
 > Sibling: [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md)
@@ -15,14 +21,14 @@
 | Title | Financial Snapshot & Historical Payments |
 | Priority | **P0** |
 | Type | Backend domain + schema migration + finance correctness |
-| Status | Ready for review — blocked on HB-02 merge |
+| Status | **HB-04A implementation ready — all four owner decisions ratified; HB-04B deferred to a separate PR** |
 | Dependencies | [HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md) (command, endpoint, permission, `is_historical` marker) |
 | Dependents | [HB-06](06_TICKET_HISTORICAL_BOOKING_WIZARD_UI.md) (financial wizard step), [HB-08](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md) (stay-period reporting) |
 | Sibling coupling | [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) owns *who* is credited; HB-04 owns *how much* and *when it was paid* |
 | Risk level | **CRITICAL** — carries `RISK-04`, `RISK-13`, `RISK-14`, `RISK-15` |
 | Estimated complexity | **L** |
 | Implemented by | Sole Project Owner. Review lenses: Finance · Engineering · Security |
-| Target branch | `feat/hb04-financial-snapshot-historical-payments` |
+| Target branch | `feature/historical-booking-financial-snapshot` (HB-04A) |
 | Requirements owned | REQ-05, REQ-06, REQ-08 (jointly with HB-05), REQ-14, REQ-19 |
 | Invariants owned | INV-05, INV-06, INV-15; contributes to INV-02, INV-13, INV-14 |
 
@@ -151,41 +157,26 @@ decision in §11.2.
    inspection only, per [Master §14](00_MASTER_PLAN.md#14-financial-model).
 4. A repricing guard makes it structurally impossible for any automatic recomputation to overwrite the
    protected values of a booking where `is_historical = true`.
-5. The commercial split is snapshotted at creation into `snapshot_commission_rate`,
-   `snapshot_owner_amount`, `snapshot_kaza_amount`, using the *identical* arithmetic the payout service
-   already uses (HB04-E17), and validated to reconcile exactly against the agreed amount.
-6. Zero or more historical payments are recorded, each with a real `PaidAt`, a manual method, an optional
-   external reference, and the recording admin user captured in a new `payments.created_by_admin_user_id`
-   column. **Whether they are written inline in the creation transaction, by a separate privileged command,
-   or not at all in v1 is `DECISION REQUIRED` —
-   [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy), recommended
-   default `PP-2` (separate privileged command).**
-7. **No invoice is created or issued by the historical flow in v1** — `DECISION REQUIRED`,
-   [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy), recommended
-   default `PI-1`. This is the option HB-02 and HB-07 are already written against, so it is also the
-   consistent default across the pack.
+5. HB-04A does not create the three owner-commission `snapshot_*` columns; they remain HB-05-owned. Its
+   complete snapshot is the operator-supplied `agreed_amount`, coherent with `base_amount` and
+   `final_amount` under [D-HB04-03](DECISION_RATIFICATION_PACKET.md#d-hb04-03--guarded-existing-row-backfill).
+6. Historical payment recording is HB-04B and is not implemented in this branch. The ratified policy remains
+   a separate privileged command under [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy).
+7. No invoice is created or issued by HB-04A, consistent with
+   [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy).
 8. Fees, taxes, discounts and multi-currency are **not** modelled. They are folded into the agreed total, and
    this is stated to the operator in the UI rather than silently assumed.
 9. No payment gateway is contacted, because none exists — and a test asserts that this remains true.
 
 ---
 
-## 7. In scope
+## 7. In scope — HB-04A
 
-- `bookings.agreed_amount` plus the three snapshot columns, and their migration.
-- `payments.created_by_admin_user_id` plus its FK and index.
-- The repricing guard on the update path, and the immutability rule for protected fields.
-- Financial fields of the historical command DTO, their validation, and server-side recomputation of the
-  split (never trusting client-computed money).
-- Historical payment creation — `PaidAt`, method, reference, note and actor — in whichever shape
-  [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) ratifies.
-- Payment-scenario behaviour: none / deposit / partial / full / overpayment.
-- Balance-consistency assertions against the existing formula (HB04-E09).
-- Presenting the invoice options (§11.6) so
-  [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) can be
-  ratified. Under the recommended `PI-1` no invoice code changes at all; under `PI-2`/`PI-3` the service
-  changes listed in §11.6 enter scope at ratification time.
-- Financial acceptance, negative-acceptance and reconciliation tests.
+- `bookings.agreed_amount`, its non-negative constraint and historical/non-historical coherence constraint.
+- Guarded, all-or-nothing backfill from coherent HB-02 `final_amount` values only.
+- Central repricing protection for `agreed_amount`, `base_amount` and `final_amount` on existing historical rows.
+- Additive historical API response mapping for the persisted agreed amount.
+- Snapshot, migration, atomicity, idempotency, regression and side-effect-absence tests.
 
 ## 8. Out of scope
 
@@ -201,6 +192,7 @@ decision in §11.2.
 | Payment-gateway simulation or fabricated transaction ids | REQ-06 non-goal | — |
 | Retro-repricing existing non-historical bookings | Not a requirement; would rewrite history | — |
 | Correcting an already-paid payout | [OQ-07](00_MASTER_PLAN.md#32-open-questions) | Manual finance process |
+| Historical payment command and `payments.created_by_admin_user_id` | Owner-ratified delivery split | **HB-04B**, separate PR |
 
 ---
 
@@ -217,21 +209,17 @@ decision in §11.2.
 
 ---
 
-## 10. Decision-required items
+## 10. Owner-ratified HB-04A decisions
 
 Decision authority for every row is the **Sole Project Owner** (2026-07-29). The **Review lens** column
 names the perspectives applied — it is not a list of separate approvers.
 
 | ID | Decision | Reason it is open | Impact if unresolved | Recommended default | Review lens | Blocking? |
 |---|---|---|---|---|---|---|
-| `D-HB04-01` | Should the update path be **wholly** forbidden for `is_historical = true` bookings, or only the financial fields? | HB04-E04 shows the path is already status-blocked, so both options are currently equivalent in behaviour but not in intent | An implementer may add only a field-level guard, leaving a future editable-status change unprotected | **Both.** Reject the whole `UpdatePendingAsync` call for a historical booking (409), *and* add a field-level protected-value guard as defence in depth. Cost is two small checks; benefit is that neither can be removed accidentally | Engineering · Finance | **Yes** |
-| `D-HB04-02` | Should `BaseAmount` hold the record-time reference price, or simply equal the agreed amount? | [Master §14](00_MASTER_PLAN.md#14-financial-model) says "retained for comparison"; but the reference is reconstructed from *today's* price list (HB04-E05) and is not a historical fact | A meaningless number could be mistaken for the original list price | **Keep Master §14**: `BaseAmount` = reference reconstruction. Safe because no reporting view reads `base_amount` (HB04-E22). Label it "reference (reconstructed at record time)" in API and UI, and never derive a discount from `BaseAmount − FinalAmount` | Finance | No |
-| `D-HB04-03` | Which permission gates historical payment recording? | Every existing payment endpoint requires `finance:manage` (HB04-E25); the historical command will require `bookings:record_historical` | Either a privilege gap or an unusable feature for ops staff without finance rights | **Superseded by [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy).** Under the recommended option `PP-2` the payment is recorded by a **separate** privileged command requiring **both** `bookings:record_historical` **and** `finance:manage`. If Finance and Security instead select `PP-3` (inline entry), `bookings:record_historical` alone applies and the privilege boundary must be re-reviewed | Security · Finance | No — resolved by [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) |
-| `D-HB04-04` | Invoice policy for historical bookings: none, internal draft, or created and issued? | F-10 / HB04-E13/E14/E21 — no invoice means paid money is invisible to `reporting_finance_daily_summary` | Finance reporting silently under-counts historical cash | **Superseded by [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy).** Recommended option is `PI-1` — **no invoice creation or issuance in v1** — because it is the lowest-side-effect option and issues no finance-visible document for a period that is already closed. The reporting consequence is real and is closed by HB-08's reconciliation view, not by issuing a backdated document. See §11.6 | Finance | No — resolved by [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) |
-| `D-HB04-05` | How is an over-collection or refund on a historical booking handled in v1? | `ck_payments_amount_positive` and non-negative invoice lines make negative money unrepresentable (HB04-E20) | Operators will hit a wall with no documented answer | **Not supported in v1.** Overpayment is rejected with the existing 409; refunds are handled outside the system and noted in `internal_notes`. Record as a known limitation in the operator runbook | Finance | No |
-| `D-HB04-06` | Does the error contract need machine-readable codes for financial failures? | HB04-E24: the envelope carries no code field at all | The wizard cannot branch on failure type; it can only show the message | **No new codes in v1.** Reuse `VALIDATION_ERROR` (400) and the existing descriptive 409 for overpayment. The code-carrier mechanism itself is [HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md)'s to design; HB-04 consumes whatever it provides | Engineering | No |
-| `D-HB04-07` | Migration ownership and ordering across HB-02 / HB-04 / HB-05. | An earlier draft claimed the `snapshot_*` columns for both HB-04 and HB-05, and assigned HB-02's index and idempotency table to "HB-04's migration" | Duplicate ownership; an implementer improvises and two migrations fight over the same column | **Resolved and superseded by the [migration-ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix), ratified as [D-MIG-01](DECISION_RATIFICATION_PACKET.md#d-mig-01--migration-ownership).** Three additive migrations, one per ticket, in dependency order: **HB-02** = identity/audit/context columns, their constraints, `ux_bookings_external_reference`, `idempotency_keys`, permission seeds; **HB-04** = `agreed_amount` + its CHECK, `payments.created_by_admin_user_id` + FK and index; **HB-05** = the three `snapshot_*` columns, the two override columns and all six owner-side constraints. Each is independently deployable and backward compatible | Engineering | No — resolved by [D-MIG-01](DECISION_RATIFICATION_PACKET.md#d-mig-01--migration-ownership) |
-| `D-HB04-08` | Reporting period for a historical deposit — `PaidAt` period or recorded period? | [OQ-03](00_MASTER_PLAN.md#32-open-questions), still open | Cash-position reports differ by the entry lag | Master's default stands: `PaidAt` drives payment reporting; recorded date drives entry audit. HB-04 must **store** both truthfully so HB-08 can implement either | Finance | No |
+| `D-HB04-01` | Repricing scope | Allow unrelated edits permitted by existing rules; reject any direct or indirect mutation of historical `agreed_amount`, `base_amount` or `final_amount` | `OWNER APPROVED` |
+| `D-HB04-02` | Canonical immutable error | `409 HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE`, carried in `ApiResponse.Code` | `OWNER APPROVED` |
+| `D-HB04-03` | Existing-row policy | Preflight all HB-02 invariants, then atomically backfill `agreed_amount = final_amount`; abort before updates on any ambiguity | `OWNER APPROVED` |
+| `D-HB04-04` | Delivery split | HB-04A snapshot/guard now; HB-04B payment command and payment actor schema later, still HB-04-owned | `OWNER APPROVED` |
 
 `BLOCKED` items inherited, not resolvable in this ticket:
 
@@ -285,7 +273,16 @@ a silent server win — the operator must see that the number they approved is n
 
 ### 11.3 The repricing guard
 
-Two layers, per `D-HB04-01`.
+The owner-approved guard is financial-field specific. Existing permissions and status rules continue to
+decide whether an unrelated edit is legal; HB-04A never turns a forbidden edit into an allowed one. At the
+central EF persistence boundary, an existing historical booking rejects any changed `AgreedAmount`,
+`BaseAmount` or `FinalAmount` with `409 HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE`. Creation-time population
+and numerically unchanged values are allowed. The whole save is rejected; unrelated changes are not
+partially committed.
+
+This central check covers tracked and detached repository updates. Direct SQL and `ExecuteUpdate` booking
+financial mutations are prohibited by repository convention and must be detected by the mutation-path
+audit; no request-controlled bypass or correction override exists in HB-04A.
 
 **Layer 1 — command refusal.** `UpdatePendingAsync` gains an early guard, placed *before* any recomputation:
 
@@ -338,9 +335,9 @@ graph TD
     HC[Historical command] --> WA[write agreed_amount and FinalAmount directly<br/>never via ApplyPricingSnapshot]
 ```
 
-### 11.4 Historical payment recording
+### 11.4 Historical payment recording — HB-04B only
 
-> **`DECISION REQUIRED` — [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy),
+> **`OWNER APPROVED` for HB-04B — [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy),
 > `OWNER APPROVED` on 2026-07-29, reviewed under the Finance, Security and Engineering lenses.**
 > This subsection specifies *how* a historical payment would be written. *Whether* it is written inline, by a
 > separate privileged command, or not at all in v1 is not settled here. The three policy options and their
@@ -413,7 +410,7 @@ never executes (ADR-04). That is not merely cosmetic:
   (HB04-E21) — an uninvoiced historical payment reports as **zero cash received**.
 - `owner_portal_finance_overview` likewise reaches paid money through `payments.invoice_id` (F-09).
 
-> **`DECISION REQUIRED` — [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy),
+> **`OWNER APPROVED` — [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy),
 > `OWNER APPROVED` on 2026-07-29, reviewed under the Product, Finance and Security lenses.**
 > An invoice is an externally meaningful accounting document. This pack does **not** choose the policy; it
 > presents the options, recommends the lowest-side-effect one, and records the consequence of each.
@@ -535,7 +532,8 @@ what HB-02 §11.5, HB-07 §21.1 row `S-03` and the notification scenarios are wr
 No new route. HB-04 extends the request and response of `POST /api/internal/bookings/historical`, owned by
 [HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md).
 
-**Request additions (`PROPOSED`):**
+**HB-04A request additions:** none. `agreedAmount` already belongs to the canonical HB-02 request and remains
+the only caller-supplied financial value. Payment and invoice request shapes below are HB-04B/reference-only.
 
 | Field | Type | Required | Rule |
 |---|---|---|---|
@@ -558,11 +556,13 @@ is specified whichever way the two decisions land.
 `baseAmount`, `finalAmount`, `ownerAmount`, `kazaAmount`, `commissionAmount`, `createdAt`,
 `payments[].createdAt`, `payments[].status`, `payments[].createdByAdminUserId`, `currency`, `gatewayTransactionId`.
 
-**Response additions:** `agreedAmount`, `baseAmount` (labelled reference), `finalAmount`,
-`snapshotCommissionRate`, `snapshotOwnerAmount`, `snapshotKazaAmount`, `totalPaid`, `outstandingBalance`,
-`payments[]` (id, amount, method, paidAt, reference, recordedBy), `invoice` (id, number, status, issuedAt) when created.
+**HB-04A response addition:** nullable `agreedAmount`, loaded from persisted `bookings.agreed_amount` through
+the same authoritative loader used for initial success and idempotent replay. Existing `baseAmount` and
+`finalAmount` fields remain compatible. Owner snapshot, payment and invoice response additions belong to
+HB-05/HB-04B and are not added here.
 
-**Error mapping** — HB-04 introduces no new codes (`D-HB04-06`):
+**HB-04A error mapping:** an attempted historical financial mutation returns
+`409 HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE`. Validation continues to use `400 VALIDATION_ERROR`.
 
 | Condition | Exception | Status | Master §12 code |
 |---|---|---|---|
@@ -573,8 +573,7 @@ is specified whichever way the two decisions land.
 
 > Note for [Master §13](00_MASTER_PLAN.md#13-validation-matrix): row `V-14` records overpayment as `400`.
 > The repository's existing behaviour is `409` (`PaymentService.cs:193`; `ExceptionHandlingMiddleware.cs:53-56`).
-> **Recommendation: align `V-14` to 409** rather than diverge from the payment subsystem. `DECISION REQUIRED`,
-> non-blocking, folded into `D-HB04-06`.
+> HB-04B retains the existing payment subsystem's `409` overpayment behavior. It is outside HB-04A.
 
 ---
 
@@ -586,15 +585,20 @@ Written as raw SQL following the `db/migrations/NNNN_name.sql` + `_verify.sql` +
 **No SQL is authored in this planning pack.**
 
 Ownership is fixed by the
-[migration-ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix). **HB-04 owns objects
-#14 … #17 and nothing else.** The three `snapshot_*` columns are owned by
+[migration-ownership matrix](00_MASTER_PLAN.md#111-migration-ownership-matrix). **HB-04A owns objects
+#14, #15 and #15b and nothing else. HB-04B retains #16 and #17 for its separate PR.** The three `snapshot_*` columns are owned by
 [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md), whose migration is ordered after this
 one; HB-04 reads them but does not create them.
 
 | Table | Column | Type | Null | Default | Constraint | Index | Matrix # |
 |---|---|---|---|---|---|---|---|
 | `bookings` | `agreed_amount` | `DECIMAL(12,2)` | Yes | — | `ck_bookings_agreed_amount_non_negative`: `agreed_amount IS NULL OR agreed_amount >= 0` | none | #14, #15 |
-| `payments` | `created_by_admin_user_id` | `UUID` | Yes | — | `FK → admin_users(id) ON DELETE SET NULL` (matches `fk_bookings_assigned_admin_user_id`, `0016:21`) | `ix_payments_created_by_admin_user_id` | #16, #17 |
+
+HB-04A also owns `ck_bookings_historical_agreed_amount_coherent`: historical rows require
+`agreed_amount IS NOT NULL AND agreed_amount = base_amount AND base_amount = final_amount`; non-historical
+rows require `agreed_amount IS NULL`. The constraint is added `NOT VALID`, then validated after the guarded
+backfill.
+| `payments` | `created_by_admin_user_id` | `UUID` | Yes | — | `FK → admin_users(id) ON DELETE SET NULL` | `ix_payments_created_by_admin_user_id` | #16, #17 — **HB-04B, not this PR** |
 
 **Not created here — dependencies only:**
 
@@ -607,13 +611,16 @@ one; HB-04 reads them but does not create them.
 **Not added, and why:** `currency` (OQ-05); `tax_amount` / `fee_amount` / `discount_amount` (OQ-06);
 `payments.recorded_reason`; any negative-amount capability (HB04-E20); any gateway column (HB04-E27).
 
-**Backfill:** none. All new columns are NULL for every existing row, which is semantically correct — those
-bookings have no agreed amount and no snapshot, and their `is_historical` is false.
+**Guarded backfill:** before changing any row, migration `0060` counts every `is_historical = true` row that
+has missing HB-02 provenance, NULL/negative amounts, `base_amount <> final_amount`, or values incompatible
+with `DECIMAL(12,2)`. A non-zero count raises a diagnostic exception and aborts the transaction. Only after
+the full preflight succeeds does one deterministic update set `agreed_amount = final_amount` for historical
+rows. It never reads current unit pricing or another financial table. Non-historical rows remain NULL.
 
-**Rollback hazard (`RISK-13`).** Dropping `agreed_amount` after the first historical booking exists destroys
-the only record of the agreed price — `FinalAmount` survives, but the *proof* that it was operator-stated
-rather than computed does not. The `_rollback.sql` must carry a comment saying so, and the release checklist
-must state that rollback is safe **only before the first historical booking is recorded**.
+**Rollback hazard (`RISK-13`).** Dropping `agreed_amount` is safe only while every populated snapshot remains
+exactly reconstructable from the pre-0060 HB-02 truth (`agreed_amount = base_amount = final_amount`) and the
+required provenance remains coherent. The `_rollback.sql` must refuse any independent or incoherent snapshot
+rather than discard financial truth; the release checklist must preserve that guard.
 
 ---
 
@@ -622,7 +629,7 @@ must state that rollback is safe **only before the first historical booking is r
 | Concern | Control | Label |
 |---|---|---|
 | Who may state an agreed amount | `bookings:record_historical`, enforced by policy attribute on the HB-02 controller | `PROPOSED` |
-| Who may record the inline historical payment | Same permission (`D-HB04-03`); subsequent payments continue to require `finance:manage` (HB04-E25) | `DECISION REQUIRED` |
+| Who may record historical payment | HB-04B's separate command requires its distinct permission and `finance:manage` under D-PAY-01 | `OWNER APPROVED`; outside HB-04A |
 | Financial tampering | Owner/KAZA split is **recomputed** server-side and compared with any client-sent values; mismatch → 400 | `PROPOSED` |
 | Mass assignment | `baseAmount`, `finalAmount`, snapshot fields, payment `status`, payment `createdAt`, `createdByAdminUserId` are absent from the DTO (§14) | `PROPOSED` |
 | Actor spoofing (INV-11) | `created_by_admin_user_id` is taken from the authenticated principal only, never from the payload | `PROPOSED` |
@@ -767,7 +774,7 @@ once and can never be changed afterwards.
 | Surface | Impact | Label |
 |---|---|---|
 | Existing bookings | Untouched; four new columns are NULL | `CONFIRMED` safe |
-| Existing payments | Untouched; `created_by_admin_user_id` NULL, meaning "actor unknown (pre-HB-04)" | `CONFIRMED` safe |
+| Existing payments | Untouched by HB-04A; payment actor schema belongs to HB-04B | `CONFIRMED` safe |
 | `PaymentService.CreateAsync` existing callers | Unchanged behaviour when the new optional parameter is omitted | `PROPOSED` — enforced by test |
 | `InvoiceService.CreateDraftFromBookingAsync` existing callers | Unchanged when `issuedAt` is omitted (`IssuedAt ??=` already tolerates null, HB04-E14) | `CONFIRMED` |
 | `BookingService.CreateAsync` non-historical path | Unchanged — `ApplyPricingSnapshot` writes exactly what `:231-232` writes today | `PROPOSED` — enforced by test |
@@ -781,26 +788,29 @@ once and can never be changed afterwards.
 
 ## 24. Migration and rollout plan
 
-Per `D-HB04-07`, HB-04 owns one additive migration.
+HB-04A owns one additive migration after `0059`.
 
-1. **Author** `NNNN_add_historical_financial_columns.sql` — four `bookings` columns, one `payments` column,
-   the FK, the index, and the per-column CHECKs. Every column nullable; no default that could rewrite rows.
-2. **Author** `_verify.sql` asserting: each column exists with the right type and precision; each CHECK
-   exists; the FK exists; the index exists; a negative-amount insert fails; a `commission_rate > 100` insert
-   fails.
-3. **Author** `_rollback.sql` dropping the columns, with a header comment recording `RISK-13` — that rollback
-   after the first historical booking destroys the agreed-price provenance.
-4. Add the composite reconciliation CHECK `NOT VALID`, then `VALIDATE CONSTRAINT` separately
-   ([Master §21](00_MASTER_PLAN.md#21-migration-strategy) step 2).
+1. **Author** `0060_add_historical_financial_snapshot.sql` — `agreed_amount`, non-negative CHECK, guarded
+   HB-02 backfill and historical/non-historical coherence CHECK. No payment object is included.
+2. **Author** `_verify.sql` using PostgreSQL catalogs to assert type/precision and both constraints are
+   present and validated, then assert row coherence.
+3. **Author** `_rollback.sql` that refuses while any snapshot is not reconstructable under the pre-0060
+   HB-02 invariant; safe rollback drops only HB-04A objects.
+4. Add the coherence CHECK `NOT VALID`, then `VALIDATE CONSTRAINT` after backfill.
 5. Apply forward on dev via `scripts/apply-migrations.sh`; run verify.
 6. Deploy the backend reading and writing the new columns.
-7. Staging: record a historical booking with a deposit; reconcile invoice total, payout gross, balance and
-   the reporting view by hand against the agreed amount.
+7. Rehearsal: record and replay a historical booking, then prove agreed/base/final remain equal and no
+   invoice, payment, payout or notification row is created.
 8. Limited production per [Master §22](00_MASTER_PLAN.md#22-rollout-strategy), with the daily reconciliation
    job from §20 running from day one.
 
 **Ordering constraint:** HB-04's migration must land *after* HB-02's (`is_historical` is read by the guard in
 §11.3) and *before* HB-05's owner-override columns, which reference the same snapshot semantics.
+
+**Coordinated release:** the pre-HB-04A API does not populate `agreed_amount`. Historical writes must be
+quiesced or API deployment and migration coordinated. Production execution remains gated by the census,
+verified backup, isolated restore, migration rehearsal, integrity comparison, rollback readiness and
+explicit owner approval; this PR performs no deployment.
 
 ---
 
@@ -852,29 +862,22 @@ Ordered; each independently checkable.
 | ID | Criterion |
 |---|---|
 | AC-HB04-01 | **Given** an operator records a historical booking with an agreed amount of 4 800, **when** the command succeeds, **then** `agreed_amount = 4800.00` and `final_amount = 4800.00`, regardless of what current pricing would compute. |
-| AC-HB04-02 | **Given** the same booking, **when** it is read back, **then** `base_amount` contains the record-time reference reconstruction and is labelled as a reference in the response. |
-| AC-HB04-03 | **Given** a historical booking exists, **when** `UpdatePendingAsync` is called for it, **then** the API returns 409 and no field is modified. |
-| AC-HB04-04 | **Given** a historical booking exists, **when** any code path attempts automatic repricing, **then** `ApplyPricingSnapshot` throws and no amount changes. |
-| AC-HB04-05 | **Given** an agreed amount of 4 800 and a commission rate of 12.5 %, **then** `snapshot_kaza_amount = 600.00`, `snapshot_owner_amount = 4200.00`, and their sum equals `agreed_amount` exactly. |
-| AC-HB04-06 | **Given** any valid agreed amount and rate, **then** the snapshot values equal what `OwnerPayoutService` would compute for the same inputs, to the cent. |
-| AC-HB04-07 | **Given** `Owner.CommissionRate` is edited after recording, **when** the booking is re-read, **then** the snapshot values are unchanged. |
-| AC-HB04-08 | **Given** a deposit of 1 000 paid on the agreement date, **when** recorded, **then** a payment exists with `payment_status = 'paid'`, `paid_at` = the agreement date, and `created_at` = the real recording time. |
-| AC-HB04-09 | **Given** that same payment, **then** `created_by_admin_user_id` equals the authenticated admin user's id. |
-| AC-HB04-10 | **Given** a `paidAt` in the future, **when** submitted, **then** 400 and nothing is persisted. |
-| AC-HB04-11 | **Given** a `paidAt` earlier than the agreement date, **when** submitted, **then** 400. |
-| AC-HB04-12 | **Given** payments summing to more than the agreed amount, **when** submitted, **then** 409 and **no booking, payment or invoice is created**. |
-| AC-HB04-13 | **Given** payments summing exactly to the agreed amount, **when** submitted, **then** the command succeeds and the outstanding balance is 0.00. |
-| AC-HB04-14 | **Given** no payments, **when** submitted, **then** the command succeeds and the outstanding balance equals the agreed amount. |
-| AC-HB04-15 | **Conditional on [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy).** Under the recommended `PI-1`: **given** a successful historical record, **then** the `invoices` table gains no row attributable to it, and the outstanding balance is computed from `booking.FinalAmount` via the documented fallback. Under `PI-2`/`PI-3`: **then** an invoice exists whose `total_amount` equals `agreed_amount` and whose `issued_at` equals the agreement date. |
-| AC-HB04-16 | **Conditional on `D-INV-01`.** Under `PI-1`: the historical payment carries a NULL `invoice_id`, and that unlinked amount is reported by HB-08's `payments_unlinked_amount` signal rather than silently lost. Under `PI-2`/`PI-3`: every historical payment is linked via `invoice_id`, so `reporting_finance_daily_summary.total_paid_amount` includes the money. |
-| AC-HB04-17 | **Conditional on `D-INV-01`.** Under `PI-1`: not applicable — no invoice exists to change status. Under `PI-2`/`PI-3`: a fully-paid historical booking leaves the invoice status `paid`. |
-| AC-HB04-18 | **Given** the outstanding-balance formula in `AutoCompleteBookingsJob.cs:156-161`, **when** evaluated for a historical booking, **then** it returns `agreed_amount − Σ paid`. |
-| AC-HB04-19 | **Given** an owner payout is later created for the historical booking, **then** its `gross_booking_amount` equals `agreed_amount` and, when `snapshot_commission_rate` is passed, its `commission_amount` equals `snapshot_kaza_amount`. |
-| AC-HB04-20 | **Given** a failure at any step, **then** the transaction rolls back completely — no booking without its payments, no payments without their booking. |
-| AC-HB04-21 | **Given** a payment method of `card`, **when** submitted, **then** 400 with a message explaining that only manual methods are supported. |
-| AC-HB04-22 | **Given** existing non-historical booking, payment and invoice flows, **when** the suite runs, **then** behaviour is byte-identical to before this ticket. |
-| AC-HB04-23 | The migration applies forward, its verify script passes, and the rollback script carries the `RISK-13` warning. |
-| AC-HB04-24 | The reconciliation query in §20 returns zero rows across a seeded dataset containing at least 20 historical bookings. |
+| AC-HB04-02 | Initial creation and idempotent replay return the same persisted `agreedAmount`, booking identity and response body without pricing recalculation. |
+| AC-HB04-03 | An unrelated edit allowed by existing rules succeeds and leaves `agreed_amount`, `base_amount` and `final_amount` unchanged. |
+| AC-HB04-04 | Any direct, detached or indirect attempt to mutate those fields returns `409 HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE` and commits nothing. |
+| AC-HB04-05 | A current unit-price change after historical creation does not alter any protected amount. |
+| AC-HB04-06 | Status transitions and background jobs that do not reprice preserve the snapshot. |
+| AC-HB04-07 | A valid post-0059 HB-02 historical row backfills exactly `agreed_amount = final_amount`, including zero. |
+| AC-HB04-08 | If any historical row fails the preflight, migration `0060` aborts before changing any row and the ledger is not advanced. |
+| AC-HB04-09 | Non-historical rows remain compatible with `agreed_amount IS NULL`. |
+| AC-HB04-10 | PostgreSQL constraints reject negative or incoherent direct writes and are validated in the catalogs. |
+| AC-HB04-11 | Snapshot creation is atomic with optional client, booking, one history row and idempotency completion. |
+| AC-HB04-12 | Historical creation, replay, unrelated edit and rejected repricing create no payment, invoice, payout or notification rows. |
+| AC-HB04-13 | Existing normal booking creation and update behavior remains unchanged. |
+| AC-HB04-14 | Fresh development/production bootstrap, upgrade through `0059`, verifier, safe rollback and unsafe rollback refusal all pass on PostgreSQL 16. |
+
+HB-04B acceptance criteria for payment actor, payment command, payment idempotency and historical payment
+validation are intentionally deferred to its separate ticket/PR and are not gates for HB-04A.
 
 ## 28. Negative acceptance criteria
 
@@ -883,19 +886,15 @@ Ordered; each independently checkable.
 | NAC-HB04-01 | `agreed_amount` is never overwritten after creation by any automatic process. |
 | NAC-HB04-02 | `final_amount` of a historical booking is never recomputed from live pricing. |
 | NAC-HB04-03 | The client is never able to set `baseAmount`, `finalAmount`, or any snapshot value directly. |
-| NAC-HB04-04 | `Payment.CreatedAt`, `Booking.CreatedAt`/`UpdatedAt`, and `Invoice.CreatedAt` are never operator-supplied (INV-01). |
-| NAC-HB04-05 | `created_by_admin_user_id` is never taken from the request body. |
-| NAC-HB04-06 | No payment row is created with `amount <= 0`, and no negative amount is written anywhere. |
-| NAC-HB04-07 | No booking is persisted when any of its payments is rejected. |
-| NAC-HB04-08 | No payment is persisted when the booking insert fails. |
-| NAC-HB04-09 | No HTTP call, gateway SDK invocation, or synthetic transaction identifier is produced on the payment path. |
-| NAC-HB04-10 | No notification of any kind is dispatched by the financial path. |
-| NAC-HB04-11 | `Owner.CommissionRate` is never mutated by this flow. |
-| NAC-HB04-12 | No existing booking, payment or invoice row is modified or backfilled by the migration. |
-| NAC-HB04-13 | The snapshot is never persisted in a state where `owner + kaza ≠ agreed`. |
-| NAC-HB04-14 | No currency, tax, fee or discount field is invented or inferred. |
-| NAC-HB04-15 | A manual-adjustment invoice line is never added to a historical invoice in v1 (it would silently redefine the balance — §22). |
-| NAC-HB04-16 | The 30-second `RecentDuplicateWindow` is never repurposed as financial idempotency. |
+| NAC-HB04-04 | A request never controls a force, override, reprice or guard-suppression flag. |
+| NAC-HB04-05 | A forbidden financial mutation never silently restores values and reports success. |
+| NAC-HB04-06 | A rejected mixed financial/unrelated update never partially commits. |
+| NAC-HB04-07 | Migration backfill never consults current pricing or another finance table. |
+| NAC-HB04-08 | Migration backfill never partially updates when one historical row is ambiguous. |
+| NAC-HB04-09 | No non-historical snapshot is fabricated. |
+| NAC-HB04-10 | No currency, tax, fee, discount, payment, invoice or payout snapshot is invented. |
+| NAC-HB04-11 | HB-04A creates or modifies no payment, invoice, payout or notification. |
+| NAC-HB04-12 | Existing HB-02 idempotency and HB-03 conflict semantics are not weakened. |
 
 ---
 
@@ -922,7 +921,7 @@ Ordered; each independently checkable.
 
 ## 30. PM checklist
 
-- [ ] `D-HB04-01`, `D-HB04-03`, `D-HB04-04`, `D-HB04-07` decided (all blocking)
+- [x] `D-HB04-01` … `D-HB04-04` owner-approved for HB-04A
 - [ ] Finance has approved the financial value table (§11.2) and the rounding policy (§17)
 - [ ] Finance has accepted the v1 limitations: single currency, no fees/taxes, no refunds, overpayment rejected
 - [ ] Finance has approved the invoice policy and the numbering caveat (`RISK-14`)
@@ -939,7 +938,7 @@ Ordered; each independently checkable.
 
 1. [HB-02](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md) merged, with `is_historical` and the command skeleton available.
 2. HB-01 ADRs ratified; column names approved (`D-06`).
-3. `D-HB04-01`, `D-HB04-03`, `D-HB04-04` and `D-HB04-07` answered in writing.
+3. `D-HB04-01` … `D-HB04-04` answered in writing in the ratification packet.
 4. Finance has accepted A-1 (single currency) and A-2 (agreed total inclusive) as documented v1 assumptions.
 5. The commission-rate source for the snapshot is defined by [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) — HB-04 consumes a rate, it does not decide the owner.
 6. A real-Postgres test target exists for the integration layer.
@@ -947,9 +946,9 @@ Ordered; each independently checkable.
 
 ## 32. Definition of Done
 
-1. AC-HB04-01 … 24 pass.
-2. NAC-HB04-01 … 16 verified, each by an automated assertion where mechanisable.
-3. Migration applied forward on dev and staging; verify green; rollback script reviewed and its hazard documented.
+1. AC-HB04-01 … 14 pass for HB-04A.
+2. NAC-HB04-01 … 12 verified, each by an automated assertion where mechanisable.
+3. Migration is verified only on isolated PostgreSQL in this PR; production/staging execution remains a separate release gate.
 4. INV-05, INV-06 and INV-15 each have at least one automated test.
 5. The full regression suite is green, including every existing payment and invoice test.
 6. The no-gateway assertion test is in CI.
@@ -971,7 +970,7 @@ Ordered; each independently checkable.
 | `RISK-03` | Commission rewritten by a later `Owner` edit | Snapshot at creation; payout must be passed the snapshot rate (HB04-E18) | Shared with HB-05 — the payout creator must comply |
 | `RISK-07` | Stay-vs-recorded period mismatch | HB-04 stores `PaidAt` and stay dates truthfully so HB-08 can bucket either way | Deferred to HB-08 |
 | `RISK-09` | Partial transaction | Single transaction with enlisting services (§18) | Low |
-| **New** | Invoice total drifts from `agreed_amount` and silently redefines the balance (HB04-E09/`AutoCompleteBookingsJob.cs:160`) | Assert equality at creation; NAC-HB04-15 forbids manual-adjustment lines on historical invoices in v1 | Medium — a later manual edit is still possible via `finance:manage` |
+| **New** | Invoice total drifts from `agreed_amount` and silently redefines the balance (HB04-E09/`AutoCompleteBookingsJob.cs:160`) | HB-04A preserves `final_amount = agreed_amount`; invoice behavior remains outside this slice | Medium — invoice policy remains governed by D-INV-01 |
 | **New** | An unenumerated `FinalAmount` consumer assumes it equals computed pricing (A-3) | §26 task 20 regression sweep | Low |
 | **New** | Deadlock from acquiring four advisory locks in varying order | Fixed global lock order (§19), documented and tested | Low |
 
@@ -983,7 +982,8 @@ Ordered; each independently checkable.
 |---|---|
 | Code merged, migration not applied | Revert the PR. No data exposure. |
 | Migration applied, no historical booking recorded | Revert the code, then run `_rollback.sql`. Columns are NULL everywhere; nothing is lost. |
-| Historical bookings recorded | **Do not drop the columns.** Revert the code only, leaving the schema in place. `agreed_amount` and the snapshots remain readable and remain the provenance of the recorded money (`RISK-13`). |
+| Historical bookings recorded, all snapshots reconstructable from coherent HB-02 truth | The guarded rollback may remove HB-04A objects after proving `agreed_amount = base_amount = final_amount` for every snapshot; the HB-02 amount truth remains. |
+| Any independent or incoherent snapshot exists | **Do not drop the column.** Revert code only and leave the schema readable; the rollback script must refuse (`RISK-13`). |
 | Emergency disable | Revoke `bookings:record_historical` from all role templates — no new historical records can be created; existing ones stay intact and correct. |
 
 Reverting the code while leaving the schema is explicitly the supported degraded state: the columns are
@@ -994,7 +994,7 @@ additive, nullable and inert for every other flow.
 ## 35. Evidence required in the PR
 
 - Migration forward output plus `_verify.sql` passing, on both an empty and a seeded database.
-- Test output for AC-HB04-01 … 24 and the negative-criteria assertions.
+- Test output for HB-04A AC-HB04-01 … 14 and NAC-HB04-01 … 12.
 - A rounding table showing snapshot values against `OwnerPayoutService` outputs for at least 12 rate/amount
   pairs including midpoints.
 - A reconciliation worksheet for the three staged scenarios (deposit-only, fully paid, unpaid), signed by the
@@ -1018,7 +1018,7 @@ Stop and report rather than improvising if:
 - Any of HB04-E01 … E27 no longer matches the branch head — particularly `PaymentService.cs:170-198`
   (overpayment), `InvoiceService.cs:118-119` (invoice inherits `FinalAmount`) or `OwnerPayoutService.cs:75-77`
   (payout arithmetic). The whole design rests on these three.
-- `D-HB04-01`, `D-HB04-03`, `D-HB04-04` or `D-HB04-07` is unanswered.
+- A new financial policy conflict appears outside owner-approved `D-HB04-01` … `D-HB04-04`.
 - HB-02 has not merged, or `is_historical` is absent or named differently.
 - A consumer of `FinalAmount` is discovered that assumes it equals computed pricing (invalidates A-3).
 - A currency, tax, fee or discount column is discovered anywhere (invalidates A-1/A-2 and reopens OQ-05/OQ-06).

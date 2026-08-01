@@ -462,7 +462,8 @@ removes.
 | Ticket | Owns |
 |---|---|
 | **HB-02** | Historical-booking identity, audit metadata, reason, creation mode, and booking-level lifecycle fields |
-| **HB-04** | The agreed financial snapshot and historical payment fields |
+| **HB-04A** | The immutable agreed financial snapshot and repricing guard |
+| **HB-04B** | Historical payment fields and the separately privileged payment command |
 | **HB-05** | Owner commission, payout snapshot, attribution, override and adjustment-related fields |
 | **HB-08** | Reporting views only — no table or column |
 
@@ -485,10 +486,11 @@ implementer takes the next free number at branch time.
 | 11 | `ck_bookings_historical_fields_coherent` | CHECK | **HB-02** | #1–#4 |
 | 12 | `idempotency_keys` | table, PK `(actor_admin_user_id, endpoint, key)` | **HB-02** | — (the idempotency contract belongs to HB-02's endpoint; **not** optional, deferred, or HB-03's) |
 | 13 | `bookings:record_historical` permission seed | data seed | **HB-02** | RBAC tables from `0053` |
-| 14 | `bookings.agreed_amount` | column `DECIMAL(12,2) NULL` | **HB-04** | — |
-| 15 | `ck_bookings_agreed_amount_non_negative` | CHECK | **HB-04** | #14 |
-| 16 | `payments.created_by_admin_user_id` | column `UUID NULL` + FK `→ admin_users(id) ON DELETE SET NULL` | **HB-04** | — |
-| 17 | `ix_payments_created_by_admin_user_id` | index | **HB-04** | #16 |
+| 14 | `bookings.agreed_amount` | column `DECIMAL(12,2) NULL` | **HB-04A** | — |
+| 15 | `ck_bookings_agreed_amount_non_negative` | CHECK | **HB-04A** | #14 |
+| 15b | `ck_bookings_historical_agreed_amount_coherent` | CHECK: historical rows require `agreed_amount = base_amount = final_amount`; non-historical rows require `agreed_amount IS NULL` | **HB-04A** | #1, #14 |
+| 16 | `payments.created_by_admin_user_id` | column `UUID NULL` + FK `→ admin_users(id) ON DELETE SET NULL` | **HB-04B** | — |
+| 17 | `ix_payments_created_by_admin_user_id` | index | **HB-04B** | #16 |
 | 18 | `bookings.snapshot_commission_rate` | column `DECIMAL(5,2) NULL` | **HB-05** | — |
 | 19 | `bookings.snapshot_owner_amount` | column `DECIMAL(12,2) NULL` | **HB-05** | — |
 | 20 | `bookings.snapshot_kaza_amount` | column `DECIMAL(12,2) NULL` | **HB-05** | — |
@@ -524,7 +526,8 @@ implementer takes the next free number at branch time.
 migrations, each with its own `_verify.sql` and `_rollback.sql`, plus HB-08's view migration last:
 
 ```
-HB-02 (#1–#13)  →  HB-04 (#14–#17)  →  HB-05 (#18–#28)  →  HB-08 (#29–#33)
+HB-02 (#1–#13)  →  HB-04A (#14–#15b)  →  HB-04B (#16–#17)
+                                      ↘ HB-05 (#18–#28)  →  HB-08 (#29–#33)
 ```
 
 Each `_verify.sql` must assert the presence of the upstream columns it depends on **before** asserting its
@@ -599,6 +602,7 @@ today — and are retired.
 | `externalReference` already used | 409 | `EXTERNAL_REFERENCE_ALREADY_EXISTS` | HB-02 |
 | Overlap incl. historical | 409 | `HISTORICAL_OVERLAP_CONFLICT` | HB-02 |
 | Exact duplicate | 409 | `HISTORICAL_DUPLICATE_BOOKING` | HB-03 |
+| Historical financial snapshot mutation or recalculation attempted | 409 | `HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE` | HB-04A |
 | Soft-deleted unit | 400 | `UNIT_DELETED_UNSUPPORTED` | HB-02 |
 | Explicit owner confirmation absent (HB-05's added field) | 400 | `OWNER_ATTRIBUTION_REQUIRED` | HB-05 |
 | Owner override without permission | 403 | `OWNER_OVERRIDE_FORBIDDEN` | HB-05 |
@@ -904,9 +908,10 @@ until then.
 10. **REQ-16 normal-flow hardening implemented and activated last** — [HB-08 §26.1](08_TICKET_REPORTING_AUDIT_OBSERVABILITY_AND_ROLLOUT.md#261-req-16-hardening-tasks--the-last-commits-on-this-branch)
     and §24.1 step 9 — after operators demonstrably have the historical path.
 
-**Rollback limitations:** dropping `agreed_amount` after historical bookings exist would **destroy the only
-record of the agreed price**. Rollback is therefore safe only before the first historical booking is
-recorded. This must be stated in the release checklist.
+**Rollback limitations:** automated rollback may drop `agreed_amount` only when every populated snapshot is
+still exactly reconstructable from the pre-0060 HB-02 truth (`agreed_amount = base_amount = final_amount`)
+and the required historical provenance remains coherent. The rollback script must refuse any independent or
+incoherent snapshot rather than discard financial truth. This must be stated in the release checklist.
 
 No SQL is written in this pack — schema authoring belongs to the owning ticket's implementation.
 
@@ -974,7 +979,7 @@ Project Owner; the column is not a list of people.
 | RISK-12 | Client duplication on match-or-create | Data quality | Med | Low | Low | Reuse existing matching | Client dupe report | Eng | HB-02 |
 | RISK-13 | Migration rollback destroys agreed amounts | Operational | Low | High | Med | Rollback only before first record | Release checklist | Eng | HB-04 |
 | RISK-14 | Invoice number implies wrong date (F-10) | Accounting | Med | Med | Med | **Does not arise under the recommended `PI-1`** — no invoice is created. Arises only if [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) ratifies `PI-2`/`PI-3`, in which case the number encodes the record date and only `IssuedAt` carries the economic date | Invoice audit | Finance | HB-04 |
-| RISK-15 | Payment actor unknown (F-12) | Audit | Med | Med | Med | Add `created_by_admin_user_id` | Audit review | Eng | HB-04 |
+| RISK-15 | Payment actor unknown (F-12) | Audit | Med | Med | Med | Add `created_by_admin_user_id` in the separate payment slice | Audit review | Eng | HB-04B |
 | RISK-16 | Hardening breaks a legitimate existing workflow | Operational | Med | Med | Med | Ship historical first; size the exposure with the `PRE-00` census; measure rejections; the hardening commit is independently revertible (HB-08 §34.1a) | 400-rate monitoring | Operations | PRE-00 (census) → **HB-08** (impl) |
 | RISK-17 | Database-level guarantees claimed but never executed, because CI runs no tests | Quality | **High until PRE-02 closes** | High | High | [D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement): the baseline suite is a merge gate for HB-03; until then every such claim is labelled unverified | PR review; [§21.1](#211-prerequisites-before-any-historical-migration-lands) | Engineering | **PRE-02** |
 | RISK-18 | A CI or local schema built from `db/init.sql` diverges from production because `0057` is omitted | Operational | **Certain today** | Med | Med | `PRE-01` prerequisite PR before HB-02 and any feature migration | Schema diff against production | Engineering | PRE-01 |
@@ -1147,7 +1152,8 @@ that ticket demands most, not additional people.
 | HB-01 | Discovery, ADRs & the hardening specification | P0 | — | Verify current state, decide ADRs and cross-ticket decisions, specify REQ-16 hardening. **No code** | Documentation PR | Med | M | All five | **COMPLETE** — gate satisfied |
 | HB-02 | Historical booking domain & API — **IMPLEMENTATION-READY, no outstanding gate** | P0 | PRE-01 and PRE-02 merged; PRE-00 only on existing-row evidence | Command, endpoint, permission, audit, direct-`Completed`, the `Idempotency-Key` contract and `idempotency_keys`, the `booking_original_sources` vocabulary, truthful `agreedAmount` capture, server-resolved owner, and the Cairo business-date abstraction; owns the identity/audit migration | Backend + migration PR | High | L | Engineering · Security · Product | All fourteen decisions `OWNER APPROVED` |
 | HB-03 | Conflicts & duplicate protection | P0 | HB-02; **PRE-02** | Historical conflict set, concurrency, duplicates. **Authors no migration** | Backend PR | **Critical** | M | Engineering · Operations | **Cannot merge until `PRE-02` is complete** ([D-TEST-01](DECISION_RATIFICATION_PACKET.md#d-test-01--postgresql-test-requirement)) |
-| HB-04 | Financial snapshot & historical payments | P0 | HB-02 | Agreed amount, repricing guard, payments; owns the financial migration | Backend + migration PR | **Critical** | L | Finance · Engineering · Security | — |
+| HB-04A | Financial snapshot & repricing guard | P0 | HB-02, HB-03 | `agreed_amount`, guarded HB-02-row backfill, immutable financial truth, API mapping and central repricing guard | Backend + migration PR | **Critical** | M | Finance · Engineering · Security | Coordinated API/migration release required; no production execution in the PR |
+| HB-04B | Historical payment command | P0 | HB-04A | Payment actor schema, distinct permission, reason, command idempotency and payment audit; remains HB-04-owned | Separate backend + migration PR | **Critical** | M | Finance · Engineering · Security | Explicitly excluded from HB-04A |
 | HB-05 | Owner accounting & settlement | P0 | HB-02, HB-04 | Review, override, commission snapshot, correction; owns the owner migration | Backend + migration PR | **Critical** | L | Finance · Security · Operations | — |
 | HB-06 | Historical booking wizard UI | P1 | HB-03, HB-04, HB-05 | Permission-gated wizard, 6 steps | Frontend PR | Med | L | Product · Operations · Security | — |
 | HB-07 | Notifications, automations, integrations | P1 | HB-02 | Side-effect matrix, assertions | Backend + tests PR | Med | S | Engineering · Product | — |

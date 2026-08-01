@@ -585,7 +585,7 @@ defined in [Master Plan §12](00_MASTER_PLAN.md#12-api-and-command-design):
 | Assertion target | Expected |
 |---|---|
 | `POST /api/internal/bookings/historical` | `200 OK` on the happy path, for a caller holding `bookings:record_historical` (repository-native envelope, `BookingsController.cs:114`) |
-| Error codes asserted verbatim | `VALIDATION_ERROR`, `CLIENT_REFERENCE_INVALID`, `CLIENT_NOT_FOUND`, `CLIENT_PHONE_ALREADY_EXISTS`, `CLIENT_PHONE_REQUIRES_REVIEW`, `UNIT_NOT_FOUND`, `ADMIN_USER_NOT_FOUND`, `HISTORICAL_CHECKOUT_NOT_COMPLETED`, `ORIGINAL_SOURCE_INVALID`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `IDEMPOTENCY_REQUEST_IN_PROGRESS`, `OWNER_ATTRIBUTION_REQUIRES_REVIEW`, `EXTERNAL_REFERENCE_ALREADY_EXISTS`, `HISTORICAL_OVERLAP_CONFLICT`, `HISTORICAL_DUPLICATE_BOOKING`, `UNIT_DELETED_UNSUPPORTED`, `OWNER_ATTRIBUTION_REQUIRED`, `OWNER_OVERRIDE_FORBIDDEN`, `STAY_DATES_IN_PAST`. Codes are read from the `code` property of the response envelope, **never** from `errors[0]` ([D-HB02-03](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport)). A `403` from the authorization policy carries an empty body and no code |
+| Error codes asserted verbatim | `VALIDATION_ERROR`, `CLIENT_REFERENCE_INVALID`, `CLIENT_NOT_FOUND`, `CLIENT_PHONE_ALREADY_EXISTS`, `CLIENT_PHONE_REQUIRES_REVIEW`, `UNIT_NOT_FOUND`, `ADMIN_USER_NOT_FOUND`, `HISTORICAL_CHECKOUT_NOT_COMPLETED`, `ORIGINAL_SOURCE_INVALID`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `IDEMPOTENCY_REQUEST_IN_PROGRESS`, `OWNER_ATTRIBUTION_REQUIRES_REVIEW`, `EXTERNAL_REFERENCE_ALREADY_EXISTS`, `HISTORICAL_OVERLAP_CONFLICT`, `HISTORICAL_DUPLICATE_BOOKING`, `HISTORICAL_FINANCIAL_SNAPSHOT_IMMUTABLE`, `UNIT_DELETED_UNSUPPORTED`, `OWNER_ATTRIBUTION_REQUIRED`, `OWNER_OVERRIDE_FORBIDDEN`, `STAY_DATES_IN_PAST`. Codes are read from the `code` property of the response envelope, **never** from `errors[0]` ([D-HB02-03](DECISION_RATIFICATION_PACKET.md#d-hb02-03--machine-readable-error-transport)). A `403` from the authorization policy carries an empty body and no code |
 | `POST /api/internal/bookings` | Returns `400 STAY_DATES_IN_PAST` for past stays once HB-08 activates the REQ-16 hardening |
 
 Error-code assertions compare the **machine-readable code**, never the human message, so copy edits do not
@@ -869,7 +869,7 @@ Ordered; each independently checkable.
 **Phase 4 — feature coverage**
 
 14. Domain/service tests for the historical command: happy path plus every rejection branch in [Master §13](00_MASTER_PLAN.md#13-validation-matrix).
-15. API contract tests for all 20 stable error codes (§14).
+15. API contract tests for all 21 stable error codes (§14).
 16. Conflict tests including `Completed` and `LeftEarly` (ADR-10, F-02), with adjacency boundaries.
 17. Duplicate tests: exact block, probable warn, `external_reference` partial unique index.
 18. Atomicity test: injected mid-command failure; assert zero rows across all four tables (INV-05/06).
@@ -914,7 +914,7 @@ Ordered; each independently checkable.
 | AC-HB09-04 | **Given** a historical booking, **when** an unrelated field is updated, **then** `agreed_amount`, `snapshot_commission_rate`, `snapshot_owner_amount` and `snapshot_kaza_amount` are unchanged. |
 | AC-HB09-05 | **Given** a historical booking, **when** `Owner.CommissionRate` is subsequently changed, **then** the snapshot is unchanged and the owner/KAZA split still sums to `agreed_amount`. |
 | AC-HB09-06 | Every invariant `INV-01 … INV-17` maps to at least one named automated test; the 17-row matrix is published in the PR. |
-| AC-HB09-07 | All 20 stable error codes in §14 are asserted by code, not by message text. |
+| AC-HB09-07 | All 21 stable error codes in §14 are asserted by code, not by message text. |
 | AC-HB09-08 | Security tests S-01 … S-13 pass, each asserting persisted state as well as status code. |
 | AC-HB09-09 | **Given** a historical booking with a past checkout, **when** `AutoCompleteBookingsJob` runs a full sweep, **then** no row is mutated and no notification is created. |
 | AC-HB09-10 | **Given** any historical creation, **when** it completes, **then** the notification-row count is unchanged and exactly one `booking_status_history` row exists. |
@@ -968,7 +968,7 @@ unique index; `ux_owner_payouts_booking_id`; conflict queries over all ten statu
 
 ### 29.3 API
 
-All 20 stable error codes; permission policies; response shape; `is_historical` present and defaulting false on
+All 21 stable error codes; permission policies; response shape; `is_historical` present and defaulting false on
 legacy bookings; no field leaks a value the client supplied but must not control.
 
 ### 29.4 Frontend (Tier C)
