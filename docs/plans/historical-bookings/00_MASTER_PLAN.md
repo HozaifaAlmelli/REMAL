@@ -574,7 +574,7 @@ Error statuses are in the error contract below; they are unaffected by this cano
 | Amount | Computed from current pricing | **Operator-entered `agreedAmount`, required, persisted verbatim, never defaulted from current pricing** ([D-HB02-AMT](DECISION_RATIFICATION_PACKET.md#d-hb02-amt--financial-truth-boundary)) |
 | Owner | `unit.OwnerId`, never caller input | **Server-resolved current unit owner, never caller input.** Uncertain ownership is refused with `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`; override arrives with HB-05 ([D-HB02-OWN](DECISION_RATIFICATION_PACKET.md#d-hb02-own--owner-attribution-boundary)) |
 | Payment | Separate call | **None on this route.** [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) is `OWNER APPROVED` for a separate privileged command |
-| Invoice | Auto-created on `Booked → Confirmed` | **None in v1.** [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) is `OWNER APPROVED` |
+| Invoice | Auto-created on `Booked → Confirmed` | **No automatic invoice from historical commands in v1.** Existing manual draft/issuance remains allowed; historical payment evidence stays unlinked. [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) is `OWNER APPROVED` |
 | Notifications | On transitions | None |
 | Idempotency | 30-second `RecentDuplicateWindow` (`BookingService.cs:19`) | **`Idempotency-Key` header, required**, scoped to actor + endpoint + key, plus HB-03's business duplicate rules ([D-HB02-IDEM](DECISION_RATIFICATION_PACKET.md#d-hb02-idem--idempotency-ownership-and-contract)) |
 
@@ -1057,7 +1057,7 @@ risk and revisit trigger. Decision authority for all nine is the Sole Project Ow
 | ID | Decision | Outcome | Review lenses | Status |
 |---|---|---|---|---|
 | [D-CAL-01](DECISION_RATIFICATION_PACKET.md#d-cal-01--historical-completion-boundary) | Historical completion boundary | `check_out_date <= Cairo business date − 1` | Product · Engineering · Operations | **`OWNER APPROVED`** |
-| [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) | Invoice policy | No invoice created or issued in v1; limitation visible via HB-08 | Product · Finance · Security | **`OWNER APPROVED`** |
+| [D-INV-01](DECISION_RATIFICATION_PACKET.md#d-inv-01--invoice-policy) | Invoice policy | No automatic invoice from historical commands; manual workflow allowed; evidence remains unlinked | Product · Finance · Security | **`OWNER APPROVED`** |
 | [D-PAY-01](DECISION_RATIFICATION_PACKET.md#d-pay-01--historical-payment-policy) | Historical payment policy | Separate privileged command; never inline | Finance · Security · Engineering | **`OWNER APPROVED`** |
 | [D-OWN-01](DECISION_RATIFICATION_PACKET.md#d-own-01--owner-attribution) | Owner attribution | Default unit owner; explicit review; block on uncertainty | Product · Finance · Operations | **`OWNER APPROVED`** |
 | [D-OWN-02](DECISION_RATIFICATION_PACKET.md#d-own-02--owner-override) | Owner override | Distinct permission; mandatory reason; full audit | Finance · Security · Engineering | **`OWNER APPROVED`** |

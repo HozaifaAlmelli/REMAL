@@ -238,10 +238,11 @@ public class InvoiceService : IInvoiceService
 
         _unitOfWork.Invoices.Update(invoice);
 
-        // Link ALL payments for this booking to this invoice (not just unlinked ones)
-        // This ensures all payments (pending, paid, failed, cancelled) are associated with the invoice
+        // Historical evidence remains standalone and is never invoice-linked.
         var allBookingPayments = await _unitOfWork.Payments.Query()
-            .Where(p => p.BookingId == invoice.BookingId && p.InvoiceId == null)
+            .Where(p => p.BookingId == invoice.BookingId
+                && p.InvoiceId == null
+                && !p.IsHistoricalRecord)
             .ToListAsync(cancellationToken);
 
         foreach (var payment in allBookingPayments)
@@ -253,7 +254,9 @@ public class InvoiceService : IInvoiceService
 
         // Check if invoice should be marked as paid based on existing paid payments
         var totalPaid = await _unitOfWork.Payments.Query()
-            .Where(p => p.InvoiceId == invoice.Id && p.PaymentStatus == "paid")
+            .Where(p => p.InvoiceId == invoice.Id
+                && p.PaymentStatus == "paid"
+                && !p.IsHistoricalRecord)
             .SumAsync(p => p.Amount, cancellationToken);
 
         if (totalPaid >= invoice.TotalAmount)
@@ -283,7 +286,9 @@ public class InvoiceService : IInvoiceService
 
         // Check for linked paid payments
         var hasPaidPayment = await _unitOfWork.Payments.ExistsAsync(
-            p => p.InvoiceId == id && p.PaymentStatus == "paid",
+            p => p.InvoiceId == id
+                && p.PaymentStatus == "paid"
+                && !p.IsHistoricalRecord,
             cancellationToken);
         if (hasPaidPayment)
             throw new ConflictException(
@@ -306,7 +311,7 @@ public class InvoiceService : IInvoiceService
     {
         // Find all payments that have no invoice_id but belong to bookings with active invoices
         var orphanedPayments = await _unitOfWork.Payments.Query()
-            .Where(p => p.InvoiceId == null)
+            .Where(p => p.InvoiceId == null && !p.IsHistoricalRecord)
             .ToListAsync(cancellationToken);
 
         int linkedCount = 0;
@@ -390,7 +395,6 @@ public class InvoiceService : IInvoiceService
                 ? $"Superseded by {normalizedNumber}"
                 : $"{oldInvoice.Notes}\n\nSuperseded by {normalizedNumber}";
             oldInvoice.UpdatedAt = DateTime.UtcNow;
-            _unitOfWork.Invoices.Update(oldInvoice);
 
             // Create new draft invoice with same structure
             var newInvoice = new Invoice
@@ -430,9 +434,9 @@ public class InvoiceService : IInvoiceService
                 await _unitOfWork.InvoiceItems.AddAsync(newItem, cancellationToken);
             }
 
-            // Transfer ALL payments from old invoice to new invoice (including paid, pending, failed, cancelled)
+            // Historical evidence is never transferred or counted as invoice-linked payment.
             var paymentsToTransfer = await _unitOfWork.Payments.Query()
-                .Where(p => p.InvoiceId == oldInvoice.Id)
+                .Where(p => p.InvoiceId == oldInvoice.Id && !p.IsHistoricalRecord)
                 .ToListAsync(cancellationToken);
 
             decimal totalPaidFromTransferred = 0m;
@@ -449,7 +453,9 @@ public class InvoiceService : IInvoiceService
 
             // Also link any unlinked payments for this booking
             var unlinkedPayments = await _unitOfWork.Payments.Query()
-                .Where(p => p.BookingId == oldInvoice.BookingId && p.InvoiceId == null)
+                .Where(p => p.BookingId == oldInvoice.BookingId
+                    && p.InvoiceId == null
+                    && !p.IsHistoricalRecord)
                 .ToListAsync(cancellationToken);
 
             foreach (var payment in unlinkedPayments)

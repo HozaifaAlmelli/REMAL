@@ -48,7 +48,7 @@ Any earlier text implying that a Product owner, Engineering owner, Finance appro
 | ID | Decision | Outcome | Review lenses | Status |
 |---|---|---|---|---|
 | [D-CAL-01](#d-cal-01--historical-completion-boundary) | Historical completion boundary | `check_out_date <= Cairo business date − 1` | Product · Engineering · Operations | **`OWNER APPROVED`** |
-| [D-INV-01](#d-inv-01--invoice-policy) | Invoice policy | No invoice created or issued in v1 | Product · Finance · Security | **`OWNER APPROVED`** |
+| [D-INV-01](#d-inv-01--invoice-policy) | Invoice policy | No automatic invoice from historical commands; existing manual workflow remains allowed; historical evidence stays unlinked | Product · Finance · Security | **`OWNER APPROVED`** |
 | [D-PAY-01](#d-pay-01--historical-payment-policy) | Historical payment policy | Separate privileged command; never inline | Finance · Security · Engineering | **`OWNER APPROVED`** |
 | [D-OWN-01](#d-own-01--owner-attribution) | Owner attribution | Default unit owner, explicit review, block on uncertainty | Product · Finance · Operations | **`OWNER APPROVED`** |
 | [D-OWN-02](#d-own-02--owner-override) | Owner override | Distinct permission, mandatory reason, full audit | Finance · Security · Engineering | **`OWNER APPROVED`** |
@@ -238,9 +238,16 @@ HB-04A creates no payment, payment evidence, invoice, payout, permission or noti
 
 ## D-INV-01 — Invoice policy
 
+**Owner clarification (2026-08-01):** D-INV-01 prohibits the historical-booking and
+historical-payment commands from automatically creating or issuing invoices. It does not disable the
+existing manual invoice draft and normal issuance workflows for historical bookings. HB-04B historical
+payment evidence remains standalone with `invoice_id = NULL`, is never attached to or counted as an
+invoice-linked payment, and is never modified by invoice issue, reissue, or orphan-linking operations.
+Future reconciliation between standalone evidence and invoices remains outside HB-04B.
+
 | Field | Value |
 |---|---|
-| **Decision** | Historical booking creation **will not create or issue an invoice in v1**. No invoice notification will run. The reporting limitation must be visible and is owned by HB-08. Historical invoice support is deferred until a dedicated accounting model is designed. |
+| **Decision** | Historical booking and payment commands **will not automatically create or issue an invoice in v1**, and no invoice notification runs from them. Existing manual draft creation and normal issuance remain allowed. Historical payment evidence remains standalone and unlinked; future reconciliation is deferred. |
 | **Basis** | `CONFIRMED` — the only invoice auto-creation site is the `Booked → Confirmed` transition, `BookingLifecycleService.cs:186-200` (`:194` create, `:199` issue), which the historical flow never executes. Invoice numbers come from a **daily-reset** sequence, `InvoiceService.cs:500-518`, so a number asserts the date the document was produced. `reporting_finance_daily_summary.total_paid_amount` reaches payments only through `payments.invoice_id`, so an uninvoiced payment reports as zero cash received. Manual draft creation remains available for `Completed` bookings via `POST /api/internal/invoices/drafts`. |
 | **Review lenses** | Product · Finance · Security |
 | **Decision authority** | Sole Project Owner |
@@ -957,7 +964,7 @@ prerequisites are implementation work for later, separate PRs.
 | Decision | Outcome | Status | Authority | Date |
 |---|---|---|---|---|
 | D-CAL-01 | `check_out_date <= Cairo business date − 1` | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
-| D-INV-01 | No invoice created or issued in v1; limitation visible via HB-08 | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
+| D-INV-01 | No automatic invoice from historical commands; manual invoices remain allowed; evidence stays unlinked | `OWNER APPROVED` | Sole Project Owner | 2026-08-01 clarification |
 | D-PAY-01 | Separate privileged historical-payment command | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
 | D-OWN-01 | Default unit owner; explicit review; block on uncertainty | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
 | D-OWN-02 | Distinct permission; mandatory reason; full audit | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |

@@ -410,6 +410,12 @@ completes idempotency and commits. Replay uses one authoritative persisted respo
 
 ### 11.6 Invoice consequence and recommendation
 
+**D-INV-01 integration clarification:** existing manual invoice draft creation and normal invoice issuance
+remain available for historical bookings where current permissions and status rules allow them. Historical
+payment evidence is standalone external-payment evidence: it always retains `invoice_id = NULL`, is excluded
+from invoice attachment and invoice-linked payment totals, and is not mutated by issue, reissue, or orphan
+linking. Reconciliation between that evidence and invoices is deferred beyond HB-04B.
+
 A booking created directly in `Completed` produces **no** invoice, because the only auto-create site is the
 `Booked → Confirmed` transition (`CONFIRMED` `BookingLifecycleService.cs:186-200`), which the historical flow
 never executes (ADR-04). That is not merely cosmetic:

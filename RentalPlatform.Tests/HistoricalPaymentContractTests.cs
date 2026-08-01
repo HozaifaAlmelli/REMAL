@@ -4,10 +4,14 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.Routing;
 using RentalPlatform.API.Authorization;
 using RentalPlatform.API.Controllers;
 using RentalPlatform.API.DTOs.Requests.Payments;
 using RentalPlatform.API.Filters;
+using RentalPlatform.API.Models;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Models;
@@ -164,6 +168,34 @@ public sealed class HistoricalPaymentContractTests
         var replay = Assert.IsType<OkObjectResult>((await controller.Record(payment.BookingId, request, default)).Result);
 
         Assert.Equal(JsonSerializer.Serialize(initial.Value), JsonSerializer.Serialize(replay.Value));
+    }
+
+    [Theory]
+    [InlineData("{\"amount\":10,\"paymentMethod\":\"cash\",\"paidAt\":\"2026-07-15T10:30:00+03:00\",\"reason\":\"verified\",\"unknown\":true}")]
+    [InlineData("{\"amount\":\"not-a-number\",\"paymentMethod\":\"cash\",\"paidAt\":\"2026-07-15T10:30:00+03:00\",\"reason\":\"verified\"}")]
+    [InlineData("{\"amount\":10,\"paymentMethod\":\"cash\"")]
+    public void JsonBindingFailuresUseStableValidationErrorCode(string json)
+    {
+        var jsonError = Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<RecordHistoricalPaymentRequest>(json, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            }));
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError("$", jsonError.Message);
+        var actionContext = new ActionContext(
+            new DefaultHttpContext(),
+            new RouteData(),
+            new ActionDescriptor(),
+            modelState);
+
+        var result = Assert.IsType<BadRequestObjectResult>(
+            ApiValidationResponseFactory.Create(actionContext));
+        var envelope = Assert.IsType<ApiResponse>(result.Value);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        Assert.False(envelope.Success);
+        Assert.Equal(HistoricalErrorCodes.ValidationError, envelope.Code);
+        Assert.Contains(jsonError.Message, envelope.Errors!);
     }
 
     private static RecordHistoricalPaymentCommand ValidCommand() => new(

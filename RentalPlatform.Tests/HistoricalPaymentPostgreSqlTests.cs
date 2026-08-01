@@ -243,6 +243,94 @@ public sealed class HistoricalPaymentPostgreSqlTests
     }
 
     [Fact]
+    public async Task ManualInvoiceIssueLeavesHistoricalEvidenceStandaloneAndLinksOrdinaryPayment()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var seed = await SeedAsync(context, agreedAmount: 100m);
+        var evidence = await Service(context).RecordAsync(
+            Command(seed.Booking.Id, seed.Admin.Id, Guid.NewGuid(), 100m, "INVOICE-STANDALONE"));
+        var evidenceBefore = EvidenceValues(evidence.Payment);
+        var invoiceService = new InvoiceService(new UnitOfWork(context));
+
+        var historicalDraft = await invoiceService.CreateDraftFromBookingAsync(
+            seed.Booking.Id, null, "manual historical invoice");
+        var historicalIssued = await invoiceService.IssueAsync(historicalDraft.Id);
+        Assert.Equal("issued", historicalIssued.InvoiceStatus);
+
+        var normalBooking = await AddNormalBookingAsync(context, seed);
+        var normalPayment = await new PaymentService(new UnitOfWork(context)).CreateAsync(
+            normalBooking.Id, null, "cash", 25m, null, "ordinary payment");
+        var normalDraft = await invoiceService.CreateDraftFromBookingAsync(
+            normalBooking.Id, null, "normal invoice");
+        await invoiceService.IssueAsync(normalDraft.Id);
+
+        context.ChangeTracker.Clear();
+        var persistedEvidence = await context.Payments.AsNoTracking()
+            .SingleAsync(payment => payment.Id == evidence.Payment.Id);
+        var persistedNormal = await context.Payments.AsNoTracking()
+            .SingleAsync(payment => payment.Id == normalPayment.Id);
+        Assert.Null(persistedEvidence.InvoiceId);
+        Assert.Equal(evidenceBefore, EvidenceValues(persistedEvidence));
+        Assert.Equal(normalDraft.Id, persistedNormal.InvoiceId);
+    }
+
+    [Fact]
+    public async Task ReissueLeavesHistoricalEvidenceUntouched()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var seed = await SeedAsync(context, agreedAmount: 100m);
+        var evidence = await Service(context).RecordAsync(
+            Command(seed.Booking.Id, seed.Admin.Id, Guid.NewGuid(), 100m, "REISSUE-STANDALONE"));
+        var evidenceBefore = EvidenceValues(evidence.Payment);
+        var invoiceService = new InvoiceService(new UnitOfWork(context));
+        var draft = await invoiceService.CreateDraftFromBookingAsync(
+            seed.Booking.Id, null, "manual historical invoice");
+        var issued = await invoiceService.IssueAsync(draft.Id);
+
+        var replacement = await invoiceService.ReissueAsync(
+            issued.Id, $"INV-REISSUE-{Guid.NewGuid():N}", "replacement");
+
+        Assert.Equal("issued", replacement.InvoiceStatus);
+        context.ChangeTracker.Clear();
+        var persistedEvidence = await context.Payments.AsNoTracking()
+            .SingleAsync(payment => payment.Id == evidence.Payment.Id);
+        Assert.Null(persistedEvidence.InvoiceId);
+        Assert.Equal(evidenceBefore, EvidenceValues(persistedEvidence));
+    }
+
+    [Fact]
+    public async Task GlobalOrphanLinkingLinksOnlyOrdinaryPayments()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var seed = await SeedAsync(context, agreedAmount: 100m);
+        var evidence = await Service(context).RecordAsync(
+            Command(seed.Booking.Id, seed.Admin.Id, Guid.NewGuid(), 20m, "ORPHAN-STANDALONE"));
+        var evidenceBefore = EvidenceValues(evidence.Payment);
+        var invoiceService = new InvoiceService(new UnitOfWork(context));
+        await invoiceService.CreateDraftFromBookingAsync(seed.Booking.Id, null, "historical draft");
+
+        var normalBooking = await AddNormalBookingAsync(context, seed);
+        var normalPayment = await new PaymentService(new UnitOfWork(context)).CreateAsync(
+            normalBooking.Id, null, "cash", 25m, null, "ordinary orphan");
+        var normalDraft = await invoiceService.CreateDraftFromBookingAsync(
+            normalBooking.Id, null, "normal draft");
+
+        Assert.Equal(1, await invoiceService.LinkOrphanedPaymentsAsync());
+
+        context.ChangeTracker.Clear();
+        var persistedEvidence = await context.Payments.AsNoTracking()
+            .SingleAsync(payment => payment.Id == evidence.Payment.Id);
+        var persistedNormal = await context.Payments.AsNoTracking()
+            .SingleAsync(payment => payment.Id == normalPayment.Id);
+        Assert.Null(persistedEvidence.InvoiceId);
+        Assert.Equal(evidenceBefore, EvidenceValues(persistedEvidence));
+        Assert.Equal(normalDraft.Id, persistedNormal.InvoiceId);
+    }
+
+    [Fact]
     public async Task Migration0061VerifierUpgradeAndRollbackGuardsAreExecutable()
     {
         await using var database = await _fixture.CreateTestDatabaseAsync();
@@ -386,6 +474,24 @@ public sealed class HistoricalPaymentPostgreSqlTests
         var value = BitConverter.ToUInt32(Guid.NewGuid().ToByteArray(), 0) % 10_000_000_000L;
         return $"+{prefix}{value:D10}";
     }
+
+    private static object?[] EvidenceValues(Payment payment) =>
+    [
+        payment.Id,
+        payment.BookingId,
+        payment.InvoiceId,
+        payment.PaymentStatus,
+        payment.PaymentMethod,
+        payment.Amount,
+        payment.ReferenceNumber,
+        payment.Notes,
+        payment.PaidAt,
+        payment.IsHistoricalRecord,
+        payment.CreatedByAdminUserId,
+        payment.RecordedReason,
+        payment.CreatedAt,
+        payment.UpdatedAt
+    ];
 
     private static async Task ExecuteAsync(NpgsqlConnection connection, string sql)
     {
