@@ -37,9 +37,11 @@ payment or invoice, recalculate a payout, correct a paid payout, send a notifica
 | Correction chain | Ordered immutable rows; each row's previous values must equal the booking state immediately before that correction |
 
 No owner name, phone, email, current price, payment, payout amount, or free-text match can establish identity.
-When ownership is absent, multiple, ambiguous, deleted, or unsupported, return `409
-OWNER_ATTRIBUTION_REQUIRES_REVIEW`; the operator resolves ownership offline and retries with an explicit owner
-ID. The request contains no caller-supplied determinability flag.
+When ownership is absent, multiple, ambiguous, deleted, or unsupported, the read-only review returns `409
+OWNER_ATTRIBUTION_REQUIRES_REVIEW`. The correction command uses its correction-specific `409
+OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW`; it never reuses the HB-02 review/creation transport.
+The operator resolves ownership offline and retries with an explicit owner ID. The request contains no
+caller-supplied determinability flag.
 
 ## 4. Review API
 
@@ -122,15 +124,18 @@ Canonical response uses stable persisted values only:
 ```
 
 It contains no mutable display name, live commission value, calculated split or financial-system detail that
-could make an idempotent replay drift.
+could make an idempotent replay drift. Response warnings are normalized once under the correction lock and
+persisted with the completed idempotency claim. Initial success and replay use that immutable warning snapshot;
+replay never reconstructs warnings from a target owner's later status.
 
 ## 6. Permission and actor
 
 The review uses `bookings:read`. `bookings:correct_owner_attribution` is the correction endpoint's dedicated
 least-privilege permission. It is not replaced by the
-historical-booking creation permission or a broad finance permission. Seed it using repository RBAC
-conventions and assign it to no broad role template automatically. The authenticated active admin claim is
-the sole actor source.
+historical-booking creation permission or a broad finance permission. Migration `0062` seeds it to the
+SuperAdmin role template only, grants it to no other role template, and applies the repository-standard
+`admin_users.updated_at` token-refresh bump to affected SuperAdmin users. The authenticated active admin claim
+is the sole actor source.
 
 ## 7. Payout safety matrix
 
@@ -169,6 +174,10 @@ normalized reason, and normalized note. It excludes JSON formatting and server-g
 - Failed transaction: no permanent claim.
 - Same textual key used by another actor has separate scope.
 
+Completion persists the correction identity, response status/timestamps, and canonical response-warning
+snapshot together. Warning values are constrained to the approved vocabulary, deterministic order, and no
+null or duplicate elements.
+
 The command uses one transaction and server-derived transaction-scoped advisory lock
 `historical-owner-correction:{bookingId:N}`. Ordering is: begin; lock; claim/replay; load booking and current
 chain; validate historical status and target; inspect payout; write booking attribution; append correction and
@@ -181,7 +190,8 @@ one winner.
 target owner IDs, trusted actor ID, reason, note, and transaction timestamp. Exactly one concise
 `HistoricalOwnerAttributionCorrected` booking-history event links the
 correction ID. Replays create no second row. Reachable update/delete attempts return `409
-OWNER_CORRECTION_AUDIT_IMMUTABLE`.
+OWNER_CORRECTION_AUDIT_IMMUTABLE`. PostgreSQL row-level `UPDATE`/`DELETE` and statement-level `TRUNCATE`
+triggers prevent direct mutation or truncation of the audit chain.
 
 ## 11. Migration ownership and legacy policy
 
@@ -189,8 +199,9 @@ HB-05 implements its owned objects in migration `0062_add_historical_owner_attri
 
 1. `historical_owner_attribution_corrections`, its PK, FKs, immutable-chain indexes and coherence checks.
 2. A dedicated `historical_owner_correction_idempotency_keys` table, actor/endpoint/key uniqueness, request
-   hash, correction FK, response status/timestamps, and lookup indexes.
-3. The `bookings:correct_owner_attribution` permission seed.
+   hash, correction FK, response status/timestamps, immutable response-warning snapshot, and lookup indexes.
+3. The `bookings:correct_owner_attribution` permission seed for the SuperAdmin role template only, including
+   the standard affected-user token-refresh timestamp bump.
 
 No other ticket owns these objects. HB-05 does not add ownership-history ranges or payout-adjustment schema.
 
@@ -206,6 +217,7 @@ bookings receive no correction rows. Rollback is guarded and must refuse when HB
 | 400 | `OWNER_CORRECTION_IDEMPOTENCY_KEY_REQUIRED` | Required key absent or malformed |
 | 404 | `OWNER_CORRECTION_BOOKING_NOT_FOUND` | Booking not found |
 | 409 | `OWNER_CORRECTION_BOOKING_REQUIRED` | Booking is not historical |
+| 409 | `OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW` | Persisted current attribution is missing, deleted, unsupported or incoherent |
 | 404 | `OWNER_CORRECTION_TARGET_NOT_FOUND` | Target owner does not exist |
 | 409 | `OWNER_CORRECTION_TARGET_INVALID` | Target owner is soft-deleted or otherwise ineligible |
 | 409 | `OWNER_CORRECTION_SAME_OWNER` | No owner change requested |
@@ -217,7 +229,8 @@ bookings receive no correction rows. Rollback is guarded and must refuse when HB
 | 409 | `OWNER_CORRECTION_AUDIT_IMMUTABLE` | Audit mutation/deletion attempted |
 
 Validation-shape errors use `VALIDATION_ERROR`. Authorization 403 remains the existing policy response.
-Every HB-05 business 400/404/409 response carries a non-null `Code`.
+Every HB-05 business 400/404/409 response carries a non-null `Code`. HB-05 owns 13 correction codes; the
+canonical Historical Bookings registry contains 45 codes in total.
 
 ## 13. Acceptance criteria
 
@@ -247,6 +260,9 @@ Every HB-05 business 400/404/409 response carries a non-null `Code`.
 | AC-HB05-22 | Catalog verifier proves owned tables, FKs, indexes and validated constraints. |
 | AC-HB05-23 | Guarded rollback succeeds only before HB-05 audit truth exists. |
 | AC-HB05-24 | HB-02 through HB-04B behavior and normal booking attribution remain unchanged. |
+| AC-HB05-25 | Invalid or incoherent current attribution uses `OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW` on correction while review retains `OWNER_ATTRIBUTION_REQUIRES_REVIEW`. |
+| AC-HB05-26 | Initial success and replay are byte-equivalent after target-owner status changes because the canonical warning snapshot is persisted with completion. |
+| AC-HB05-27 | Migration `0062` grants the dedicated correction permission only to the SuperAdmin role template and refreshes affected SuperAdmin authorization timestamps. |
 
 ## 14. Negative acceptance criteria
 
@@ -268,6 +284,7 @@ Every HB-05 business 400/404/409 response carries a non-null `Code`.
 | NAC-HB05-14 | No migration number reserved in planning. |
 | NAC-HB05-15 | No notification or external accounting side effect. |
 | NAC-HB05-16 | No automatic paid-payout correction or hidden adjustment model. |
+| NAC-HB05-17 | No correction-path reuse of `OWNER_ATTRIBUTION_REQUIRES_REVIEW`, live warning reconstruction, or non-SuperAdmin role-template permission grant. |
 
 ## 15. Test and release evidence
 

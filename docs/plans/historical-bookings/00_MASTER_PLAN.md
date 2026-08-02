@@ -496,9 +496,9 @@ migration number is reserved. Each implementer inspects the latest merged migrat
 | 17h | `payments:record_historical` permission seed | data seed; SuperAdmin only | **HB-04B** | RBAC tables from `0053` |
 | 18 | `historical_owner_attribution_corrections` | append-only audit table with previous/target owner, actor, reason, note and timestamp | **HB-05** | #1 and existing owner/admin tables |
 | 19 | HB-05 correction audit FKs, coherence checks and chain indexes | constraints/indexes | **HB-05** | #18 |
-| 20 | `historical_owner_correction_idempotency_keys` | dedicated actor + endpoint + key command table | **HB-05** | #18 |
-| 21 | HB-05 idempotency FKs, completion/lookup indexes and scope uniqueness | constraints/indexes | **HB-05** | #20 |
-| 22 | `bookings:correct_owner_attribution` permission seed | data seed | **HB-05** | RBAC tables from `0053` |
+| 20 | `historical_owner_correction_idempotency_keys` | dedicated actor + endpoint + key command table with immutable response-warning snapshot | **HB-05** | #18 |
+| 21 | HB-05 idempotency FKs, completion/warning-coherence checks, lookup indexes and scope uniqueness | constraints/indexes | **HB-05** | #20 |
+| 22 | `bookings:correct_owner_attribution` permission seed | data seed; SuperAdmin template only, with affected-user token-refresh bump | **HB-05** | RBAC tables from `0053` |
 | 29 | `reporting_booking_stay_daily_summary` | view, NEW | **HB-08A** | #1, #14 |
 | 30 | `reporting_finance_stay_daily_summary` | view, NEW | **HB-08A** | #1, #14, #16 |
 | 31 | `reporting_historical_entry_reconciliation` | view, NEW | **HB-08A** | #1, #2, #4, #14, #16 |
@@ -616,6 +616,7 @@ today — and are retired.
 | Owner-correction idempotency key absent or malformed | 400 | `OWNER_CORRECTION_IDEMPOTENCY_KEY_REQUIRED` | HB-05 |
 | Owner-correction target booking not found | 404 | `OWNER_CORRECTION_BOOKING_NOT_FOUND` | HB-05 |
 | Owner-correction target booking is not historical | 409 | `OWNER_CORRECTION_BOOKING_REQUIRED` | HB-05 |
+| Persisted current attribution cannot support correction | 409 | `OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW` | HB-05 |
 | Target owner not found | 404 | `OWNER_CORRECTION_TARGET_NOT_FOUND` | HB-05 |
 | Target owner soft-deleted or ineligible | 409 | `OWNER_CORRECTION_TARGET_INVALID` | HB-05 |
 | Owner correction is a no-op | 409 | `OWNER_CORRECTION_SAME_OWNER` | HB-05 |
@@ -630,8 +631,10 @@ today — and are retired.
 HB-02 owns the initial `HISTORICAL_OVERLAP_CONFLICT` transport. HB-03 owns the later expansion of
 overlap and duplicate-detection behaviour, including the full historical conflict set.
 
-`OWNER_ATTRIBUTION_REQUIRES_REVIEW` remains the HB-02 creation-time uncertainty code. HB-05 correction
-conditions use the dedicated `OWNER_CORRECTION_*` family and never overload creation transport.
+`OWNER_ATTRIBUTION_REQUIRES_REVIEW` remains the HB-02 creation-time and HB-05 read-only-review uncertainty
+code. The correction command uses `OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW`; other HB-05
+correction conditions use the dedicated `OWNER_CORRECTION_*` family and never overload review/creation
+transport. HB-05 owns 13 correction codes and the canonical Historical Bookings registry contains 45 codes.
 
 The full HB-02 set, with the exception type behind each code, is
 [HB-02 §14.4](02_TICKET_HISTORICAL_BOOKING_DOMAIN_AND_API.md#144-error-contract--machine-readable-codes-d-hb02-03).
