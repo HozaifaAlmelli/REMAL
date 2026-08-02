@@ -116,6 +116,11 @@ export const endpoints = {
     update: (id: string) => `/api/internal/bookings/${id}`,
     statusHistory: (id: string) =>
       `/api/internal/bookings/${id}/status-history`,
+    historical: "/api/internal/bookings/historical",
+    ownerAttributionReview: (id: string) =>
+      `/api/internal/bookings/${id}/owner-attribution-review`,
+    historicalPayments: (id: string) =>
+      `/api/internal/bookings/${id}/historical-payments`,
   },
 
   clientBookings: {

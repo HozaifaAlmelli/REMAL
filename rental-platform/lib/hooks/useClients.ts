@@ -10,10 +10,14 @@ import type {
   CreateClientRequest,
 } from "@/lib/types";
 
-export function useClients(filters?: ClientListFilters) {
+export function useClients(
+  filters?: ClientListFilters,
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: queryKeys.clients.list(filters),
     queryFn: () => clientsService.getAll(filters),
+    enabled: options?.enabled ?? true,
   });
 }
 

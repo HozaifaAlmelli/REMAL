@@ -10,8 +10,12 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ label, error, helperText, rows = 4, className, ...props }, ref) => {
-    const id = useId();
+  (
+    { label, error, helperText, rows = 4, className, id: providedId, ...props },
+    ref
+  ) => {
+    const generatedId = useId();
+    const id = providedId ?? generatedId;
 
     return (
       <div className="w-full">

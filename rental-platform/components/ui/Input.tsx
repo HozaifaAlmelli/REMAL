@@ -12,10 +12,20 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   (
-    { label, error, helperText, leftAddon, rightAddon, className, ...props },
+    {
+      label,
+      error,
+      helperText,
+      leftAddon,
+      rightAddon,
+      className,
+      id: providedId,
+      ...props
+    },
     ref
   ) => {
-    const id = useId();
+    const generatedId = useId();
+    const id = providedId ?? generatedId;
 
     return (
       <div className="w-full">

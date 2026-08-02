@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useId } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { SelectOption } from "./Select";
@@ -26,6 +26,7 @@ export function Combobox<T = string | number>({
   disabled = false,
   searchable = true,
 }: ComboboxProps<T>) {
+  const controlId = useId();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -79,13 +80,17 @@ export function Combobox<T = string | number>({
   return (
     <div className="w-full" ref={containerRef}>
       {label && (
-        <label className="mb-1.5 block text-sm font-medium text-neutral-700">
+        <label
+          htmlFor={controlId}
+          className="mb-1.5 block text-sm font-medium text-neutral-700"
+        >
           {label}
         </label>
       )}
 
       <div className="relative">
         <button
+          id={controlId}
           type="button"
           disabled={disabled}
           onClick={() => !disabled && setIsOpen((prev) => !prev)}
@@ -126,7 +131,7 @@ export function Combobox<T = string | number>({
         </button>
 
         {isOpen && (
-          <div className="absolute left-0 right-0 top-full z-[80] mt-1 flex max-h-60 w-full flex-col overflow-hidden rounded-[var(--portal-radius-control)] border border-neutral-300 bg-white shadow-xl ring-1 ring-neutral-900/5 focus:outline-none">
+          <div className="ring-neutral-900/5 absolute left-0 right-0 top-full z-[80] mt-1 flex max-h-60 w-full flex-col overflow-hidden rounded-[var(--portal-radius-control)] border border-neutral-300 bg-white shadow-xl ring-1 focus:outline-none">
             {searchable && (
               <div className="sticky top-0 shrink-0 border-b border-neutral-200 bg-white p-2">
                 <input

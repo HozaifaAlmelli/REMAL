@@ -25,10 +25,20 @@ export const Select = forwardRef<
   SelectProps<string | number>
 >(
   (
-    { label, error, options, placeholder, className, onChange, ...props },
+    {
+      label,
+      error,
+      options,
+      placeholder,
+      className,
+      onChange,
+      id: providedId,
+      ...props
+    },
     ref
   ) => {
-    const id = useId();
+    const generatedId = useId();
+    const id = providedId ?? generatedId;
 
     const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       onChange?.(e.target.value as unknown as string | number);
