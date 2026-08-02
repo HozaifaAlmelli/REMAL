@@ -125,6 +125,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Test production migration selection
+        run: bash scripts/tests/test-apply-migrations-selection.sh
       - name: Render placeholder env + validate
         run: |
           cp .env.example .env.ci

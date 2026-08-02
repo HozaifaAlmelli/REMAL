@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ============================================================================
 # KAZA — gated, tracked production migration runner (Blocker B7).
-# Applies db/migrations/NNNN_*.sql files that are NOT yet recorded in the
-# PostgreSQL `schema_migrations` ledger. NEVER runs automatically during deploy.
+# Applies production-bootstrap migrations that are NOT yet recorded in the
+# PostgreSQL `schema_migrations` ledger. Directory presence alone is not enough.
+# NEVER runs automatically during deploy.
 #
 #   - Backs up the DB first (scripts/backup-postgres.sh).
 #   - Applies only "main" migrations (skips *_rollback / *_verify / *_test).
@@ -21,7 +22,11 @@ ENV_FILE="${ENV_FILE:-/opt/kaza/env/.env.production}"
 COMPOSE_FILE="${COMPOSE_FILE:-/opt/apps/kaza-booking/docker-compose.prod.yml}"
 APP_DIR="${APP_DIR:-/opt/apps/kaza-booking}"
 MIG_DIR="${MIG_DIR:-$APP_DIR/db/migrations}"
+PRODUCTION_MANIFEST="${PRODUCTION_MANIFEST:-$APP_DIR/infra/db/init.prod.sql}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=scripts/lib/production-migrations.sh
+source "$SCRIPT_DIR/lib/production-migrations.sh"
 
 # shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
@@ -48,12 +53,14 @@ echo "### Taking a pre-migration backup ..."
 
 echo "### Scanning for pending migrations in $MIG_DIR ..."
 PENDING=()
-while IFS= read -r f; do
+PRODUCTION_MIGRATION_OUTPUT="$(list_production_migrations "$PRODUCTION_MANIFEST" "$MIG_DIR")"
+mapfile -t MIGRATION_FILES <<< "$PRODUCTION_MIGRATION_OUTPUT"
+for f in "${MIGRATION_FILES[@]}"; do
   num="${f:0:4}"
   applied="$(psql_db -tA -c "SELECT 1 FROM schema_migrations WHERE migration_number='${num}';")"
   [ "$applied" = "1" ] && continue
   PENDING+=("$f")
-done < <(ls -1 "$MIG_DIR" | grep -E '^[0-9]{4}_.*\.sql$' | grep -Ev '_(rollback|verify|test)\.sql$' | sort)
+done
 
 if [ "${#PENDING[@]}" -eq 0 ]; then
   echo "### Up to date — no pending migrations."
