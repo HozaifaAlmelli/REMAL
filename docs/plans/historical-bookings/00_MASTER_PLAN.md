@@ -705,7 +705,7 @@ Per the ratified hybrid decision (ADR-08), fully specified in
 |---|---|
 | Owner-at-stay determination | Not automatically derivable — no ownership history exists (F-03/F-13) |
 | Default | `OwnerId = unit.OwnerId` |
-| Review | HB-06 consumes HB-05's read-only preview; no browser inference |
+| Review | HB-06 presents policy information before creation, then consumes HB-05's read-only review only after commit using the returned booking ID; no browser inference |
 | Correction | Separate `POST /api/internal/bookings/{bookingId:guid}/owner-attribution-corrections`, gated by `bookings:correct_owner_attribution` |
 | Unknown ownership | `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`; resolve offline, never guess |
 | Commission | No historical booking commission snapshot exists; correction does not infer or alter commission |
@@ -753,8 +753,14 @@ Full specification in [HB-06](06_TICKET_HISTORICAL_BOOKING_WIZARD_UI.md).
 | 2 | Stay & unit — dates (must be fully past), unit picker incl. inactive units, guest count | Always |
 | 3 | Client — match existing or create new | Always |
 | 4 | Financial — agreed amount only; optional payment evidence is a separate post-booking phase | Always |
-| 5 | Owner review — persisted attribution, warnings and correction capability; no browser inference or financial split | Always |
+| 5 | Owner review — policy-only explanation; no lookup, owner data, acknowledgement or API call | Always |
 | 6 | Review & create — full summary plus mandatory warnings | Always |
+
+After step 6 commits the booking, the irreversible booking-created state calls HB-05's read-only
+`GET /api/internal/bookings/{bookingId:guid}/owner-attribution-review` with the authoritative returned ID.
+That post-create review is not a seventh step and never gates booking success or optional payment. Review-required,
+forbidden, not-found and transport-failure outcomes preserve the booking ID and never trigger correction or owner
+inference.
 
 **Mandatory review-step warnings:** a completed historical booking is being recorded; reports will be
 affected; owner accounting may be affected; notifications will **not** be sent; system audit timestamps
@@ -1166,7 +1172,7 @@ that ticket demands most, not additional people.
 | HB-04A | Financial snapshot & repricing guard | P0 | HB-02, HB-03 | `agreed_amount`, guarded HB-02-row backfill, immutable financial truth, API mapping and central repricing guard | Backend + migration PR | **Critical** | M | Finance · Engineering · Security | Coordinated API/migration release required; no production execution in the PR |
 | HB-04B | Historical payment command | P0 | HB-04A | Payment actor schema, distinct permission, reason, command idempotency and payment audit; remains HB-04-owned | Separate backend + migration PR | **Critical** | M | Finance · Engineering · Security | Explicitly excluded from HB-04A |
 | HB-05 | Owner attribution review and correction | P0 | HB-02 through HB-04B | Read-only review, privileged audited correction, dedicated idempotency, no-payout-only safety | Backend + migration PR | **Critical** | L | Finance · Security · Operations | Contract READY |
-| HB-06 | Historical booking wizard UI | P1 | HB-03 through HB-05 | Full-page six-step wizard and two-phase optional payment UX | Frontend PR | Med | L | Product · Operations · Security | Blocked by HB-05 implementation |
+| HB-06 | Historical booking wizard UI | P1 | HB-03 through HB-05 | Full-page six-step wizard and two-phase optional payment UX | Frontend PR | Med | L | Product · Operations · Security | Contract READY; HB-05 dependency merged |
 | HB-07 | Notifications, automations, integrations | P1 | HB-02, HB-04B, HB-05 | Zero automatic notifications; integration exclusions and assertions | Backend + tests PR | Med | S | Engineering · Product | Contract READY |
 | HB-08A | Reporting, audit, observability and rollout | P1 | HB-02 through HB-05 | Recorded/stay axes, standalone evidence breakdown, reconciliation and pilot gates | Backend + SQL PR | High | L | Finance · Security · Operations · Engineering | Blocked by HB-05; rollout by PRE-00 |
 | HB-08B | REQ-16 normal-flow hardening | P0 | Successful HB-08A pilot | Separate past-date-hardening PR | Backend PR | High | S | Product · Security · Engineering | Blocked by pilot evidence |
@@ -1302,7 +1308,7 @@ This matrix is the authoritative readiness view after the 2026-08-01 contract-cl
 | Ticket | Endpoint contract | Permission contract | Request/response contract | Error registry | Idempotency | Concurrency | Migration ownership | Legacy-data policy | AC/NAC | Remaining blockers | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | HB-05 | Final | Final | Final | Final | Dedicated store final | Booking correction lock final | Correction audit/idempotency/permission only; implemented by migration `0062` | Guarded preflight; owner-reviewed remediation | Complete | None | **READY** |
-| HB-06 | Uses final HB-02/HB-04B/HB-05 routes | Existing permissions final | Two-phase UX final | Consumes canonical codes | Separate booking/payment keys | UI prevents duplicate submit; server authoritative | None | Not applicable | Complete | HB-05 implementation | **BLOCKED BY DEPENDENCY** |
+| HB-06 | Uses final HB-02/HB-04B/HB-05 routes | Existing permissions final | Two-phase UX final; owner policy before create and read-only review after commit | Consumes canonical codes | Separate booking/payment keys | UI prevents duplicate submit; server authoritative | None | Not applicable | Complete | None | **READY** |
 | HB-07 | No new endpoint | No new permission | No automatic dispatch contract final | No new code | Not applicable | Not applicable | None | Not applicable | Complete | None | **READY** |
 | HB-08 | Three report routes final; hardening separate | Existing analytics policy | Filters/responses final | `STAY_DATES_IN_PAST` final | Read-only | Report consistency and rollout sequencing final | Views only; no number reserved | PRE-00 gates rollout | Complete | HB-05 implementation; PRE-00 and pilot gates | **BLOCKED BY DEPENDENCY** |
 | HB-09 | No feature endpoint | No feature permission | Test/release evidence final | Generated inventory | Tests all command stores | Real PostgreSQL foundation final | None | Verifies each owner policy | Complete | HB-06 through HB-08 and operational evidence | **BLOCKED BY DEPENDENCY** |

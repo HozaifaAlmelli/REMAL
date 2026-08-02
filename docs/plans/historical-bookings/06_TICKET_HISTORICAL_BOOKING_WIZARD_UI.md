@@ -7,8 +7,8 @@
 | Field | Value |
 |---|---|
 | Ticket | HB-06 |
-| Status | **OWNER APPROVED — BLOCKED BY DEPENDENCY** |
-| Depends on | HB-02 through HB-05; HB-05 must expose the read-only owner review before the owner step is integrated |
+| Status | **OWNER APPROVED — READY FOR IMPLEMENTATION** |
+| Depends on | HB-02 through HB-05; dependencies are merged |
 | Migration ownership | None |
 | Route | `/admin/bookings/historical/new` |
 
@@ -30,12 +30,18 @@ responsive, and preserves entered state while moving backward and forward.
 2. Unit and occupied dates: inactive units may be selected; deleted units never appear.
 3. Client and stay details: exact `clientId` XOR `newClient` contract.
 4. Financial truth: required `agreedAmount`; current unit price is reference-only.
-5. Owner review: consume HB-05's read-only preview; show stable IDs, warnings and capability booleans. The
-   browser never computes or infers owner, commission or accounting values.
+5. Owner review: present the owner-attribution policy only. Explain that persisted server truth is reviewed
+   after creation and that current unit ownership is not historical attribution truth. This step performs no
+   lookup or API call, displays no owner data, and persists no acknowledgement or request field.
 6. Review and create: warnings, exact command summary, and a single booking submission.
 
-The owner step does not expose owner PII from conflict metadata. Privileged owner correction is a separate
-HB-05 flow and is not embedded in creation.
+After step 6 returns or idempotently recovers the authoritative booking ID, the wizard irreversibly enters
+`BookingCreated` and calls HB-05's existing read-only
+`GET /api/internal/bookings/{bookingId:guid}/owner-attribution-review`. The result appears inside the
+post-create state; it is not a seventh step. Review-required, forbidden, not-found and transport/server
+failures preserve booking success and permit only a GET retry where appropriate. No pre-create preview
+endpoint exists in v1, no current-owner inference is permitted, and privileged correction is never invoked
+automatically.
 
 ## 4. Conflict and duplicate handling
 
@@ -60,7 +66,8 @@ Booking creation and historical-payment recording are two separate commands:
 
 Payment failure preserves the successfully created booking and shows a payment-only retry. Retry never
 reposts the historical-booking command. The user may leave payment unrecorded. Historical evidence remains
-standalone and never invoice-linked.
+standalone and never invoice-linked. Optional payment availability is independent of every post-create owner
+review outcome and depends only on the HB-04B contract and payment permission.
 
 ## 6. Request lifecycle and recovery
 
@@ -69,6 +76,9 @@ standalone and never invoice-linked.
 - Validation errors focus the first invalid control and preserve all other values.
 - 409s render persistent inline surfaces, not transient toasts.
 - A booking success cannot be visually rolled back by a later payment failure.
+- A booking success becomes authoritative before owner review starts; owner review failure never returns the
+  wizard to an uncommitted draft.
+- Owner review retries call only the HB-05 GET with the persisted booking ID.
 - Explicit Cancel asks for confirmation when dirty.
 - Browser navigation/refresh uses `beforeunload` while dirty.
 - No autosave, draft booking, local-storage persistence or browser analytics is introduced in v1.
@@ -93,9 +103,9 @@ Use the repository's existing `tsx --test` convention for frontend unit/contract
 integrated browser behavior. Do not introduce Vitest, Jest or React Testing Library.
 
 Required coverage includes permission gating, full-page routing, state preservation, safe conflict metadata,
-exact acknowledgement fields, owner preview, booking idempotency, two-phase payment, payment retry without a
-second booking call, all four payment methods, warnings, cancellation, accessibility, responsive layouts and
-long-text containment.
+exact acknowledgement fields, zero pre-create owner calls, post-create owner-review states, booking
+idempotency, two-phase payment, payment retry without a second booking call, all four payment methods,
+warnings, cancellation, accessibility, responsive layouts and long-text containment.
 
 ## 10. Acceptance criteria
 
@@ -109,12 +119,12 @@ long-text containment.
 | AC-HB06-06 | Unit selection includes inactive and excludes deleted units. |
 | AC-HB06-07 | Client entry enforces exact `clientId` XOR `newClient`. |
 | AC-HB06-08 | Agreed amount is explicit and current price is reference-only. |
-| AC-HB06-09 | Owner review consumes server values and warnings without client calculation. |
+| AC-HB06-09 | Step 5 is policy-only with zero owner calls or data; after commit, owner review uses the returned booking ID and approved server fields without client calculation. |
 | AC-HB06-10 | Conflict surfaces use stable codes and approved safe metadata only. |
 | AC-HB06-11 | Probable duplicates use `acknowledgedDuplicateOf`. |
 | AC-HB06-12 | Date-block acknowledgement is exact-ID based. |
 | AC-HB06-13 | Booking creation submits exactly once with its retained idempotency key. |
-| AC-HB06-14 | Booking success is final before optional payment begins. |
+| AC-HB06-14 | Booking success is final before owner review or optional payment begins; neither later outcome can invalidate it. |
 | AC-HB06-15 | Payment controls appear only with `payments:record_historical`. |
 | AC-HB06-16 | All four canonical payment methods are supported. |
 | AC-HB06-17 | Payment uses a separate idempotency key and endpoint. |
@@ -132,7 +142,7 @@ long-text containment.
 |---|---|
 | NAC-HB06-01 | No route alias, modal, or reuse of normal create as the historical flow. |
 | NAC-HB06-02 | No client-side permission check as the sole control. |
-| NAC-HB06-03 | No owner, actor, lock or privileged field invented by the browser. |
+| NAC-HB06-03 | No pre-create owner-review call and no owner, actor, lock or privileged field invented by the browser. |
 | NAC-HB06-04 | No PII or amount rendered from conflict/duplicate metadata. |
 | NAC-HB06-05 | No fuzzy duplicate matching or blanket acknowledgement. |
 | NAC-HB06-06 | No browser-side owner split calculation. |
@@ -144,9 +154,10 @@ long-text containment.
 | NAC-HB06-12 | No autosave, draft, local-storage or analytics transport in v1. |
 | NAC-HB06-13 | No new frontend test framework. |
 | NAC-HB06-14 | No schema, migration or backend contract change. |
-| NAC-HB06-15 | No HB-05 correction controls in the normal booking editor. |
+| NAC-HB06-15 | No automatic HB-05 correction call or correction controls in the wizard or normal booking editor. |
 
 ## 12. Readiness
 
-Contract readiness is complete. Implementation status is **BLOCKED BY DEPENDENCY** until HB-05's read-only
-owner review contract is implemented. HB-02 through HB-04B are already required foundations.
+Contract readiness is complete and implementation status is **READY**. HB-02 through HB-05 are merged
+foundations. The owner policy step is pre-create and informational; the existing HB-05 read-only review runs
+only after booking commit with the authoritative returned booking ID.

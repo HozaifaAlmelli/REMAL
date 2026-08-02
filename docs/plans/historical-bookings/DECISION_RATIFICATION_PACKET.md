@@ -151,7 +151,7 @@ contain the full contracts; this section records the binding cross-ticket decisi
 |---|---|
 | Surface | Full page `/admin/bookings/historical/new`; secondary booking-list action; no modal |
 | Metadata | Conflict/duplicate UI uses approved safe IDs/dates only and `acknowledgedDuplicateOf`; no PII/amount leakage |
-| Owner review | Consume HB-05 read-only preview with stable IDs, warnings and capabilities; no browser financial calculation |
+| Owner review | Step 5 is policy-only and performs no lookup or API call. After step 6 commits, consume HB-05 read-only review with the returned booking ID; every review outcome preserves booking success and optional payment independence. No pre-create endpoint, current-owner inference or automatic correction |
 | Payment UX | Create booking first; optional HB-04B payment second and only with permission; all four canonical methods; payment failure preserves booking and retries payment only |
 | Lifecycle/testing | Explicit Cancel and `beforeunload` warnings; no browser analytics v1; use `tsx --test` and existing Playwright |
 

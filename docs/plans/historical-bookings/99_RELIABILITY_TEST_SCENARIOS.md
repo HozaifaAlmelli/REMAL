@@ -409,9 +409,9 @@ is never rolled back by a later payment-command failure.
 | **Traceability** | REQ-01, REQ-02, REQ-03, REQ-04, REQ-12, REQ-19 · HB-02 · INV-01, INV-02, INV-05, INV-11 |
 | **Preconditions** | `A-HIST` signed in; `U-ACTIVE-1` free for `STAY-IN … STAY-OUT`; `C-EXISTING-1` present; baseline counters captured |
 | **Test data** | unit `U-ACTIVE-1`; client `C-EXISTING-1`; `check_in = STAY-IN`, `check_out = STAY-OUT`; `actual_booked_at = AGREED-AT`; `historical_entry_reason = offline_agreement`; `original_source = offline_record`; `guest_count = 2`; `agreed_amount = 3900.00`; no payment |
-| **Steps** | 1. Open the historical wizard. 2. Step 1: source `offline_record`, agreement date `AGREED-AT`, reason `offline_agreement`. 3. Step 2: pick `U-ACTIVE-1`, dates `STAY-IN`/`STAY-OUT`, 2 guests. 4. Step 3: select `C-EXISTING-1`. 5. Step 4: agreed amount `3900.00`. 6. Step 5: review persisted owner attribution and warnings. 7. Step 6: submit. |
-| **Expected — UI** | Wizard advances only when each step validates; step 6 lists all five mandatory warnings; on success the operator lands on the new booking detail page, which carries a visible "Historical record" marker and shows status `Completed` |
-| **Expected — API** | `200 OK` from `H-CREATE`; body contains the booking id, `isHistorical: true`, `bookingStatus: "Completed"`, `actualBookedAt`, `historicalEntryReason`, `originalSource` |
+| **Steps** | 1. Open the historical wizard. 2. Step 1: source `offline_record`, agreement date `AGREED-AT`, reason `offline_agreement`. 3. Step 2: pick `U-ACTIVE-1`, dates `STAY-IN`/`STAY-OUT`, 2 guests. 4. Step 3: select `C-EXISTING-1`. 5. Step 4: agreed amount `3900.00`. 6. Step 5: review owner-attribution policy; make no owner call. 7. Step 6: submit. 8. After `200`, review persisted attribution with the returned booking ID. |
+| **Expected — UI** | Wizard advances only when each step validates; step 6 lists all five mandatory warnings; on success booking identity remains authoritative while owner review loads or fails independently; no review outcome returns to draft |
+| **Expected — API** | `200 OK` from `H-CREATE`, then HB-05 GET with the returned booking ID; body contains the booking id, `isHistorical: true`, `bookingStatus: "Completed"`, `actualBookedAt`, `historicalEntryReason`, `originalSource` |
 | **Expected — DB** | Exactly one new `bookings` row: `booking_status = 'completed'`, `is_historical = true`, `actual_booked_at = AGREED-AT`, `historical_entry_reason = 'offline_agreement'`, `original_source = 'offline_record'`, `owner_id = O-ALPHA`, dates as entered. `created_at` and `updated_at` are within 60 s of real UTC now — **not** `AGREED-AT` |
 | **Expected — Audit** | Exactly **one** `booking_status_history` row: `old_status = NULL`, `new_status = 'completed'`, `changed_by_admin_user_id = A-HIST`, `changed_at ≈ now`, note = the historical-creation constant. Audit event `booking.historical.recorded` emitted |
 | **Expected — Financial** | `agreed_amount = base_amount = final_amount = 3900.00`; no invoice or payment is created automatically; outstanding evidence balance = 3 900.00 |
@@ -1490,7 +1490,7 @@ touching HB-04. This scenario is the tripwire for that. It is **not** in the exp
 | **Preconditions** | `O-ALPHA.CommissionRate = 15.00`; historical creation is otherwise valid |
 | **Test data** | `agreed_amount = 3900.00` |
 | **Steps** | 1. `H-CREATE`. |
-| **Expected — UI** | Owner review shows attribution only; no calculated split |
+| **Expected — UI** | Step 5 shows policy only; the post-create owner review shows persisted attribution only and no calculated split |
 | **Expected — API** | `200` without invented commission/split fields |
 | **Expected — DB** | `owner_id = O-ALPHA`; `agreed_amount = base_amount = final_amount = 3900.00`; no split columns or payout row |
 | **Expected — Audit** | Creation records owner identity, not inferred commission economics |
@@ -2475,8 +2475,10 @@ notification tools remain human-governed and unchanged.
 
 ## Group 12 — UI and UX (`SC-UI-nn`)
 
-**Binding HB-06 policy:** the wizard is a full page. Booking creation succeeds first; optional HB-04B payment
-is a second permission-gated command. Payment failure preserves the booking and retries only payment.
+**Binding HB-06 policy:** the wizard is a full page. Step 5 is policy-only and makes no owner call. Booking
+creation succeeds in step 6, then HB-05 review uses the returned booking ID without gating success. Optional
+HB-04B payment is a second permission-gated command, independent from review. Payment failure preserves the
+booking and retries only payment.
 
 #### SC-UI-01 — Entry point is permission-gated
 
@@ -3701,9 +3703,9 @@ with a citation.
 | **Traceability** | REQ-01 · HB-06 |
 | **Preconditions** | Latency injected on the endpoint |
 | **Test data** | Slow submit |
-| **Steps** | 1. Submit. 2. Attempt to submit again while in flight. |
-| **Expected — UI** | Submit control disabled with a visible pending state; no double submission possible |
-| **Expected — API** | One request only |
+| **Steps** | 1. Submit. 2. Attempt to submit again while in flight. 3. Hold the post-create owner-review GET and inspect state. |
+| **Expected — UI** | Submit control disabled with a visible pending state; no double submission possible; after `200`, booking success is visible and irreversible while owner review loads |
+| **Expected — API** | One booking POST, followed only after success by one owner-review GET using the returned booking ID |
 | **Expected — DB** | One booking |
 | **Expected — Audit** | One history row |
 | **Expected — Financial** | One set of amounts |
