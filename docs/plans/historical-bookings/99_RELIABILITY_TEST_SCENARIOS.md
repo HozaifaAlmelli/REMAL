@@ -3421,6 +3421,26 @@ with a citation.
 | **Cleanup** | Snapshot restore |
 | **Diagnostics** | Guards `BookingService.cs:225` and proves the historical correction surface did not leak into the normal flow |
 
+#### SC-OWN-18 — Correction uses correction-specific attribution uncertainty transport
+
+| | |
+|---|---|
+| **Priority · Category · Automate** | P0 · Owner · YES (API + integration) |
+| **Traceability** | REQ-07 · HB-05 · AC-HB05-25 |
+| **Preconditions** | Historical booking whose persisted owner is missing, soft-deleted, unsupported or incoherent |
+| **Test data** | Review and correction requests for the same booking |
+| **Steps** | 1. Request read-only review. 2. Attempt correction. 3. Compare coded transport and database state. |
+| **Expected — UI** | Administrative-review guidance without owner PII |
+| **Expected — API** | Review: `409 OWNER_ATTRIBUTION_REQUIRES_REVIEW`; correction: `409 OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW` |
+| **Expected — DB** | No booking, correction, history, payout or completed-idempotency mutation |
+| **Expected — Audit** | No success event |
+| **Expected — Financial** | Unchanged |
+| **Expected — Owner** | Unchanged; no inferred replacement |
+| **Expected — Notification** | Unchanged |
+| **Expected — Reporting** | Unchanged |
+| **Cleanup** | Snapshot restore |
+| **Diagnostics** | Proves correction never overloads HB-02 review/creation transport |
+
 ---
 
 ## Group 9 continued — Notifications and integrations
@@ -3802,7 +3822,7 @@ from `01`**, so membership is unambiguous: `AC-HB04-14` is in `AC-HB04-01 … AC
 | HB-03 | `AC-HB03-01` … `AC-HB03-20` | 20 | `NAC-HB03-01` … `NAC-HB03-14` | 14 | REQ-09, REQ-10, REQ-15, REQ-17, REQ-19, REQ-20 |
 | HB-04A | `AC-HB04-01` … `AC-HB04-14` | 14 | `NAC-HB04-01` … `NAC-HB04-12` | 12 | REQ-05, REQ-14 |
 | HB-04B | `AC-HB04B-01` … `AC-HB04B-09` | 9 | `NAC-HB04B-01` … `NAC-HB04B-05` | 5 | REQ-06, REQ-14 |
-| HB-05 | `AC-HB05-01` … `AC-HB05-24` | 24 | `NAC-HB05-01` … `NAC-HB05-16` | 16 | REQ-07, REQ-08 |
+| HB-05 | `AC-HB05-01` … `AC-HB05-27` | 27 | `NAC-HB05-01` … `NAC-HB05-17` | 17 | REQ-07, REQ-08 |
 | HB-06 | `AC-HB06-01` … `AC-HB06-24` | 24 | `NAC-HB06-01` … `NAC-HB06-15` | 15 | REQ-01, REQ-11 |
 | HB-07 | `AC-HB07-01` … `AC-HB07-15` | 15 | `NAC-HB07-01` … `NAC-HB07-14` | 14 | REQ-13, REQ-14 |
 | HB-08 | `AC-HB08-01` … `AC-HB08-26` | 26 | `NAC-HB08-01` … `NAC-HB08-18` | 18 | REQ-12, REQ-14, REQ-15, REQ-16 (implementation), REQ-18 |
@@ -3827,7 +3847,7 @@ these 17 groups, and every group resolves to a ticket and its criterion range.
 | `SC-SEC-01` … `-12` | 12 | HB-02, HB-05, HB-06 | `AC-HB02-*`, `AC-HB05-*`, `AC-HB06-*` | REQ-11, REQ-07 |
 | `SC-FIN-01` … `-14` | 14 | HB-04A, HB-05 | `AC-HB04-01` … `-14`, `AC-HB05-*` | REQ-05, REQ-08 |
 | `SC-PAY-01` … `-10` | 10 | HB-04B | `AC-HB04B-01` … `-09`, `NAC-HB04B-01` … `-05` | REQ-06 |
-| `SC-OWN-01` … `-17` | 17 | HB-05 | `AC-HB05-01` … `-24`, `NAC-HB05-01` … `-16` | REQ-07, REQ-08 |
+| `SC-OWN-01` … `-18` | 18 | HB-05 | `AC-HB05-01` … `-27`, `NAC-HB05-01` … `-17` | REQ-07, REQ-08 |
 | `SC-NOTIF-01` … `-12` | 12 | HB-07 | `AC-HB07-01` … `-15`, `NAC-HB07-01` … `-14` | REQ-13, REQ-14 |
 | `SC-AUDIT-01` … `-06` | 6 | HB-02, HB-08 | `AC-HB02-*`, `AC-HB08-11` … `-13` | REQ-12 |
 | `SC-REP-01` … `-14` | 14 | HB-08 | `AC-HB08-01` … `-22` | REQ-18, REQ-14 |
@@ -3849,7 +3869,7 @@ these 17 groups, and every group resolves to a ticket and its criterion range.
 | REQ-04 reason and original source | `SC-SEC-09`, `SC-AUDIT-04`, `SC-REP-07` |
 | REQ-05 protected agreed financials | `SC-FIN-01`, `SC-FIN-02`, `SC-FIN-03`, `SC-FIN-09`, `SC-FIN-13`, `SC-FIN-14`, `SC-MIG-01`, `SC-MIG-05` |
 | REQ-06 historical payments | `SC-HAPPY-02`, `SC-PAY-01`…`SC-PAY-10` |
-| REQ-07 owner attribution | `SC-OWN-01`…`SC-OWN-08`, `SC-OWN-14`…`SC-OWN-16`, `SC-SEC-11` |
+| REQ-07 owner attribution | `SC-OWN-01`…`SC-OWN-08`, `SC-OWN-14`…`SC-OWN-18`, `SC-SEC-11` |
 | REQ-08 owner-attribution chain and financial/payout safety | `SC-FIN-05`, `SC-FIN-06`, `SC-OWN-09`, `SC-OWN-11`, `SC-OWN-12`, `SC-OWN-13`, `SC-SEC-08` |
 | REQ-09 overlap prevention | `SC-AVAIL-01`…`SC-AVAIL-06`, `SC-AVAIL-11`, `SC-AVAIL-12`, `SC-DUP-03`, `SC-CONC-02`, `SC-CONC-03`, `SC-PERF-01` |
 | REQ-10 duplicate prevention | `SC-DUP-01`…`SC-DUP-08`, `SC-CONC-04`, `SC-TXN-04`, `SC-PERF-02` |
@@ -3873,7 +3893,7 @@ these 17 groups, and every group resolves to a ticket and its criterion range.
 | HB-03 | `SC-AVAIL-01`…`SC-AVAIL-12`, `SC-DUP-01`…`SC-DUP-08`, `SC-CONC-01`…`SC-CONC-05`, `SC-PERF-01`, `SC-PERF-02` |
 | HB-04A | `SC-FIN-01`…`SC-FIN-04`, `SC-FIN-09`, `SC-FIN-10`, `SC-FIN-13`, `SC-FIN-14`, `SC-NOTIF-04`, `SC-NOTIF-05`, `SC-MIG-01`, `SC-MIG-05` |
 | HB-04B | `SC-PAY-01`…`SC-PAY-10` and payment-dependent financial scenarios |
-| HB-05 | `SC-OWN-01`…`SC-OWN-17`, `SC-SEC-08`, `SC-SEC-11`, `SC-FIN-05`, `SC-FIN-06` |
+| HB-05 | `SC-OWN-01`…`SC-OWN-18`, `SC-SEC-08`, `SC-SEC-11`, `SC-FIN-05`, `SC-FIN-06` |
 | HB-06 | `SC-UI-01`…`SC-UI-10`, `SC-MIG-03` |
 | HB-07 | `SC-NOTIF-01`…`SC-NOTIF-12`, `SC-PAY-09` |
 | HB-08A | `SC-REP-01`…`SC-REP-14`, `SC-PERF-03`, `SC-PERF-04`, `SC-MIG-02`, `SC-MIG-04` |

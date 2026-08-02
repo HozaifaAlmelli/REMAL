@@ -277,6 +277,7 @@ builder.Services.AddScoped<IHistoricalIdempotencyStore, HistoricalIdempotencySto
 builder.Services.AddScoped<IHistoricalConflictService, HistoricalConflictService>();
 builder.Services.AddScoped<IHistoricalBookingService, HistoricalBookingService>();
 builder.Services.AddScoped<IHistoricalPaymentService, HistoricalPaymentService>();
+builder.Services.AddScoped<IHistoricalOwnerAttributionService, HistoricalOwnerAttributionService>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<IBusinessClock, CairoBusinessClock>();
 builder.Services.AddScoped<IGuestBookingService, GuestBookingService>();

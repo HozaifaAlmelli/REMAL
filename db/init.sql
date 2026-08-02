@@ -186,4 +186,7 @@
 \echo '=== Running migration 0061: add historical payment recording ==='
 \i /docker-entrypoint-initdb.d/migrations/0061_add_historical_payment_recording.sql
 
+\echo '=== Running migration 0062: add historical owner attribution corrections ==='
+\i /docker-entrypoint-initdb.d/migrations/0062_add_historical_owner_attribution_corrections.sql
+
 \echo '=== All migrations completed successfully ==='

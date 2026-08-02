@@ -138,9 +138,10 @@ contain the full contracts; this section records the binding cross-ticket decisi
 |---|---|
 | Endpoint/permission | `POST /api/internal/bookings/{bookingId:guid}/owner-attribution-corrections`; `bookings:correct_owner_attribution`; `200 OK` |
 | Target/reason | Explicit trusted owner ID; inactive non-deleted allowed with warning; deleted rejected; four-code reason list; `other` requires note |
-| Uncertainty | `OWNER_ATTRIBUTION_REQUIRES_REVIEW`; offline review; no determinability request flag |
+| Uncertainty | Read-only review uses `OWNER_ATTRIBUTION_REQUIRES_REVIEW`; correction uses `OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW`; offline review; no determinability request flag |
 | Payout | Correction only with no payout row. Pending, Scheduled, Paid and Cancelled all block with `OWNER_CORRECTION_PAYOUT_REVIEW_REQUIRED`; zero payout mutation |
-| Idempotency/concurrency | Dedicated actor+endpoint+key store; canonical hash includes `expectedCurrentOwnerId`; server-derived booking lock; same-owner coded no-op; one winner and one stale-attribution loser for concurrent conflicts |
+| Idempotency/concurrency | Dedicated actor+endpoint+key store with immutable response-warning snapshot; canonical hash includes `expectedCurrentOwnerId`; server-derived booking lock; same-owner coded no-op; one winner and one stale-attribution loser for concurrent conflicts |
+| Permission seed | Migration `0062` grants `bookings:correct_owner_attribution` to the SuperAdmin role template only and refreshes affected SuperAdmin authorization timestamps |
 | Audit | Append-only correction chain with previous/target owner and rate, actor, reason, timestamp and correction ID; one concise booking-history link |
 | Legacy rows | Migration preflight aborts when historical attribution evidence is incomplete; remediation requires owner-reviewed data; no current-owner/current-rate backfill |
 
@@ -421,6 +422,12 @@ concurrent conflicts using the same reviewed precondition have one winner and on
 audit event. Inactive non-deleted targets are allowed with a warning; deleted targets are rejected. Reason
 codes are `ownership_changed_after_stay`, `booking_belonged_to_previous_owner_agreement`,
 `accounting_reconciliation`, and `other` (note required).
+
+**2026-08-02 clarification.** The review endpoint retains `OWNER_ATTRIBUTION_REQUIRES_REVIEW`; correction
+uses `OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW`. Correction response warnings are computed once
+under the lock and persisted with idempotency completion so replay cannot drift after owner-status changes.
+Migration `0062` seeds the dedicated permission to the SuperAdmin role template only and applies the standard
+affected-user token-refresh bump.
 
 ---
 
