@@ -8,6 +8,7 @@ public sealed class HistoricalOwnerCorrectionIdempotencyKey
     public string RequestHash { get; set; } = string.Empty;
     public Guid? CorrectionId { get; set; }
     public int? ResponseStatus { get; set; }
+    public string[] ResponseWarningCodes { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
 

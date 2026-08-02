@@ -1,5 +1,8 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using RentalPlatform.API.DTOs.Responses.Bookings;
+using RentalPlatform.API.Models;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Models;
 using RentalPlatform.Business.Services;
@@ -62,8 +65,17 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
             Assert.Equal(first.Correction.CorrectedAt, replay.Correction.CorrectedAt);
             Assert.Contains(HistoricalOwnerAttributionWarnings.TargetOwnerInactive, first.Warnings);
             Assert.Equal(first.Warnings, replay.Warnings);
-            var inactiveCurrentReview = await service.ReviewAsync(seed.Booking.Id);
+            var initialBody = SerializeCorrectionResponse(first);
+            seed.TargetB.Status = "active";
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+            var replayAfterActivation = await service.CorrectAsync(command);
+            Assert.Equal(initialBody, SerializeCorrectionResponse(replayAfterActivation));
             Assert.Contains(
+                HistoricalOwnerAttributionWarnings.TargetOwnerInactive,
+                replayAfterActivation.Warnings);
+            var inactiveCurrentReview = await service.ReviewAsync(seed.Booking.Id);
+            Assert.DoesNotContain(
                 HistoricalOwnerAttributionWarnings.CurrentOwnerInactive,
                 inactiveCurrentReview.Warnings);
 
@@ -93,6 +105,17 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
                     seed.Booking.Id, seed.OwnerA.Id, seed.TargetB.Id,
                     seed.AdminA.Id, Guid.NewGuid())));
             Assert.Equal(HistoricalErrorCodes.OwnerCorrectionStaleAttribution, stale.Code);
+
+            var differentBooking = await AddHistoricalBookingAsync(context, seed, seed.OwnerA.Id);
+            var differentBookingReuse = await Assert.ThrowsAsync<ConflictException>(() =>
+                service.CorrectAsync(command with
+                {
+                    BookingId = differentBooking.Id,
+                    ExpectedCurrentOwnerId = seed.OwnerA.Id
+                }));
+            Assert.Equal(
+                HistoricalErrorCodes.OwnerCorrectionIdempotencyKeyReused,
+                differentBookingReuse.Code);
         }
 
         await using var verification = database.CreateDbContext();
@@ -112,6 +135,38 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
         Assert.Equal(2, await OwnerCorrectionHistoryCount(verification, seed.Booking.Id));
         Assert.Equal(2, await verification.HistoricalOwnerCorrectionIdempotencyKeys.CountAsync());
         await AssertNoFinancialOrRelationshipSideEffectsAsync(verification, seed);
+    }
+
+    [Fact]
+    public async Task ReplayWarningSnapshotDoesNotDriftWhenTargetBecomesInactive()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        var seed = await SeedAsync(context);
+        var service = Service(context);
+        var command = Command(
+            seed.Booking.Id,
+            seed.OwnerA.Id,
+            seed.TargetB.Id,
+            seed.AdminA.Id,
+            Guid.NewGuid());
+
+        var initial = await service.CorrectAsync(command);
+        Assert.Empty(initial.Warnings);
+        var initialBody = SerializeCorrectionResponse(initial);
+
+        seed.TargetB.Status = "inactive";
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var replay = await service.CorrectAsync(command);
+        Assert.Empty(replay.Warnings);
+        Assert.Equal(initialBody, SerializeCorrectionResponse(replay));
+        Assert.Equal(1, await context.HistoricalOwnerAttributionCorrections
+            .CountAsync(item => item.BookingId == seed.Booking.Id));
+        Assert.Equal(1, await OwnerCorrectionHistoryCount(context, seed.Booking.Id));
+        Assert.Equal(1, await context.HistoricalOwnerCorrectionIdempotencyKeys
+            .CountAsync(item => item.CorrectionId == initial.Correction.Id));
     }
 
     [Fact]
@@ -220,6 +275,17 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
         var uncertain = await Assert.ThrowsAsync<ConflictException>(() =>
             Service(context).ReviewAsync(secondSeed.Booking.Id));
         Assert.Equal(HistoricalErrorCodes.OwnerAttributionRequiresReview, uncertain.Code);
+
+        var correctionUncertain = await Assert.ThrowsAsync<ConflictException>(() =>
+            Service(context).CorrectAsync(Command(
+                secondSeed.Booking.Id,
+                secondSeed.OwnerA.Id,
+                secondSeed.TargetB.Id,
+                secondSeed.AdminA.Id,
+                Guid.NewGuid())));
+        Assert.Equal(
+            HistoricalErrorCodes.OwnerCorrectionCurrentAttributionRequiresReview,
+            correctionUncertain.Code);
     }
 
     [Fact]
@@ -276,7 +342,75 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
 
     [Fact]
     [Trait(TestCategories.Name, TestCategories.Concurrency)]
-    public async Task PayoutWriterUsesTheSameLockAndCorrectionNeverCrossesAnAuthoritativePayout()
+    public async Task PayoutWriterWaitsForOwnerCorrectionAdvisoryLock()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        SeededData seed;
+        await using (var setup = database.CreateDbContext())
+            seed = await SeedAsync(setup);
+
+        await using var lockConnection = await database.OpenConnectionAsync();
+        await using var lockTransaction = await lockConnection.BeginTransactionAsync();
+        await using (var lockCommand = new NpgsqlCommand(
+            "SELECT pg_advisory_xact_lock(hashtextextended(@key, 0))",
+            lockConnection,
+            lockTransaction))
+        {
+            lockCommand.Parameters.AddWithValue(
+                "key",
+                HistoricalOwnerCorrectionLocks.ForBooking(seed.Booking.Id));
+            await lockCommand.ExecuteNonQueryAsync();
+        }
+
+        const string applicationName = "HB05 payout lock probe";
+        var connectionString = new NpgsqlConnectionStringBuilder(database.ConnectionString)
+        {
+            ApplicationName = applicationName
+        }.ConnectionString;
+        var payoutTask = Task.Run(async () =>
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using var payoutContext = new AppDbContext(options);
+            return await new OwnerPayoutService(new UnitOfWork(payoutContext))
+                .CreateOrUpdateFromBookingAsync(
+                    seed.Booking.Id,
+                    10m,
+                    null,
+                    "HB05 lock compatibility");
+        });
+
+        await AssertEventuallyAsync(async () =>
+        {
+            await using var inspection = await database.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_locks lock
+                    JOIN pg_stat_activity activity ON activity.pid = lock.pid
+                    WHERE activity.application_name = @application_name
+                      AND lock.locktype = 'advisory'
+                      AND NOT lock.granted)
+                """,
+                inspection);
+            command.Parameters.AddWithValue("application_name", applicationName);
+            return Convert.ToBoolean(await command.ExecuteScalarAsync());
+        });
+        Assert.False(payoutTask.IsCompleted);
+
+        await lockTransaction.CommitAsync();
+        var payout = await payoutTask.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(seed.Booking.Id, payout.BookingId);
+        await using var verification = database.CreateDbContext();
+        Assert.Equal(1, await verification.OwnerPayouts
+            .CountAsync(item => item.BookingId == seed.Booking.Id));
+    }
+
+    [Fact]
+    [Trait(TestCategories.Name, TestCategories.Concurrency)]
+    public async Task CorrectionNeverCrossesAnAuthoritativePayoutRace()
     {
         await using var database = await _fixture.CreateTestDatabaseAsync();
 
@@ -286,20 +420,11 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
             await using (var setup = database.CreateDbContext())
                 seed = await SeedAsync(setup);
 
-            await using var lockConnection = await database.OpenConnectionAsync();
-            await using var lockTransaction = await lockConnection.BeginTransactionAsync();
-            await using (var lockCommand = new NpgsqlCommand(
-                "SELECT pg_advisory_xact_lock(hashtextextended(@key, 0))",
-                lockConnection,
-                lockTransaction))
-            {
-                lockCommand.Parameters.AddWithValue("key", HistoricalOwnerCorrectionLocks.ForBooking(seed.Booking.Id));
-                await lockCommand.ExecuteNonQueryAsync();
-            }
-
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var payoutTask = Task.Run(async () =>
             {
                 await using var payoutContext = database.CreateDbContext();
+                await gate.Task;
                 return await new OwnerPayoutService(new UnitOfWork(payoutContext))
                     .CreateOrUpdateFromBookingAsync(
                         seed.Booking.Id,
@@ -308,10 +433,10 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
                         "HB05 lock compatibility");
             });
 
-            await Task.Delay(75);
             var correctionTask = Task.Run(async () =>
             {
                 await using var correctionContext = database.CreateDbContext();
+                await gate.Task;
                 try
                 {
                     return new Outcome(await Service(correctionContext).CorrectAsync(Command(
@@ -324,11 +449,10 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
                 }
             });
 
-            await Task.Delay(50);
-            await lockTransaction.CommitAsync();
+            gate.SetResult();
 
-            var payout = await payoutTask;
-            var outcome = await correctionTask;
+            var payout = await payoutTask.WaitAsync(TimeSpan.FromSeconds(10));
+            var outcome = await correctionTask.WaitAsync(TimeSpan.FromSeconds(10));
 
             await using var verification = database.CreateDbContext();
             var persistedOwnerId = await verification.Bookings.AsNoTracking()
@@ -358,7 +482,7 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
     }
 
     [Fact]
-    public async Task CorrectionAuditRejectsApplicationAndDatabaseUpdateAndDelete()
+    public async Task CorrectionAuditRejectsApplicationAndDatabaseUpdateDeleteAndTruncate()
     {
         await using var database = await _fixture.CreateTestDatabaseAsync();
         Guid correctionId;
@@ -376,6 +500,17 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
             var applicationGuard = await Assert.ThrowsAsync<HistoricalOwnerCorrectionAuditImmutableException>(
                 () => context.SaveChangesAsync());
             Assert.Equal(HistoricalErrorCodes.OwnerCorrectionAuditImmutable, applicationGuard.Code);
+
+            context.ChangeTracker.Clear();
+            var toDelete = await context.HistoricalOwnerAttributionCorrections
+                .SingleAsync(item => item.Id == correctionId);
+            context.HistoricalOwnerAttributionCorrections.Remove(toDelete);
+            var applicationDeleteGuard =
+                await Assert.ThrowsAsync<HistoricalOwnerCorrectionAuditImmutableException>(
+                    () => context.SaveChangesAsync());
+            Assert.Equal(
+                HistoricalErrorCodes.OwnerCorrectionAuditImmutable,
+                applicationDeleteGuard.Code);
         }
 
         await using var connection = await database.OpenConnectionAsync();
@@ -390,6 +525,21 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
             var databaseGuard = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync());
             Assert.Equal("ck_historical_owner_corrections_immutable", databaseGuard.ConstraintName);
         }
+
+        await ExecuteAsync(
+            connection,
+            $"DELETE FROM historical_owner_correction_idempotency_keys WHERE correction_id = '{correctionId}'");
+        await using (var truncate = new NpgsqlCommand(
+            "TRUNCATE TABLE historical_owner_correction_idempotency_keys, " +
+            "historical_owner_attribution_corrections",
+            connection))
+        {
+            var truncateGuard = await Assert.ThrowsAsync<PostgresException>(
+                () => truncate.ExecuteNonQueryAsync());
+            Assert.Equal("ck_historical_owner_corrections_immutable", truncateGuard.ConstraintName);
+        }
+        Assert.Equal(1L, Convert.ToInt64(await ScalarAsync(connection,
+            "SELECT count(*) FROM historical_owner_attribution_corrections")));
     }
 
     [Fact]
@@ -403,9 +553,21 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
         await using (var connection = await database.OpenConnectionAsync())
         {
             await ExecuteAsync(connection, verifier);
+            await ExecuteAsync(connection, """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    migration_number VARCHAR(20) PRIMARY KEY,
+                    migration_name VARCHAR(255) NOT NULL,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO schema_migrations (migration_number, migration_name)
+                VALUES ('0062', '0062_add_historical_owner_attribution_corrections.sql')
+                ON CONFLICT (migration_number) DO NOTHING;
+                """);
             await ExecuteAsync(connection, rollback);
             Assert.False(Convert.ToBoolean(await ScalarAsync(connection,
                 "SELECT to_regclass('public.historical_owner_attribution_corrections') IS NOT NULL")));
+            Assert.Equal(0L, Convert.ToInt64(await ScalarAsync(connection,
+                "SELECT count(*) FROM schema_migrations WHERE migration_number = '0062'")));
         }
 
         SeededData seed;
@@ -413,6 +575,8 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
             seed = await SeedAsync(context);
         await using (var connection = await database.OpenConnectionAsync())
         {
+            await ExecuteAsync(connection,
+                $"UPDATE admin_users SET updated_at = TIMESTAMPTZ '2000-01-01 00:00:00+00' WHERE id = '{seed.AdminA.Id}'");
             await ExecuteAsync(connection, "ALTER TABLE bookings DROP CONSTRAINT ck_bookings_historical_fields_coherent");
             await ExecuteAsync(connection,
                 $"UPDATE bookings SET actual_booked_at = NULL WHERE id = '{seed.Booking.Id}'");
@@ -425,17 +589,96 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
                 $"UPDATE bookings SET actual_booked_at = DATE '2026-07-01' WHERE id = '{seed.Booking.Id}'");
             await ExecuteAsync(connection, migration);
             await ExecuteAsync(connection, verifier);
+            Assert.Equal(1L, Convert.ToInt64(await ScalarAsync(connection, """
+                SELECT count(*)
+                FROM rbac_role_template_permissions
+                WHERE permission_key = 'bookings:correct_owner_attribution'
+                  AND role_template_id = '10000000-0000-0000-0000-000000000001'
+                """)));
+            Assert.Equal(1L, Convert.ToInt64(await ScalarAsync(connection, """
+                SELECT count(*)
+                FROM rbac_role_template_permissions
+                WHERE permission_key = 'bookings:correct_owner_attribution'
+                """)));
+            Assert.True(Convert.ToDateTime(await ScalarAsync(connection,
+                $"SELECT updated_at FROM admin_users WHERE id = '{seed.AdminA.Id}'")) >
+                new DateTime(2000, 1, 1));
             Assert.Equal(seed.OwnerA.Id, (Guid)(await ScalarAsync(connection,
                 $"SELECT owner_id FROM bookings WHERE id = '{seed.Booking.Id}'"))!);
             Assert.Equal(0L, Convert.ToInt64(await ScalarAsync(connection,
                 "SELECT count(*) FROM historical_owner_attribution_corrections")));
 
-            await ExecuteAsync(connection,
-                "ALTER TABLE historical_owner_attribution_corrections DISABLE TRIGGER trg_historical_owner_corrections_immutable");
-            await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, verifier));
-            await ExecuteAsync(connection,
+            await AssertVerifierRejectsAsync(connection, verifier,
+                "DELETE FROM rbac_role_template_permissions WHERE permission_key = 'bookings:correct_owner_attribution'",
+                """
+                INSERT INTO rbac_role_template_permissions (role_template_id, permission_key, created_at)
+                VALUES ('10000000-0000-0000-0000-000000000001',
+                        'bookings:correct_owner_attribution', CURRENT_TIMESTAMP)
+                """);
+            await AssertVerifierRejectsAsync(connection, verifier,
+                "UPDATE rbac_role_template_permissions SET permission_key = 'bookings:correct_owner_attributon' WHERE permission_key = 'bookings:correct_owner_attribution'",
+                "UPDATE rbac_role_template_permissions SET permission_key = 'bookings:correct_owner_attribution' WHERE permission_key = 'bookings:correct_owner_attributon'");
+
+            var otherRoleId = (Guid)(await ScalarAsync(connection, """
+                SELECT id FROM rbac_role_templates
+                WHERE id <> '10000000-0000-0000-0000-000000000001'
+                ORDER BY id LIMIT 1
+                """))!;
+            await AssertVerifierRejectsAsync(connection, verifier,
+                $"INSERT INTO rbac_role_template_permissions (role_template_id, permission_key, created_at) VALUES ('{otherRoleId}', 'bookings:correct_owner_attribution', CURRENT_TIMESTAMP)",
+                $"DELETE FROM rbac_role_template_permissions WHERE role_template_id = '{otherRoleId}' AND permission_key = 'bookings:correct_owner_attribution'");
+
+            await AssertVerifierRejectsAsync(connection, verifier,
+                """
+                ALTER TABLE historical_owner_correction_idempotency_keys
+                    DROP CONSTRAINT pk_historical_owner_correction_idempotency_keys,
+                    ADD CONSTRAINT pk_historical_owner_correction_idempotency_keys
+                    PRIMARY KEY (key, endpoint, actor_admin_user_id)
+                """,
+                """
+                ALTER TABLE historical_owner_correction_idempotency_keys
+                    DROP CONSTRAINT pk_historical_owner_correction_idempotency_keys,
+                    ADD CONSTRAINT pk_historical_owner_correction_idempotency_keys
+                    PRIMARY KEY (actor_admin_user_id, endpoint, key)
+                """);
+
+            await AssertVerifierRejectsAsync(connection, verifier,
+                """
+                ALTER TABLE historical_owner_correction_idempotency_keys
+                    DROP CONSTRAINT ck_historical_owner_correction_idempotency_warnings,
+                    ADD CONSTRAINT ck_historical_owner_correction_idempotency_warnings CHECK (TRUE)
+                """,
+                """
+                ALTER TABLE historical_owner_correction_idempotency_keys
+                    DROP CONSTRAINT ck_historical_owner_correction_idempotency_warnings,
+                    ADD CONSTRAINT ck_historical_owner_correction_idempotency_warnings CHECK (
+                        array_position(response_warning_codes, NULL) IS NULL
+                        AND response_warning_codes <@ ARRAY['TARGET_OWNER_INACTIVE']::TEXT[]
+                        AND cardinality(response_warning_codes) <= 1)
+                """);
+
+            await AssertVerifierRejectsAsync(connection, verifier,
+                "ALTER TABLE historical_owner_attribution_corrections DISABLE TRIGGER trg_historical_owner_corrections_immutable",
                 "ALTER TABLE historical_owner_attribution_corrections ENABLE TRIGGER trg_historical_owner_corrections_immutable");
-            await ExecuteAsync(connection, verifier);
+            await AssertVerifierRejectsAsync(connection, verifier,
+                "ALTER TABLE historical_owner_attribution_corrections DISABLE TRIGGER trg_historical_owner_corrections_immutable_truncate",
+                "ALTER TABLE historical_owner_attribution_corrections ENABLE TRIGGER trg_historical_owner_corrections_immutable_truncate");
+            await AssertVerifierRejectsAsync(connection, verifier,
+                """
+                CREATE OR REPLACE FUNCTION reject_historical_owner_correction_mutation()
+                RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END; $$
+                """,
+                """
+                CREATE OR REPLACE FUNCTION reject_historical_owner_correction_mutation()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION USING
+                        ERRCODE = '23514',
+                        CONSTRAINT = 'ck_historical_owner_corrections_immutable',
+                        MESSAGE = 'Historical owner-attribution correction audit is immutable';
+                END;
+                $$
+                """);
         }
 
         await using (var context = database.CreateDbContext())
@@ -451,8 +694,133 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
         }
     }
 
+    [Fact]
+    public async Task RollbackRefusesIdempotencyAuditAndCleanReapplyRestoresOwnedObjects()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        var migration = await MigrationSql("0062_add_historical_owner_attribution_corrections.sql");
+        var verifier = await MigrationSql("0062_add_historical_owner_attribution_corrections_verify.sql");
+        var rollback = await MigrationSql("0062_add_historical_owner_attribution_corrections_rollback.sql");
+
+        SeededData seed;
+        await using (var context = database.CreateDbContext())
+        {
+            seed = await SeedAsync(context);
+            context.HistoricalOwnerCorrectionIdempotencyKeys.Add(new()
+            {
+                ActorAdminUserId = seed.AdminA.Id,
+                Endpoint = HistoricalOwnerAttributionService.CorrectionEndpoint,
+                Key = Guid.NewGuid(),
+                RequestHash = new string('a', 64),
+                CreatedAt = Now.UtcDateTime
+            });
+            await context.SaveChangesAsync();
+        }
+
+        await using var connection = await database.OpenConnectionAsync();
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, rollback));
+        Assert.Contains("rollback refused", refused.MessageText, StringComparison.OrdinalIgnoreCase);
+        await ExecuteAsync(connection, "ROLLBACK");
+        await ExecuteAsync(connection, verifier);
+
+        await ExecuteAsync(connection, "DELETE FROM historical_owner_correction_idempotency_keys");
+        await ExecuteAsync(connection, """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                migration_number VARCHAR(20) PRIMARY KEY,
+                migration_name VARCHAR(255) NOT NULL,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO schema_migrations (migration_number, migration_name)
+            VALUES ('0062', '0062_add_historical_owner_attribution_corrections.sql')
+            ON CONFLICT (migration_number) DO NOTHING;
+            """);
+        await ExecuteAsync(connection, rollback);
+        Assert.Equal(0L, Convert.ToInt64(await ScalarAsync(connection,
+            "SELECT count(*) FROM schema_migrations WHERE migration_number = '0062'")));
+        await ExecuteAsync(connection, migration);
+        await ExecuteAsync(connection, verifier);
+        Assert.True(Convert.ToBoolean(await ScalarAsync(connection,
+            "SELECT to_regclass('public.historical_owner_attribution_corrections') IS NOT NULL")));
+        Assert.True(Convert.ToBoolean(await ScalarAsync(connection, """
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'historical_owner_correction_idempotency_keys'
+                  AND column_name = 'response_warning_codes')
+            """)));
+    }
+
+    [Fact]
+    public async Task IdempotencyWarningSnapshotRejectsUnknownDuplicateNullAndIncompleteValues()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        SeededData seed;
+        await using (var context = database.CreateDbContext())
+            seed = await SeedAsync(context);
+        await using var connection = await database.OpenConnectionAsync();
+
+        foreach (var warnings in new[]
+        {
+            "ARRAY['UNKNOWN_WARNING']::TEXT[]",
+            "ARRAY['TARGET_OWNER_INACTIVE', 'TARGET_OWNER_INACTIVE']::TEXT[]",
+            "ARRAY['TARGET_OWNER_INACTIVE', NULL]::TEXT[]",
+            "ARRAY['TARGET_OWNER_INACTIVE']::TEXT[]"
+        })
+        {
+            var key = Guid.NewGuid();
+            var insert = $"""
+                INSERT INTO historical_owner_correction_idempotency_keys (
+                    actor_admin_user_id, endpoint, key, request_hash,
+                    response_warning_codes, created_at)
+                VALUES (
+                    '{seed.AdminA.Id}',
+                    '{HistoricalOwnerAttributionService.CorrectionEndpoint}',
+                    '{key}', '{new string('a', 64)}', {warnings}, CURRENT_TIMESTAMP)
+                """;
+            var rejected = await Assert.ThrowsAsync<PostgresException>(
+                () => ExecuteAsync(connection, insert));
+            Assert.Contains(
+                rejected.ConstraintName,
+                new[]
+                {
+                    "ck_historical_owner_correction_idempotency_warnings",
+                    "ck_historical_owner_correction_idempotency_completion"
+                });
+        }
+
+        Assert.Equal(0L, Convert.ToInt64(await ScalarAsync(connection,
+            "SELECT count(*) FROM historical_owner_correction_idempotency_keys")));
+    }
+
     private static HistoricalOwnerAttributionService Service(AppDbContext context) =>
         new(new UnitOfWork(context), new FixedTimeProvider());
+
+    private static string SerializeCorrectionResponse(HistoricalOwnerCorrectionResult result) =>
+        JsonSerializer.Serialize(ApiResponse<HistoricalOwnerAttributionCorrectionResponse>.CreateSuccess(new()
+        {
+            CorrectionId = result.Correction.Id,
+            BookingId = result.Correction.BookingId,
+            PreviousOwnerId = result.Correction.PreviousOwnerId,
+            TargetOwnerId = result.Correction.TargetOwnerId,
+            CorrectedByAdminUserId = result.Correction.CorrectedByAdminUserId,
+            Reason = result.Correction.Reason,
+            Note = result.Correction.Note,
+            CorrectedAt = result.Correction.CorrectedAt,
+            HistoryEventId = result.HistoryEventId,
+            Warnings = result.Warnings
+        }), new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+    private static async Task AssertEventuallyAsync(Func<Task<bool>> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (await condition())
+                return;
+            await Task.Delay(25);
+        }
+        throw new Xunit.Sdk.XunitException("Expected PostgreSQL lock state was not observed.");
+    }
 
     private static CorrectHistoricalOwnerAttributionCommand Command(
         Guid bookingId,
@@ -634,6 +1002,18 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
     {
         await using var command = new NpgsqlCommand(sql, connection) { CommandTimeout = 120 };
         return await command.ExecuteScalarAsync();
+    }
+
+    private static async Task AssertVerifierRejectsAsync(
+        NpgsqlConnection connection,
+        string verifier,
+        string damageSql,
+        string repairSql)
+    {
+        await ExecuteAsync(connection, damageSql);
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, verifier));
+        await ExecuteAsync(connection, repairSql);
+        await ExecuteAsync(connection, verifier);
     }
 
     private static string RepositoryRoot()

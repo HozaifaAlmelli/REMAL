@@ -21,5 +21,4 @@ public sealed record HistoricalOwnerAttributionReviewResult(
 public sealed record HistoricalOwnerCorrectionResult(
     HistoricalOwnerAttributionCorrection Correction,
     Guid HistoryEventId,
-    IReadOnlyList<string> Warnings,
-    bool IsReplay);
+    IReadOnlyList<string> Warnings);

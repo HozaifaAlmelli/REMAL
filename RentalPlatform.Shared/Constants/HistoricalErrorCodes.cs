@@ -37,6 +37,8 @@ public static class HistoricalErrorCodes
     public const string OwnerCorrectionIdempotencyKeyRequired = "OWNER_CORRECTION_IDEMPOTENCY_KEY_REQUIRED";
     public const string OwnerCorrectionBookingNotFound = "OWNER_CORRECTION_BOOKING_NOT_FOUND";
     public const string OwnerCorrectionBookingRequired = "OWNER_CORRECTION_BOOKING_REQUIRED";
+    public const string OwnerCorrectionCurrentAttributionRequiresReview =
+        "OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW";
     public const string OwnerCorrectionTargetNotFound = "OWNER_CORRECTION_TARGET_NOT_FOUND";
     public const string OwnerCorrectionTargetInvalid = "OWNER_CORRECTION_TARGET_INVALID";
     public const string OwnerCorrectionSameOwner = "OWNER_CORRECTION_SAME_OWNER";
@@ -46,6 +48,7 @@ public static class HistoricalErrorCodes
     public const string OwnerCorrectionRequestInProgress = "OWNER_CORRECTION_REQUEST_IN_PROGRESS";
     public const string OwnerCorrectionConflict = "OWNER_CORRECTION_CONFLICT";
     public const string OwnerCorrectionAuditImmutable = "OWNER_CORRECTION_AUDIT_IMMUTABLE";
+    public const string StayDatesInPast = "STAY_DATES_IN_PAST";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -83,6 +86,7 @@ public static class HistoricalErrorCodes
         OwnerCorrectionIdempotencyKeyRequired,
         OwnerCorrectionBookingNotFound,
         OwnerCorrectionBookingRequired,
+        OwnerCorrectionCurrentAttributionRequiresReview,
         OwnerCorrectionTargetNotFound,
         OwnerCorrectionTargetInvalid,
         OwnerCorrectionSameOwner,
@@ -91,6 +95,7 @@ public static class HistoricalErrorCodes
         OwnerCorrectionIdempotencyKeyReused,
         OwnerCorrectionRequestInProgress,
         OwnerCorrectionConflict,
-        OwnerCorrectionAuditImmutable
+        OwnerCorrectionAuditImmutable,
+        StayDatesInPast
     };
 }

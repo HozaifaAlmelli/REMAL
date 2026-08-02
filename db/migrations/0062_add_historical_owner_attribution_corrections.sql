@@ -98,6 +98,10 @@ CREATE TRIGGER trg_historical_owner_corrections_immutable
 BEFORE UPDATE OR DELETE ON historical_owner_attribution_corrections
 FOR EACH ROW EXECUTE FUNCTION reject_historical_owner_correction_mutation();
 
+CREATE TRIGGER trg_historical_owner_corrections_immutable_truncate
+BEFORE TRUNCATE ON historical_owner_attribution_corrections
+FOR EACH STATEMENT EXECUTE FUNCTION reject_historical_owner_correction_mutation();
+
 CREATE TABLE historical_owner_correction_idempotency_keys (
     actor_admin_user_id UUID NOT NULL,
     endpoint VARCHAR(200) NOT NULL,
@@ -105,6 +109,7 @@ CREATE TABLE historical_owner_correction_idempotency_keys (
     request_hash VARCHAR(64) NOT NULL,
     correction_id UUID NULL,
     response_status INT NULL,
+    response_warning_codes TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     created_at TIMESTAMPTZ NOT NULL,
     completed_at TIMESTAMPTZ NULL,
     CONSTRAINT pk_historical_owner_correction_idempotency_keys
@@ -118,9 +123,16 @@ CREATE TABLE historical_owner_correction_idempotency_keys (
         CHECK (request_hash ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_historical_owner_correction_idempotency_completion
         CHECK (
-            (correction_id IS NULL AND response_status IS NULL AND completed_at IS NULL)
+            (correction_id IS NULL AND response_status IS NULL AND completed_at IS NULL
+                AND cardinality(response_warning_codes) = 0)
             OR
             (correction_id IS NOT NULL AND response_status = 200 AND completed_at IS NOT NULL)
+        ),
+    CONSTRAINT ck_historical_owner_correction_idempotency_warnings
+        CHECK (
+            array_position(response_warning_codes, NULL) IS NULL
+            AND response_warning_codes <@ ARRAY['TARGET_OWNER_INACTIVE']::TEXT[]
+            AND cardinality(response_warning_codes) <= 1
         )
 );
 
@@ -128,8 +140,15 @@ CREATE UNIQUE INDEX ux_historical_owner_correction_idempotency_correction_id
     ON historical_owner_correction_idempotency_keys(correction_id)
     WHERE correction_id IS NOT NULL;
 
--- PermissionCatalog is the repository's permission registry. RBAC tables contain
--- assignments only; owner-approved HB-05 policy intentionally grants this new
--- permission to no broad role template automatically.
+INSERT INTO rbac_role_template_permissions
+    (role_template_id, permission_key, created_at)
+VALUES
+    ('10000000-0000-0000-0000-000000000001',
+     'bookings:correct_owner_attribution', CURRENT_TIMESTAMP)
+ON CONFLICT (role_template_id, permission_key) DO NOTHING;
+
+UPDATE admin_users
+SET updated_at = CURRENT_TIMESTAMP
+WHERE role_template_id = '10000000-0000-0000-0000-000000000001';
 
 COMMIT;

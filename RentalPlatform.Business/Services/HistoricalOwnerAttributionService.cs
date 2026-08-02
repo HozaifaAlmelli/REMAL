@@ -31,7 +31,7 @@ public sealed class HistoricalOwnerAttributionService : IHistoricalOwnerAttribut
             throw new BusinessValidationException("Booking ID is required.", HistoricalErrorCodes.ValidationError);
 
         var booking = await LoadEligibleBookingAsync(bookingId, false, cancellationToken);
-        var currentOwner = await LoadCurrentOwnerAsync(booking.OwnerId, cancellationToken);
+        var currentOwner = await LoadCurrentOwnerForReviewAsync(booking.OwnerId, cancellationToken);
         var payoutReviewRequired = await _unitOfWork.OwnerPayouts.Query()
             .AsNoTracking()
             .AnyAsync(payout => payout.BookingId == booking.Id, cancellationToken);
@@ -110,7 +110,10 @@ public sealed class HistoricalOwnerAttributionService : IHistoricalOwnerAttribut
             }
 
             if (claim.ResponseStatus == 200 && claim.CorrectionId.HasValue && claim.CompletedAt.HasValue)
-                return await LoadResultAsync(claim.CorrectionId.Value, true, cancellationToken);
+                return await LoadResultAsync(
+                    command.ActorAdminUserId,
+                    command.IdempotencyKey,
+                    cancellationToken);
 
             throw new ConflictException(
                 "The owner-correction request is incomplete and requires operator review.",
@@ -138,7 +141,7 @@ public sealed class HistoricalOwnerAttributionService : IHistoricalOwnerAttribut
             throw new UnauthorizedBusinessException("The authenticated admin user is not active.");
 
         var booking = await LoadEligibleBookingAsync(command.BookingId, true, cancellationToken);
-        await LoadCurrentOwnerAsync(booking.OwnerId, cancellationToken);
+        await LoadCurrentOwnerForCorrectionAsync(booking.OwnerId, cancellationToken);
 
         if (booking.OwnerId != command.ExpectedCurrentOwnerId)
         {
@@ -216,12 +219,18 @@ public sealed class HistoricalOwnerAttributionService : IHistoricalOwnerAttribut
         };
         await _unitOfWork.BookingStatusHistories.AddAsync(history, cancellationToken);
 
+        idempotency.ResponseWarningCodes = IsInactive(targetOwner)
+            ? [HistoricalOwnerAttributionWarnings.TargetOwnerInactive]
+            : [];
         idempotency.CorrectionId = correction.Id;
         idempotency.ResponseStatus = 200;
         idempotency.CompletedAt = correctedAt;
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return await LoadResultAsync(correction.Id, false, cancellationToken);
+        return await LoadResultAsync(
+            command.ActorAdminUserId,
+            command.IdempotencyKey,
+            cancellationToken);
     }
 
     private async Task<Booking> LoadEligibleBookingAsync(
@@ -245,7 +254,7 @@ public sealed class HistoricalOwnerAttributionService : IHistoricalOwnerAttribut
         return booking;
     }
 
-    private async Task<Owner> LoadCurrentOwnerAsync(
+    private async Task<Owner> LoadCurrentOwnerForReviewAsync(
         Guid ownerId,
         CancellationToken cancellationToken)
     {
@@ -262,14 +271,44 @@ public sealed class HistoricalOwnerAttributionService : IHistoricalOwnerAttribut
         return owner;
     }
 
-    private async Task<HistoricalOwnerCorrectionResult> LoadResultAsync(
-        Guid correctionId,
-        bool isReplay,
+    private async Task LoadCurrentOwnerForCorrectionAsync(
+        Guid ownerId,
         CancellationToken cancellationToken)
     {
+        var owner = await _unitOfWork.Owners.Query()
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == ownerId, cancellationToken);
+        if (owner is null || owner.DeletedAt is not null || !IsSupportedStatus(owner.Status))
+        {
+            throw new ConflictException(
+                "The persisted historical owner attribution requires administrative review before correction.",
+                HistoricalErrorCodes.OwnerCorrectionCurrentAttributionRequiresReview);
+        }
+    }
+
+    private async Task<HistoricalOwnerCorrectionResult> LoadResultAsync(
+        Guid actorAdminUserId,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var claim = await _unitOfWork.HistoricalOwnerCorrectionIdempotencyKeys.Query()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.ActorAdminUserId == actorAdminUserId &&
+                item.Endpoint == CorrectionEndpoint &&
+                item.Key == idempotencyKey,
+                cancellationToken);
+        if (claim?.CorrectionId is null || claim.ResponseStatus != 200 || claim.CompletedAt is null)
+        {
+            throw new ConflictException(
+                "The completed idempotency record no longer resolves to owner-correction audit.",
+                HistoricalErrorCodes.OwnerCorrectionRequestInProgress);
+        }
+
         var correction = await _unitOfWork.HistoricalOwnerAttributionCorrections.Query()
             .AsNoTracking()
-            .SingleOrDefaultAsync(item => item.Id == correctionId, cancellationToken)
+            .SingleOrDefaultAsync(item => item.Id == claim.CorrectionId.Value, cancellationToken)
             ?? throw new ConflictException(
                 "The completed idempotency record no longer resolves to owner-correction audit.",
                 HistoricalErrorCodes.OwnerCorrectionRequestInProgress);
@@ -279,18 +318,23 @@ public sealed class HistoricalOwnerAttributionService : IHistoricalOwnerAttribut
             .Where(item => item.BookingId == correction.BookingId && item.Notes == note)
             .Select(item => item.Id)
             .SingleAsync(cancellationToken);
-        var targetInactive = await _unitOfWork.Owners.Query()
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .AnyAsync(owner =>
-                owner.Id == correction.TargetOwnerId &&
-                owner.DeletedAt == null &&
-                owner.Status == "inactive",
-                cancellationToken);
-        var warnings = targetInactive
-            ? new[] { HistoricalOwnerAttributionWarnings.TargetOwnerInactive }
-            : Array.Empty<string>();
-        return new HistoricalOwnerCorrectionResult(correction, historyId, warnings, isReplay);
+        var warnings = NormalizePersistedWarnings(claim.ResponseWarningCodes);
+        return new HistoricalOwnerCorrectionResult(correction, historyId, warnings);
+    }
+
+    private static IReadOnlyList<string> NormalizePersistedWarnings(string[] warningCodes)
+    {
+        if (warningCodes.Length == 0)
+            return Array.Empty<string>();
+        if (warningCodes.Length == 1 &&
+            warningCodes[0] == HistoricalOwnerAttributionWarnings.TargetOwnerInactive)
+        {
+            return [HistoricalOwnerAttributionWarnings.TargetOwnerInactive];
+        }
+
+        throw new ConflictException(
+            "The completed idempotency record contains unsupported response metadata.",
+            HistoricalErrorCodes.OwnerCorrectionRequestInProgress);
     }
 
     private static CorrectHistoricalOwnerAttributionCommand NormalizeAndValidate(

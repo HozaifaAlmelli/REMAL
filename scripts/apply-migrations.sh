@@ -48,12 +48,19 @@ echo "### Taking a pre-migration backup ..."
 
 echo "### Scanning for pending migrations in $MIG_DIR ..."
 PENDING=()
-while IFS= read -r f; do
+mapfile -t MIGRATION_FILES < <(
+  ls -1 "$MIG_DIR" |
+    grep -E '^[0-9]{4}_.*\.sql$' |
+    grep -Ev '_(rollback|verify|test)\.sql$' |
+    grep -Ev '^(0008_seed_dev_master_data|0046_seed_dev_users_units|0047_seed_minimal_dev_login)\.sql$' |
+    sort
+)
+for f in "${MIGRATION_FILES[@]}"; do
   num="${f:0:4}"
   applied="$(psql_db -tA -c "SELECT 1 FROM schema_migrations WHERE migration_number='${num}';")"
   [ "$applied" = "1" ] && continue
   PENDING+=("$f")
-done < <(ls -1 "$MIG_DIR" | grep -E '^[0-9]{4}_.*\.sql$' | grep -Ev '_(rollback|verify|test)\.sql$' | sort)
+done
 
 if [ "${#PENDING[@]}" -eq 0 ]; then
   echo "### Up to date — no pending migrations."

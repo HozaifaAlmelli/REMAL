@@ -17,6 +17,11 @@ public sealed class HistoricalOwnerCorrectionIdempotencyKeyConfiguration
         builder.Property(item => item.RequestHash).HasColumnName("request_hash").HasMaxLength(64).IsRequired();
         builder.Property(item => item.CorrectionId).HasColumnName("correction_id");
         builder.Property(item => item.ResponseStatus).HasColumnName("response_status");
+        builder.Property(item => item.ResponseWarningCodes)
+            .HasColumnName("response_warning_codes")
+            .HasColumnType("text[]")
+            .HasDefaultValueSql("ARRAY[]::text[]")
+            .IsRequired();
         builder.Property(item => item.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(item => item.CompletedAt).HasColumnName("completed_at");
 
@@ -43,8 +48,14 @@ public sealed class HistoricalOwnerCorrectionIdempotencyKeyConfiguration
                 "request_hash ~ '^[0-9a-f]{64}$'");
             table.HasCheckConstraint(
                 "ck_historical_owner_correction_idempotency_completion",
-                "(correction_id IS NULL AND response_status IS NULL AND completed_at IS NULL) OR " +
+                "(correction_id IS NULL AND response_status IS NULL AND completed_at IS NULL " +
+                "AND cardinality(response_warning_codes) = 0) OR " +
                 "(correction_id IS NOT NULL AND response_status = 200 AND completed_at IS NOT NULL)");
+            table.HasCheckConstraint(
+                "ck_historical_owner_correction_idempotency_warnings",
+                "array_position(response_warning_codes, NULL) IS NULL AND " +
+                "response_warning_codes <@ ARRAY['TARGET_OWNER_INACTIVE']::text[] AND " +
+                "cardinality(response_warning_codes) <= 1");
         });
     }
 }

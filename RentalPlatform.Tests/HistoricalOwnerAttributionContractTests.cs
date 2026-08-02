@@ -40,8 +40,10 @@ public sealed class HistoricalOwnerAttributionContractTests
         Assert.Equal(
             PermissionKeys.BookingsCorrectOwnerAttribution,
             correction.GetCustomAttribute<AuthorizeAttribute>()!.Policy);
+        Assert.NotEqual(PermissionKeys.BookingsRead, PermissionKeys.BookingsCorrectOwnerAttribution);
         Assert.NotEqual(PermissionKeys.BookingsWrite, PermissionKeys.BookingsCorrectOwnerAttribution);
         Assert.NotEqual(PermissionKeys.FinanceManage, PermissionKeys.BookingsCorrectOwnerAttribution);
+        Assert.Contains(PermissionKeys.BookingsCorrectOwnerAttribution, PermissionKeys.All);
         Assert.Contains(
             PermissionKeys.Descriptors,
             descriptor => descriptor.Key == PermissionKeys.BookingsCorrectOwnerAttribution);
@@ -87,6 +89,55 @@ public sealed class HistoricalOwnerAttributionContractTests
     }
 
     [Fact]
+    public void EveryCorrectionValidatorFailureUsesStableValidationCode()
+    {
+        var requests = new[]
+        {
+            new CorrectHistoricalOwnerAttributionRequest
+            {
+                ExpectedCurrentOwnerId = Guid.Empty,
+                TargetOwnerId = Guid.NewGuid(),
+                Reason = HistoricalOwnerCorrectionReasons.AccountingReconciliation
+            },
+            new CorrectHistoricalOwnerAttributionRequest
+            {
+                ExpectedCurrentOwnerId = Guid.NewGuid(),
+                TargetOwnerId = Guid.Empty,
+                Reason = HistoricalOwnerCorrectionReasons.AccountingReconciliation
+            },
+            new CorrectHistoricalOwnerAttributionRequest
+            {
+                ExpectedCurrentOwnerId = Guid.NewGuid(),
+                TargetOwnerId = Guid.NewGuid(),
+                Reason = "invented"
+            },
+            new CorrectHistoricalOwnerAttributionRequest
+            {
+                ExpectedCurrentOwnerId = Guid.NewGuid(),
+                TargetOwnerId = Guid.NewGuid(),
+                Reason = HistoricalOwnerCorrectionReasons.Other,
+                Note = "   "
+            },
+            new CorrectHistoricalOwnerAttributionRequest
+            {
+                ExpectedCurrentOwnerId = Guid.NewGuid(),
+                TargetOwnerId = Guid.NewGuid(),
+                Reason = HistoricalOwnerCorrectionReasons.AccountingReconciliation,
+                Note = new string('x', 501)
+            }
+        };
+        var validator = new CorrectHistoricalOwnerAttributionRequestValidator();
+
+        foreach (var request in requests)
+        {
+            var result = validator.Validate(request);
+            Assert.False(result.IsValid);
+            Assert.All(result.Errors, error =>
+                Assert.Equal(HistoricalErrorCodes.ValidationError, error.ErrorCode));
+        }
+    }
+
+    [Fact]
     public void CanonicalHashNormalizesReasonAndNoteAndIncludesAttributionPrecondition()
     {
         var command = new CorrectHistoricalOwnerAttributionCommand(
@@ -113,13 +164,14 @@ public sealed class HistoricalOwnerAttributionContractTests
     }
 
     [Fact]
-    public void AllTwelveOwnerCorrectionCodesAreRegisteredExactlyOnce()
+    public void AllThirteenOwnerCorrectionCodesAreRegisteredExactlyOnce()
     {
         var expected = new[]
         {
             HistoricalErrorCodes.OwnerCorrectionIdempotencyKeyRequired,
             HistoricalErrorCodes.OwnerCorrectionBookingNotFound,
             HistoricalErrorCodes.OwnerCorrectionBookingRequired,
+            HistoricalErrorCodes.OwnerCorrectionCurrentAttributionRequiresReview,
             HistoricalErrorCodes.OwnerCorrectionTargetNotFound,
             HistoricalErrorCodes.OwnerCorrectionTargetInvalid,
             HistoricalErrorCodes.OwnerCorrectionSameOwner,
@@ -131,8 +183,9 @@ public sealed class HistoricalOwnerAttributionContractTests
             HistoricalErrorCodes.OwnerCorrectionAuditImmutable
         };
 
-        Assert.Equal(12, expected.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(13, expected.Distinct(StringComparer.Ordinal).Count());
         Assert.All(expected, code => Assert.Contains(code, HistoricalErrorCodes.All));
+        Assert.Equal(45, HistoricalErrorCodes.All.Count);
     }
 
     [Fact]
@@ -165,8 +218,8 @@ public sealed class HistoricalOwnerAttributionContractTests
         };
         var historyId = Guid.NewGuid();
         var service = new SequenceService(
-            new HistoricalOwnerCorrectionResult(correction, historyId, [], false),
-            new HistoricalOwnerCorrectionResult(correction, historyId, [], true));
+            new HistoricalOwnerCorrectionResult(correction, historyId, []),
+            new HistoricalOwnerCorrectionResult(correction, historyId, []));
         var controller = new HistoricalOwnerAttributionsController(service);
         var context = new DefaultHttpContext();
         context.User = new ClaimsPrincipal(new ClaimsIdentity(
