@@ -33,6 +33,7 @@ export const ROUTES = {
     bookings: {
       list: "/admin/bookings",
       detail: (id: string) => `/admin/bookings/${id}`,
+      historicalCreate: "/admin/bookings/historical/new",
     },
     finance: "/admin/finance",
     financePayments: "/admin/finance/payments",

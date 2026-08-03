@@ -10,8 +10,23 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ label, error, helperText, rows = 4, className, ...props }, ref) => {
-    const id = useId();
+  (
+    {
+      label,
+      error,
+      helperText,
+      rows = 4,
+      className,
+      id: providedId,
+      "aria-describedby": describedBy,
+      ...props
+    },
+    ref
+  ) => {
+    const generatedId = useId();
+    const id = providedId ?? generatedId;
+    const errorId = `${id}-error`;
+    const helperId = `${id}-help`;
 
     return (
       <div className="w-full">
@@ -28,6 +43,10 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         <textarea
           ref={ref}
           id={id}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={[describedBy, error ? errorId : helperText ? helperId : null]
+            .filter(Boolean)
+            .join(" ") || undefined}
           rows={rows}
           className={cn(
             "w-full rounded-[var(--portal-radius-control)] border bg-white text-sm text-neutral-800",
@@ -42,9 +61,9 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           {...props}
         />
 
-        {error && <p className="mt-1.5 text-xs text-error">{error}</p>}
+        {error && <p id={errorId} className="mt-1.5 text-xs text-error">{error}</p>}
         {!error && helperText && (
-          <p className="mt-1.5 text-xs text-neutral-500">{helperText}</p>
+          <p id={helperId} className="mt-1.5 text-xs text-neutral-500">{helperText}</p>
         )}
       </div>
     );

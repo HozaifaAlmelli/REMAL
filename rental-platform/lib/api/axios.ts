@@ -55,13 +55,18 @@ api.interceptors.response.use(
       throw new ApiError(
         response.status,
         envelope.message ?? "Request failed",
-        envelope.errors ?? []
+        envelope.errors ?? [],
+        envelope.code ?? null,
+        envelope.metadata ?? null
       );
     }
     // If the response includes pagination, return { items, pagination }
     // so all paginated hooks receive the correct structure.
     if (envelope?.pagination) {
-      return { items: envelope.data, pagination: envelope.pagination } as unknown as AxiosResponse;
+      return {
+        items: envelope.data,
+        pagination: envelope.pagination,
+      } as unknown as AxiosResponse;
     }
     // Unwrap: return the inner `data` field directly
     return envelope.data as unknown as AxiosResponse;
@@ -80,10 +85,16 @@ api.interceptors.response.use(
     const { status, data } = error.response;
     const message = data?.message ?? "Request failed";
     const errors = data?.errors ?? [];
+    const code = data?.code ?? null;
+    const metadata = data?.metadata ?? null;
 
     // ── Ignore 401 for auth endpoints ──
-    if (status === 401 && (originalRequest.url?.includes('/login') || originalRequest.url?.includes('/register'))) {
-      throw new ApiError(status, message, errors);
+    if (
+      status === 401 &&
+      (originalRequest.url?.includes("/login") ||
+        originalRequest.url?.includes("/register"))
+    ) {
+      throw new ApiError(status, message, errors, code, metadata);
     }
 
     // ── 401: try refresh once ──
@@ -115,7 +126,10 @@ api.interceptors.response.use(
             expiresInSeconds: refreshedAuth.expiresInSeconds,
             subjectType: refreshedAuth.subjectType,
             user: refreshedAuth.user,
-            role: refreshedAuth.subjectType === "Admin" ? refreshedAuth.adminRole : null,
+            role:
+              refreshedAuth.subjectType === "Admin"
+                ? refreshedAuth.adminRole
+                : null,
             roleName: refreshedAuth.roleName,
             permissions: refreshedAuth.permissions,
           });
@@ -144,7 +158,10 @@ api.interceptors.response.use(
         // Hard redirect to the appropriate login page based on subjectType
         if (typeof window !== "undefined") {
           // Don't redirect if we are already on an auth page (prevents kicking users to admin login)
-          if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
+          if (
+            !window.location.pathname.includes("/login") &&
+            !window.location.pathname.includes("/register")
+          ) {
             const loginRoute =
               subjectType === "Owner"
                 ? ROUTES.auth.ownerLogin
@@ -162,17 +179,17 @@ api.interceptors.response.use(
     // ── 403 ──
     if (status === 403) {
       toastError("You don't have permission to perform this action");
-      throw new ApiError(403, message, errors);
+      throw new ApiError(403, message, errors, code, metadata);
     }
 
     // ── 500+ ──
     if (status >= 500) {
       toastError("Something went wrong. Please try again.");
-      throw new ApiError(status, message, errors);
+      throw new ApiError(status, message, errors, code, metadata);
     }
 
     // ── 400 / 404 / 422 / others — let caller handle ──
-    throw new ApiError(status, message, errors);
+    throw new ApiError(status, message, errors, code, metadata);
   }
 );
 
