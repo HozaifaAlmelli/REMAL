@@ -33,12 +33,14 @@ export const Select = forwardRef<
       className,
       onChange,
       id: providedId,
+      "aria-describedby": describedBy,
       ...props
     },
     ref
   ) => {
     const generatedId = useId();
     const id = providedId ?? generatedId;
+    const errorId = `${id}-error`;
 
     const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       onChange?.(e.target.value as unknown as string | number);
@@ -59,6 +61,10 @@ export const Select = forwardRef<
         <select
           ref={ref}
           id={id}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={[describedBy, error ? errorId : null]
+            .filter(Boolean)
+            .join(" ") || undefined}
           onChange={handleChange}
           className={cn(
             "h-[var(--portal-control-height)] w-full rounded-[var(--portal-radius-control)] border bg-white px-3.5 text-sm text-neutral-800",
@@ -87,7 +93,7 @@ export const Select = forwardRef<
           ))}
         </select>
 
-        {error && <p className="mt-1.5 text-xs text-error">{error}</p>}
+        {error && <p id={errorId} className="mt-1.5 text-xs text-error">{error}</p>}
       </div>
     );
   }
