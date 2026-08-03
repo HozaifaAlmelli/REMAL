@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
+using RentalPlatform.Business.Services;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Constants;
@@ -83,6 +84,7 @@ public class AutoCompleteBookingsJob : BackgroundService
         var bookings = await unitOfWork.Bookings.Query()
             .Include(b => b.Client)
             .Include(b => b.Unit)
+            .Where(HistoricalBookingAutomationPolicy.AutomaticSideEffectsEligible)
             .Where(b => b.BookingStatus == BookingStatus.CheckIn)
             .Where(b => b.CheckOutDate <= completedAfterCheckoutCutoff)
             .ToListAsync(cancellationToken);
@@ -148,6 +150,9 @@ public class AutoCompleteBookingsJob : BackgroundService
         Booking booking,
         CancellationToken cancellationToken)
     {
+        if (!HistoricalBookingAutomationPolicy.AllowsAutomaticSideEffects(booking))
+            return;
+
         var activeInvoice = await unitOfWork.Invoices.Query()
             .Where(i => i.BookingId == booking.Id)
             .Where(i => i.InvoiceStatus != "cancelled" && i.InvoiceStatus != "superseded")

@@ -108,6 +108,7 @@ public sealed class HistoricalBookingPostgreSqlTests
         Assert.Equal(1, await context.Bookings.CountAsync(item => item.Id == result.Booking.Id));
         Assert.Equal(1, await context.BookingStatusHistories.CountAsync(item => item.BookingId == result.Booking.Id));
         Assert.Equal(1, Interlocked.Read(ref createdMeasurements));
+        Assert.Equal(after, await SideEffectCounts.ReadAsync(context));
 
         var conflict = await Assert.ThrowsAsync<ConflictException>(() =>
             service.RecordAsync(command with { AgreedAmount = 301m }));
@@ -1998,13 +1999,21 @@ public sealed class HistoricalBookingPostgreSqlTests
         int InvoiceItems,
         int Payments,
         int OwnerPayouts,
-        int Notifications)
+        int Notifications,
+        int NotificationDeliveryLogs,
+        int CrmLeads,
+        int CrmNotes,
+        int CrmAssignments)
     {
         public static async Task<SideEffectCounts> ReadAsync(AppDbContext context) => new(
             await context.Invoices.CountAsync(),
             await context.InvoiceItems.CountAsync(),
             await context.Payments.CountAsync(),
             await context.OwnerPayouts.CountAsync(),
-            await context.Notifications.CountAsync());
+            await context.Notifications.CountAsync(),
+            await context.NotificationDeliveryLogs.CountAsync(),
+            await context.CrmLeads.CountAsync(),
+            await context.CrmNotes.CountAsync(),
+            await context.CrmAssignments.CountAsync());
     }
 }
