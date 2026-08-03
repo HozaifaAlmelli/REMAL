@@ -546,6 +546,29 @@ test("historical booking and payment use only ratified API calls after submissio
   });
 
   await reachStepSix(page);
+  const preSubmissionCalls = [...calls];
+  const expectedBootstrapPaths = new Set([
+    "/api/auth/refresh",
+    "/api/internal/me/notifications/inbox/summary",
+    "/api/internal/units",
+    "/api/clients",
+  ]);
+  expect(preSubmissionCalls).toEqual(
+    expect.arrayContaining([
+      { method: "POST", path: "/api/auth/refresh" },
+      {
+        method: "GET",
+        path: "/api/internal/me/notifications/inbox/summary",
+      },
+      { method: "GET", path: "/api/internal/units" },
+      { method: "GET", path: "/api/clients" },
+    ])
+  );
+  expect(
+    preSubmissionCalls
+      .filter((call) => call.method !== "OPTIONS")
+      .every((call) => expectedBootstrapPaths.has(call.path))
+  ).toBe(true);
   calls.length = 0;
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Record historical booking" }).click();
