@@ -30,6 +30,8 @@ interface FixtureState {
   paymentResponseLoss: boolean;
   committedPayment: boolean;
   permissions: string[];
+  refreshCalls: number;
+  refreshPermissionResponses: string[][];
 }
 
 const cors = {
@@ -93,6 +95,8 @@ async function installApi(
       "units:read",
       "clients:read",
     ],
+    refreshCalls: 0,
+    refreshPermissionResponses: [],
     ...options,
   };
 
@@ -104,6 +108,9 @@ async function installApi(
       return;
     }
     if (url.pathname === "/api/auth/refresh") {
+      state.refreshCalls += 1;
+      const permissions =
+        state.refreshPermissionResponses.shift() ?? state.permissions;
       await envelope(route, {
         accessToken: "sanitized-access-token",
         expiresInSeconds: 3600,
@@ -117,7 +124,7 @@ async function installApi(
           adminRole: "SuperAdmin",
           name: "Historical Operator",
         },
-        permissions: state.permissions,
+        permissions,
       });
       return;
     }
@@ -524,6 +531,31 @@ test("wizard route and booking-list action require the dedicated permission", as
   ).toHaveCount(0);
   await page.goto("/admin/bookings/historical/new");
   await expect(page).toHaveURL(/\/admin\/bookings$/);
+});
+
+test("wizard refreshes a stale permission projection before redirecting", async ({
+  page,
+}) => {
+  const state = await installApi(page, {
+    refreshPermissionResponses: [
+      ["bookings:read", "units:read", "clients:read"],
+      [
+        "bookings:read",
+        "bookings:record_historical",
+        "payments:record_historical",
+        "units:read",
+        "clients:read",
+      ],
+    ],
+  });
+
+  await page.goto("/admin/bookings/historical/new");
+
+  await expect(page).toHaveURL(/\/admin\/bookings\/historical\/new$/);
+  await expect(
+    page.getByRole("heading", { name: "Record historical booking" })
+  ).toBeVisible();
+  expect(state.refreshCalls).toBe(2);
 });
 
 test("authorized booking-list action enters the admin historical wizard", async ({

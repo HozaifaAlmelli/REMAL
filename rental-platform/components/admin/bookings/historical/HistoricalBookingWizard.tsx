@@ -28,9 +28,11 @@ import { useClients } from "@/lib/hooks/useClients";
 import { useInternalUnitsList } from "@/lib/hooks/useUnits";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { useAuthStore } from "@/lib/stores/auth.store";
+import { authService } from "@/lib/api/services/auth.service";
 import { ROUTES } from "@/lib/constants/routes";
 import {
   HISTORICAL_ENTRY_REASONS,
+  HISTORICAL_BOOKING_PERMISSIONS,
   HISTORICAL_ORIGINAL_SOURCES,
   HISTORICAL_PAYMENT_METHODS,
 } from "@/lib/constants/historical-bookings";
@@ -189,11 +191,15 @@ export function HistoricalBookingWizard() {
   const router = useRouter();
   const permissions = usePermissions();
   const grants = useAuthStore((state) => state.permissions);
+  const setAuth = useAuthStore((state) => state.setAuth);
   const [state, dispatch] = useReducer(
     historicalWizardReducer,
     undefined,
     createInitialHistoricalWizardState
   );
+  const [createPermissionStatus, setCreatePermissionStatus] = useState<
+    "checking" | "authorized" | "denied"
+  >(permissions.canRecordHistoricalBookings ? "authorized" : "checking");
   const [furthestStep, setFurthestStep] = useState<HistoricalWizardStep>(1);
   const bookingCommand =
     useRef<FrozenCommand<RecordHistoricalBookingRequest> | null>(null);
@@ -202,6 +208,7 @@ export function HistoricalBookingWizard() {
   const bookingSubmitting = useRef(false);
   const paymentSubmitting = useRef(false);
   const recoveryStarted = useRef(false);
+  const permissionRefreshStarted = useRef(false);
   const ownerReviewInFlight = useRef(false);
   const ownerReviewGeneration = useRef(0);
   const mounted = useRef(true);
@@ -270,8 +277,57 @@ export function HistoricalBookingWizard() {
   }, []);
 
   useEffect(() => {
+    const hasCommittedContext = Boolean(
+      state.booking || state.recoveryBookingId || recoveryMetadata
+    );
+    if (hasCommittedContext) return;
+
+    if (permissions.canRecordHistoricalBookings) {
+      setCreatePermissionStatus("authorized");
+      return;
+    }
+
+    if (permissionRefreshStarted.current) return;
+    permissionRefreshStarted.current = true;
+
+    authService
+      .refresh()
+      .then((auth) => {
+        if (!mounted.current) return;
+        if (!auth || auth.subjectType !== "Admin") {
+          setCreatePermissionStatus("denied");
+          return;
+        }
+
+        setAuth({
+          accessToken: auth.accessToken,
+          expiresInSeconds: auth.expiresInSeconds,
+          subjectType: auth.subjectType,
+          user: auth.user,
+          role: auth.adminRole,
+          roleName: auth.roleName,
+          permissions: auth.permissions,
+        });
+        setCreatePermissionStatus(
+          auth.permissions.includes(HISTORICAL_BOOKING_PERMISSIONS.create)
+            ? "authorized"
+            : "denied"
+        );
+      })
+      .catch(() => {
+        if (mounted.current) setCreatePermissionStatus("denied");
+      });
+  }, [
+    permissions.canRecordHistoricalBookings,
+    recoveryMetadata,
+    setAuth,
+    state.booking,
+    state.recoveryBookingId,
+  ]);
+
+  useEffect(() => {
     if (
-      !permissions.canRecordHistoricalBookings &&
+      createPermissionStatus === "denied" &&
       !state.booking &&
       !state.recoveryBookingId &&
       !recoveryMetadata
@@ -279,7 +335,7 @@ export function HistoricalBookingWizard() {
       router.replace(ROUTES.admin.bookings.list);
     }
   }, [
-    permissions.canRecordHistoricalBookings,
+    createPermissionStatus,
     recoveryMetadata,
     router,
     state.booking,
@@ -717,12 +773,20 @@ export function HistoricalBookingWizard() {
     );
   }
 
-  if (
-    !permissions.canRecordHistoricalBookings &&
-    !state.booking &&
-    !state.recoveryBookingId
-  )
-    return null;
+  if (!state.booking && !state.recoveryBookingId) {
+    if (createPermissionStatus === "checking") {
+      return (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mx-auto max-w-6xl border border-neutral-200 bg-white px-4 py-6 text-sm text-neutral-600"
+        >
+          Checking historical-booking access…
+        </div>
+      );
+    }
+    if (createPermissionStatus === "denied") return null;
+  }
 
   if (state.booking) {
     return (
