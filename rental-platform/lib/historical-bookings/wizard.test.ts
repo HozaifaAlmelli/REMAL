@@ -8,6 +8,7 @@ import {
   createInitialHistoricalWizardState,
   firstInvalidStep,
   historicalWizardReducer,
+  mergeConflictAcknowledgements,
   parseHistoricalBookingResponse,
   parseHistoricalPaymentResponse,
   parseOwnerReviewResponse,
@@ -305,6 +306,60 @@ test("presentation-only and non-candidate edits retain acknowledgement IDs", () 
   });
   assert.deepEqual(next.draft.acknowledgedDuplicateOf, [BOOKING_ID]);
   assert.equal(next.draft.acknowledgedDateBlockIds.length, 1);
+});
+
+test("conflict acknowledgements replace only populated categories and stay deterministic", () => {
+  const dateBlockId = "90000000-0000-4000-8000-000000000001";
+  const draft = {
+    ...validDraft(),
+    acknowledgedDuplicateOf: [BOOKING_ID, BOOKING_ID],
+    acknowledgedDateBlockIds: [],
+  };
+  const dateBlockRound = mergeConflictAcknowledgements(draft, {
+    code: "HISTORICAL_OVERLAP_CONFLICT",
+    message: "Date block",
+    exactDuplicateOf: null,
+    candidates: [],
+    hardConflicts: [],
+    dateBlocks: [
+      {
+        dateBlockId,
+        startDate: "2026-06-10",
+        endDate: "2026-06-13",
+      },
+      {
+        dateBlockId,
+        startDate: "2026-06-10",
+        endDate: "2026-06-13",
+      },
+    ],
+    acknowledgeable: true,
+  });
+  assert.deepEqual(dateBlockRound.acknowledgedDuplicateOf, [BOOKING_ID]);
+  assert.deepEqual(dateBlockRound.acknowledgedDateBlockIds, [dateBlockId]);
+
+  const replacementId = "60000000-0000-4000-8000-000000000002";
+  const duplicateRound = mergeConflictAcknowledgements(
+    { ...draft, ...dateBlockRound },
+    {
+      code: "HISTORICAL_DUPLICATE_BOOKING",
+      message: "Duplicate",
+      exactDuplicateOf: null,
+      candidates: [
+        {
+          bookingId: replacementId,
+          status: "Confirmed",
+          checkInDate: "2026-06-10",
+          checkOutDate: "2026-06-13",
+        },
+      ],
+      hardConflicts: [],
+      dateBlocks: [],
+      acknowledgeable: true,
+    }
+  );
+  assert.deepEqual(replacementId, duplicateRound.acknowledgedDuplicateOf[0]);
+  assert.deepEqual(duplicateRound.acknowledgedDateBlockIds, [dateBlockId]);
 });
 
 test("same semantic booking command retains its idempotency key", () => {

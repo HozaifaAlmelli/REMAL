@@ -526,6 +526,18 @@ test("wizard route and booking-list action require the dedicated permission", as
   await expect(page).toHaveURL(/\/admin\/bookings$/);
 });
 
+test("authorized booking-list action enters the admin historical wizard", async ({
+  page,
+}) => {
+  await installApi(page);
+  await page.goto("/admin/bookings");
+  await page.getByRole("button", { name: "Record historical" }).click();
+  await expect(page).toHaveURL(/\/admin\/bookings\/historical\/new$/);
+  await expect(
+    page.getByRole("heading", { name: "Record historical booking" })
+  ).toBeVisible();
+});
+
 test("shared combobox supports a keyboard-only path with complete ARIA relationships", async ({
   page,
 }) => {
@@ -716,6 +728,7 @@ test("conflict acknowledgements are exact, visible, and invalidated by semantic 
   await expect(page.getByText(candidateOne, { exact: false })).toHaveCount(0);
   await page.getByRole("button", { name: "Record historical booking" }).click();
   expect(outgoing[1]?.acknowledgedDuplicateOf).toEqual([]);
+  expect(outgoing[1]?.acknowledgedDateBlockIds).toEqual([]);
   await page.getByRole("button", { name: "Acknowledge exact IDs" }).click();
   await expect(page.getByText(candidateTwo, { exact: false })).toBeVisible();
 
@@ -801,6 +814,210 @@ test("unknown booking outcome freezes one semantic command and authoritative con
   expect(state.bookingPosts[1]).toEqual(state.bookingPosts[0]);
 });
 
+test("gateway 504 preserves the exact booking command until idempotent recovery", async ({
+  page,
+}) => {
+  const state = await installApi(page);
+  const outgoing: Array<{
+    method: string;
+    url: string;
+    body: Record<string, unknown>;
+    key: string;
+  }> = [];
+  let gatewayResponse = true;
+  await page.route("**/api/internal/bookings/historical", async (route) => {
+    const request = route.request();
+    if (request.method() !== "POST") return route.fallback();
+    outgoing.push({
+      method: request.method(),
+      url: new URL(request.url()).pathname,
+      body: request.postDataJSON() as Record<string, unknown>,
+      key: request.headers()["idempotency-key"] ?? "",
+    });
+    if (gatewayResponse) {
+      gatewayResponse = false;
+      state.committedBooking = true;
+      await envelope(route, null, {
+        status: 504,
+        message: "Gateway timeout after upstream commit",
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await reachStepSix(page);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Record historical booking" }).click();
+  await expect(page.getByText("Booking outcome unknown")).toBeVisible();
+  await expect(page.getByText("Booking not created")).toHaveCount(0);
+  await expect(
+    page.getByRole("group", { name: "Historical booking draft" })
+  ).toHaveAttribute("disabled", "");
+
+  await page
+    .getByRole("button", { name: "Retry unchanged booking command" })
+    .click();
+  await expect(page.getByText("Historical booking created")).toBeVisible();
+  await expect(page.getByTestId("booking-created-state")).toContainText(
+    BOOKING_ID
+  );
+  expect(outgoing).toHaveLength(2);
+  expect(outgoing[1]).toEqual(outgoing[0]);
+  expect(outgoing[0]?.method).toBe("POST");
+  expect(outgoing[0]?.url).toBe("/api/internal/bookings/historical");
+  expect(state.committedBooking).toBe(true);
+  expect(state.bookingPosts).toHaveLength(1);
+});
+
+test("controlled application 500 is a definite booking failure", async ({
+  page,
+}) => {
+  await installApi(page);
+  await page.route("**/api/internal/bookings/historical", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await envelope(route, null, {
+      status: 500,
+      message: "Controlled application failure",
+    });
+  });
+  await reachStepSix(page);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Record historical booking" }).click();
+  await expect(page.getByText("Booking not created")).toBeVisible();
+  await expect(page.getByText("Booking outcome unknown")).toHaveCount(0);
+  await expect(
+    page.getByRole("group", { name: "Historical booking draft" })
+  ).not.toHaveAttribute("disabled", "");
+});
+
+test("sequential duplicate and date-block rounds accumulate exact acknowledgements", async ({
+  page,
+}) => {
+  const duplicateId = "94000000-0000-4000-8000-000000000001";
+  const dateBlockId = "95000000-0000-4000-8000-000000000001";
+  const outgoing: Record<string, unknown>[] = [];
+  await installApi(page);
+  await page.route("**/api/internal/bookings/historical", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    outgoing.push(body);
+    if (outgoing.length === 1) {
+      await envelope(route, null, {
+        status: 409,
+        code: "HISTORICAL_DUPLICATE_BOOKING",
+        message: "Probable duplicate",
+        metadata: {
+          candidates: [
+            {
+              bookingId: duplicateId,
+              status: "Confirmed",
+              checkInDate: "2026-06-10",
+              checkOutDate: "2026-06-13",
+            },
+            {
+              bookingId: duplicateId,
+              status: "Confirmed",
+              checkInDate: "2026-06-10",
+              checkOutDate: "2026-06-13",
+            },
+          ],
+        },
+      });
+      return;
+    }
+    if (outgoing.length === 2) {
+      await envelope(route, null, {
+        status: 409,
+        code: "HISTORICAL_OVERLAP_CONFLICT",
+        message: "Approved date block",
+        metadata: {
+          dateBlocks: [
+            {
+              dateBlockId,
+              startDate: "2026-06-11",
+              endDate: "2026-06-12",
+            },
+            {
+              dateBlockId,
+              startDate: "2026-06-11",
+              endDate: "2026-06-12",
+            },
+          ],
+        },
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await reachStepSix(page);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Record historical booking" }).click();
+  expect(outgoing[0]?.acknowledgedDuplicateOf).toEqual([]);
+  expect(outgoing[0]?.acknowledgedDateBlockIds).toEqual([]);
+
+  await page.getByRole("button", { name: "Acknowledge exact IDs" }).click();
+  await page.getByRole("button", { name: "Record historical booking" }).click();
+  expect(outgoing[1]?.acknowledgedDuplicateOf).toEqual([duplicateId]);
+  expect(outgoing[1]?.acknowledgedDateBlockIds).toEqual([]);
+
+  await page.getByRole("button", { name: "Acknowledge exact IDs" }).click();
+  await expect(page.getByText(duplicateId, { exact: false })).toBeVisible();
+  await expect(page.getByText(dateBlockId, { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Record historical booking" }).click();
+  expect(outgoing[2]?.acknowledgedDuplicateOf).toEqual([duplicateId]);
+  expect(outgoing[2]?.acknowledgedDateBlockIds).toEqual([dateBlockId]);
+  await expect(page.getByText("Historical booking created")).toBeVisible();
+});
+
+test("gateway 504 payment remains reconciliation-required after permission loss and reload", async ({
+  page,
+}) => {
+  const state = await installApi(page);
+  const paymentAttempts: Array<{ body: unknown; key: string }> = [];
+  await page.route(
+    `**/api/internal/bookings/${BOOKING_ID}/historical-payments`,
+    async (route) => {
+      const request = route.request();
+      if (request.method() !== "POST") return route.fallback();
+      paymentAttempts.push({
+        body: request.postDataJSON(),
+        key: request.headers()["idempotency-key"] ?? "",
+      });
+      state.committedPayment = true;
+      await envelope(route, null, {
+        status: 504,
+        message: "Gateway timeout after upstream commit",
+      });
+    }
+  );
+  await reachStepSix(page);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Record historical booking" }).click();
+  await expect(page.getByText("Historical booking created")).toBeVisible();
+  await fillHistoricalPayment(page);
+  await page.getByRole("button", { name: "Record payment evidence" }).click();
+  await expect(page.getByText("Payment outcome unknown")).toBeVisible();
+  const recovery = await page.evaluate(
+    () => window.history.state.hb06HistoricalRecovery
+  );
+  expect(recovery.payment.status).toBe("outcome-unknown");
+  expect(recovery.payment.idempotencyKey).toBe(paymentAttempts[0]?.key);
+
+  state.permissions = ["bookings:read", "bookings:record_historical"];
+  await page.reload();
+  await expect(page.getByText("Historical booking created")).toBeVisible();
+  await expect(
+    page.getByText("Payment outcome requires reconciliation")
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Record payment evidence" })
+  ).toHaveCount(0);
+  expect(paymentAttempts).toHaveLength(1);
+  expect(state.bookingPosts).toHaveLength(1);
+});
+
 test("tampered recovery is unverified and payment unknown after reload blocks a second command", async ({
   page,
 }) => {
@@ -812,7 +1029,14 @@ test("tampered recovery is unverified and payment unknown after reload blocks a 
     window.history.replaceState(
       {
         ...window.history.state,
-        hb06HistoricalRecovery: { version: 1, bookingId },
+        hb06HistoricalRecovery: {
+          version: 1,
+          bookingId,
+          payment: {
+            idempotencyKey: "20000000-0000-4000-8000-000000000001",
+            status: "outcome-unknown",
+          },
+        },
       },
       "",
       window.location.href
@@ -820,6 +1044,9 @@ test("tampered recovery is unverified and payment unknown after reload blocks a 
   }, randomId);
   await page.goto("/admin/bookings/historical/new");
   await expect(page.getByText("Booking success is not confirmed")).toBeVisible();
+  await expect(
+    page.getByText("Payment outcome requires reconciliation")
+  ).toBeVisible();
   await expect(page.getByText("Historical booking created")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Optional payment evidence" })).toHaveCount(0);
   expect(state.bookingPosts).toHaveLength(0);

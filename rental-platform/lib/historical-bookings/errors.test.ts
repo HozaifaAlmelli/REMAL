@@ -3,6 +3,7 @@ import test from "node:test";
 import { ApiError } from "@/lib/api/api-error";
 import {
   bookingErrorMessage,
+  isUnknownCommandOutcome,
   ownerReviewIssue,
   paymentErrorMessage,
   toHistoricalWizardConflict,
@@ -103,11 +104,44 @@ test("review required, forbidden, not found, business and transport errors are d
     ownerReviewIssue(new ApiError(404, "Missing")).kind,
     "not-found"
   );
-  assert.equal(
-    ownerReviewIssue(new ApiError(409, "Unknown business", [], "UNKNOWN")).kind,
-    "business"
+  const unknownBusiness = ownerReviewIssue(
+    new ApiError(409, "Unknown business", [], "UNKNOWN")
   );
+  assert.equal(unknownBusiness.kind, "business");
+  assert.equal(unknownBusiness.retryable, false);
   assert.deepEqual(ownerReviewIssue(new Error("network")).kind, "transport");
+});
+
+test("gateway statuses are unknown command outcomes while controlled 500 is definite", () => {
+  for (const status of [0, 408, 502, 503, 504]) {
+    assert.equal(
+      isUnknownCommandOutcome(
+        new ApiError(status, "Gateway response"),
+        "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+      ),
+      true,
+      `status ${status}`
+    );
+  }
+  assert.equal(
+    isUnknownCommandOutcome(
+      new ApiError(500, "Controlled application failure"),
+      "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+    ),
+    false
+  );
+  assert.equal(
+    isUnknownCommandOutcome(
+      new ApiError(
+        409,
+        "In progress",
+        [],
+        "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+      ),
+      "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+    ),
+    true
+  );
 });
 
 test("unknown booking codes use a safe static fallback", () => {

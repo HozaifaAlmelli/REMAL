@@ -508,6 +508,35 @@ export function historicalWizardReducer(
   }
 }
 
+function normalizedAcknowledgementIds(values: string[]): string[] {
+  return [...new Set(values.filter((value) => GUID_PATTERN.test(value)))].sort();
+}
+
+export function mergeConflictAcknowledgements(
+  draft: HistoricalBookingDraft,
+  conflict: HistoricalWizardConflict
+): Pick<
+  HistoricalBookingDraft,
+  "acknowledgedDuplicateOf" | "acknowledgedDateBlockIds"
+> {
+  const incomingDuplicates = normalizedAcknowledgementIds(
+    conflict.candidates.map((item) => item.bookingId)
+  );
+  const incomingDateBlocks = normalizedAcknowledgementIds(
+    conflict.dateBlocks.map((item) => item.dateBlockId)
+  );
+  return {
+    acknowledgedDuplicateOf:
+      incomingDuplicates.length > 0
+        ? incomingDuplicates
+        : normalizedAcknowledgementIds(draft.acknowledgedDuplicateOf),
+    acknowledgedDateBlockIds:
+      incomingDateBlocks.length > 0
+        ? incomingDateBlocks
+        : normalizedAcknowledgementIds(draft.acknowledgedDateBlockIds),
+  };
+}
+
 const required = (value: string): boolean => value.trim().length > 0;
 export const GUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

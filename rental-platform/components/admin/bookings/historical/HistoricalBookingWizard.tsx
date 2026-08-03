@@ -38,6 +38,7 @@ import { historicalBookingsService } from "@/lib/api/services/historical-booking
 import { ApiError } from "@/lib/api/api-error";
 import {
   bookingErrorMessage,
+  isUnknownCommandOutcome,
   ownerReviewIssue,
   paymentErrorMessage,
   toHistoricalWizardConflict,
@@ -48,6 +49,7 @@ import {
   createInitialHistoricalWizardState,
   firstInvalidStep,
   historicalWizardReducer,
+  mergeConflictAcknowledgements,
   parseHistoricalBookingResponse,
   parseHistoricalPaymentResponse,
   parseOwnerReviewResponse,
@@ -543,9 +545,7 @@ export function HistoricalBookingWizard() {
       void loadOwnerReview(booking.id, "created");
     } catch (error) {
       if (
-        !(error instanceof ApiError) ||
-        error.status === 0 ||
-        error.code === "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+        isUnknownCommandOutcome(error, "IDEMPOTENCY_REQUEST_IN_PROGRESS")
       ) {
         dispatch({
           type: "bookingOutcomeUnknown",
@@ -559,7 +559,10 @@ export function HistoricalBookingWizard() {
         dispatch({
           type: "bookingFailed",
           message: bookingErrorMessage(error),
-          conflict: toHistoricalWizardConflict(error) ?? undefined,
+          conflict:
+            error instanceof ApiError
+              ? (toHistoricalWizardConflict(error) ?? undefined)
+              : undefined,
         });
       }
     } finally {
@@ -647,9 +650,10 @@ export function HistoricalBookingWizard() {
       paymentCommand.current = null;
     } catch (error) {
       if (
-        !(error instanceof ApiError) ||
-        error.status === 0 ||
-        error.code === "HISTORICAL_PAYMENT_REQUEST_IN_PROGRESS"
+        isUnknownCommandOutcome(
+          error,
+          "HISTORICAL_PAYMENT_REQUEST_IN_PROGRESS"
+        )
       ) {
         replaceRecoveryMetadata({
           version: 1,
@@ -675,14 +679,7 @@ export function HistoricalBookingWizard() {
 
   const acknowledgeConflicts = () => {
     if (!state.conflict?.acknowledgeable) return;
-    updateDraft({
-      acknowledgedDuplicateOf: state.conflict.candidates.map(
-        (item) => item.bookingId
-      ),
-      acknowledgedDateBlockIds: state.conflict.dateBlocks.map(
-        (item) => item.dateBlockId
-      ),
-    });
+    updateDraft(mergeConflictAcknowledgements(state.draft, state.conflict));
     bookingCommand.current = null;
   };
 
@@ -712,6 +709,9 @@ export function HistoricalBookingWizard() {
         bookingId={state.recoveryBookingId}
         verifying={state.bookingStatus === "RecoveredVerifying"}
         issue={state.recoveryIssue}
+        paymentOutcomeUnknown={
+          state.paymentStatus === "ReconciliationRequired"
+        }
         onRetry={retryRecoveryVerification}
       />
     );
@@ -1498,11 +1498,13 @@ function RecoveredBookingView({
   bookingId,
   verifying,
   issue,
+  paymentOutcomeUnknown,
   onRetry,
 }: {
   bookingId: string | null;
   verifying: boolean;
   issue: HistoricalWizardState["recoveryIssue"];
+  paymentOutcomeUnknown: boolean;
   onRetry: () => void;
 }) {
   return (
@@ -1547,6 +1549,21 @@ function RecoveredBookingView({
               Retry verification
             </Button>
           )}
+        </div>
+      )}
+      {paymentOutcomeUnknown && (
+        <div
+          role="alert"
+          className="mt-4 border-s-4 border-warning bg-warning-bg px-4 py-3"
+        >
+          <p className="text-sm font-semibold text-neutral-900">
+            Payment outcome requires reconciliation
+          </p>
+          <p className="mt-1 text-sm text-neutral-700">
+            A prior payment command may have committed. No new payment can be
+            recorded until the retained booking and its payment evidence are
+            reviewed.
+          </p>
         </div>
       )}
     </div>
@@ -1780,19 +1797,6 @@ function PaymentPanel({
       if (first) document.getElementById(fieldId[first] ?? first)?.focus();
     });
   }, [state.paymentValidationErrors]);
-  if (!allowed)
-    return (
-      <section className="border border-neutral-200 bg-white p-5 shadow-sm">
-        <Banknote aria-hidden size={20} className="text-neutral-400" />
-        <h2 className="mt-3 text-base font-semibold text-neutral-900">
-          Optional payment evidence
-        </h2>
-        <p className="mt-1 text-sm text-neutral-600">
-          The booking is complete. Historical payment recording is unavailable
-          to the current user.
-        </p>
-      </section>
-    );
   if (state.payment) return <PaymentRecorded payment={state.payment} />;
   if (state.paymentStatus === "ReconciliationRequired")
     return (
@@ -1808,6 +1812,19 @@ function PaymentPanel({
           A prior payment command may have committed before this page reloaded.
           No new payment can be recorded here until the existing evidence is
           checked in the booking payment records.
+        </p>
+      </section>
+    );
+  if (!allowed)
+    return (
+      <section className="border border-neutral-200 bg-white p-5 shadow-sm">
+        <Banknote aria-hidden size={20} className="text-neutral-400" />
+        <h2 className="mt-3 text-base font-semibold text-neutral-900">
+          Optional payment evidence
+        </h2>
+        <p className="mt-1 text-sm text-neutral-600">
+          The booking is complete. Historical payment recording is unavailable
+          to the current user.
         </p>
       </section>
     );
