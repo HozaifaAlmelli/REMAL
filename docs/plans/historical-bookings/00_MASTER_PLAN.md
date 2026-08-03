@@ -747,6 +747,11 @@ because it cannot be bypassed by a caller.
 
 Full specification in [HB-06](06_TICKET_HISTORICAL_BOOKING_WIZARD_UI.md).
 
+**OWNER APPROVED CONTRACT AMENDMENT (2026-08-03):** step 5 is an informational owner-attribution policy
+review only. It performs no owner lookup or API call. Step 6 creates the booking, and the existing HB-05
+review runs only after commit with the returned booking ID. Review outcomes never invalidate booking success
+or gate the independent optional-payment command.
+
 | Step | Content | Dynamic? |
 |---|---|---|
 | 1 | Origin & historical context — original source, agreement date, late-entry reason, external reference | Always |

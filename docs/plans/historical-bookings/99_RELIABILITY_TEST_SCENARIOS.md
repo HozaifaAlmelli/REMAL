@@ -2475,10 +2475,11 @@ notification tools remain human-governed and unchanged.
 
 ## Group 12 — UI and UX (`SC-UI-nn`)
 
-**Binding HB-06 policy:** the wizard is a full page. Step 5 is policy-only and makes no owner call. Booking
-creation succeeds in step 6, then HB-05 review uses the returned booking ID without gating success. Optional
-HB-04B payment is a second permission-gated command, independent from review. Payment failure preserves the
-booking and retries only payment.
+**Binding HB-06 policy — OWNER APPROVED CONTRACT AMENDMENT (2026-08-03):** the wizard is a full page. Step 5
+is policy-only and makes no owner call. Booking creation succeeds in step 6, then HB-05 review uses the
+returned booking ID without gating success. Optional HB-04B payment is a second permission-gated command,
+independent from review. Payment failure preserves the booking and retries only payment. No endpoint,
+migration, schema object or stable error is added by this amendment.
 
 #### SC-UI-01 — Entry point is permission-gated
 

@@ -147,6 +147,10 @@ contain the full contracts; this section records the binding cross-ticket decisi
 
 ### HB-06 wizard decisions
 
+**OWNER APPROVED CONTRACT AMENDMENT (2026-08-03):** the owner approved the step-5/post-create sequencing
+introduced by documentation commit `41fbcfb6694658c361c193e6d964234cdfa37da4`. This is a contract amendment,
+not an editorial clarification. It adds no endpoint, migration, schema object or error code.
+
 | Decision | Owner-approved outcome |
 |---|---|
 | Surface | Full page `/admin/bookings/historical/new`; secondary booking-list action; no modal |
