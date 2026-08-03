@@ -9,6 +9,7 @@ interface HistoricalWizardStepperProps {
   currentStep: HistoricalWizardStep;
   furthestStep: HistoricalWizardStep;
   disabled: boolean;
+  invalidStep?: HistoricalWizardStep;
   onStepSelect: (step: HistoricalWizardStep) => void;
 }
 
@@ -16,6 +17,7 @@ export function HistoricalWizardStepper({
   currentStep,
   furthestStep,
   disabled,
+  invalidStep,
   onStepSelect,
 }: HistoricalWizardStepperProps) {
   return (
@@ -29,6 +31,7 @@ export function HistoricalWizardStepper({
           const isCurrent = number === currentStep;
           const isComplete = number < currentStep || number < furthestStep;
           const isReachable = number <= furthestStep;
+          const isInvalid = number === invalidStep;
           return (
             <li key={step.id} className="min-w-0">
               <button
@@ -36,6 +39,9 @@ export function HistoricalWizardStepper({
                 disabled={disabled || !isReachable}
                 onClick={() => onStepSelect(number)}
                 aria-current={isCurrent ? "step" : undefined}
+                aria-label={
+                  isInvalid ? `${step.label}, contains errors` : step.label
+                }
                 className={cn(
                   "flex min-h-[68px] w-full items-center gap-2 border-b-2 px-3 text-start transition-colors",
                   isCurrent
@@ -44,6 +50,7 @@ export function HistoricalWizardStepper({
                   isReachable &&
                     !isCurrent &&
                     "hover:bg-neutral-50 hover:text-neutral-800",
+                  isInvalid && "border-error bg-error-bg",
                   !isReachable && "cursor-not-allowed opacity-60"
                 )}
               >

@@ -64,16 +64,32 @@ export function toHistoricalWizardConflict(
     return null;
 
   const metadata = error.metadata ?? {};
+  const exactDuplicateOf =
+    typeof metadata.duplicateOf === "string" && UUID.test(metadata.duplicateOf)
+      ? metadata.duplicateOf
+      : null;
+  const candidates = safeArray(metadata.candidates, safeBooking);
+  const hardConflicts = safeArray(metadata.conflicts, safeBooking);
+  const dateBlocks = safeArray(metadata.dateBlocks, safeDateBlock);
   return {
     code: error.code,
-    message: error.message,
-    candidates: safeArray(
+    message:
       error.code === HISTORICAL_ERROR_CODES.duplicate
-        ? metadata.candidates
-        : metadata.conflicts,
-      safeBooking
-    ),
-    dateBlocks: safeArray(metadata.dateBlocks, safeDateBlock),
+        ? (BOOKING_MESSAGES[HISTORICAL_ERROR_CODES.duplicate] ??
+          "A probable duplicate requires review.")
+        : (BOOKING_MESSAGES[HISTORICAL_ERROR_CODES.overlap] ??
+          "The stay conflicts with existing availability."),
+    exactDuplicateOf,
+    candidates,
+    hardConflicts,
+    dateBlocks,
+    acknowledgeable:
+      (error.code === HISTORICAL_ERROR_CODES.duplicate &&
+        !exactDuplicateOf &&
+        candidates.length > 0) ||
+      (error.code === HISTORICAL_ERROR_CODES.overlap &&
+        hardConflicts.length === 0 &&
+        dateBlocks.length > 0),
   };
 }
 
@@ -139,17 +155,31 @@ export function bookingErrorMessage(error: unknown): string {
     return "The booking request could not be completed. Your entries are preserved.";
   return (
     (error.code && BOOKING_MESSAGES[error.code]) ||
-    error.message ||
     "The booking request could not be completed."
   );
+}
+
+function safeValidationDetail(error: ApiError): string | null {
+  if (error.code !== HISTORICAL_ERROR_CODES.validation) return null;
+  const detail = error.errors.find(
+    (item) =>
+      typeof item === "string" &&
+      item.trim().length > 0 &&
+      item.length <= 200 &&
+      !/[\r\n\0]/.test(item) &&
+      !/(sql|constraint|exception|stack trace|password|token|request body)/i.test(
+        item
+      )
+  );
+  return detail?.trim() ?? null;
 }
 
 export function paymentErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError))
     return "The payment evidence could not be recorded. The booking remains created.";
   return (
+    safeValidationDetail(error) ||
     (error.code && PAYMENT_MESSAGES[error.code]) ||
-    error.message ||
     "The payment evidence could not be recorded."
   );
 }
@@ -176,6 +206,14 @@ export function ownerReviewIssue(error: unknown): OwnerReviewIssue {
         kind: "not-found",
         message:
           "The booking was created, but its owner review could not be located. Contact operations with the booking ID.",
+        retryable: false,
+      };
+    }
+    if (error.status === 409) {
+      return {
+        kind: "business",
+        message:
+          "Owner attribution review returned a business state that cannot be retried here.",
         retryable: false,
       };
     }

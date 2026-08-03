@@ -46,16 +46,26 @@ import {
   buildHistoricalBookingRequest,
   buildHistoricalPaymentRequest,
   createInitialHistoricalWizardState,
+  firstInvalidStep,
   historicalWizardReducer,
+  parseHistoricalBookingResponse,
+  parseHistoricalPaymentResponse,
+  parseOwnerReviewResponse,
+  parseRecoveryMetadata,
   resolveCommandIdentity,
   validateAllHistoricalWizardSteps,
   validateHistoricalPaymentDraft,
   validateHistoricalWizardStep,
-  type CommandIdentity,
+  type FrozenCommand,
   type HistoricalBookingDraft,
+  type HistoricalWizardState,
   type HistoricalWizardStep,
 } from "@/lib/historical-bookings/wizard";
-import type { HistoricalPaymentResponse } from "@/lib/types/historical-booking.types";
+import type {
+  HistoricalPaymentResponse,
+  RecordHistoricalBookingRequest,
+  RecordHistoricalPaymentRequest,
+} from "@/lib/types/historical-booking.types";
 import { HistoricalWizardStepper } from "./HistoricalWizardStepper";
 import { cn } from "@/lib/utils/cn";
 
@@ -67,9 +77,7 @@ const REQUIRED_WARNINGS = [
   "A manual invoice may be created later; historical payment evidence remains standalone.",
 ] as const;
 
-const BOOKING_HISTORY_STATE_KEY = "hb06HistoricalBookingId";
-const GUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BOOKING_HISTORY_STATE_KEY = "hb06HistoricalRecovery";
 
 const fieldId: Record<string, string> = {
   originalSource: "historical-original-source",
@@ -87,6 +95,11 @@ const fieldId: Record<string, string> = {
   guestCount: "historical-guest-count",
   internalNotes: "historical-internal-notes",
   agreedAmount: "historical-agreed-amount",
+  paymentAmount: "historical-payment-amount",
+  paymentMethod: "historical-payment-method",
+  paidAt: "historical-payment-paid-at",
+  referenceNumber: "historical-payment-reference",
+  paymentReason: "historical-payment-reason",
 };
 
 function safeMoney(value: number | string | null | undefined): string {
@@ -121,7 +134,13 @@ function SummaryRow({
   );
 }
 
-function FieldErrorSummary({ errors }: { errors: Record<string, string> }) {
+function FieldErrorSummary({
+  errors,
+  step,
+}: {
+  errors: Record<string, string>;
+  step?: HistoricalWizardStep;
+}) {
   const messages = Object.values(errors);
   if (messages.length === 0) return null;
   return (
@@ -130,7 +149,9 @@ function FieldErrorSummary({ errors }: { errors: Record<string, string> }) {
       aria-live="assertive"
       className="border-s-4 border-error bg-error-bg px-4 py-3"
     >
-      <p className="text-sm font-semibold text-error">Review this step</p>
+      <p className="text-sm font-semibold text-error">
+        {step ? `Review step ${step}` : "Review the highlighted fields"}
+      </p>
       <ul className="mt-1 list-disc space-y-1 ps-5 text-sm text-neutral-700">
         {messages.map((message) => (
           <li key={message}>{message}</li>
@@ -172,15 +193,21 @@ export function HistoricalBookingWizard() {
     createInitialHistoricalWizardState
   );
   const [furthestStep, setFurthestStep] = useState<HistoricalWizardStep>(1);
-  const bookingIdentity = useRef<CommandIdentity | null>(null);
-  const paymentIdentity = useRef<CommandIdentity | null>(null);
+  const bookingCommand =
+    useRef<FrozenCommand<RecordHistoricalBookingRequest> | null>(null);
+  const paymentCommand =
+    useRef<FrozenCommand<RecordHistoricalPaymentRequest> | null>(null);
   const bookingSubmitting = useRef(false);
   const paymentSubmitting = useRef(false);
   const recoveryStarted = useRef(false);
+  const ownerReviewInFlight = useRef(false);
+  const ownerReviewGeneration = useRef(0);
+  const mounted = useRef(true);
   const errorSummaryRef = useRef<HTMLDivElement>(null);
 
   const canLoadUnits = grants.includes("units:read");
   const canLoadClients = grants.includes("clients:read");
+  const canReviewOwner = grants.includes("bookings:read");
   const units = useInternalUnitsList(
     { includeInactive: true, page: 1, pageSize: 100 },
     { enabled: permissions.canRecordHistoricalBookings && canLoadUnits }
@@ -193,43 +220,106 @@ export function HistoricalBookingWizard() {
   const selectedUnit = units.data?.items.find(
     (unit) => unit.id === state.draft.unitId
   );
-  const selectedClient = clients.data?.items.find(
-    (client) => client.id === state.draft.clientId
+  const committed = state.bookingStatus === "Committed" && Boolean(state.booking);
+  const bookingPending = state.bookingStatus === "Submitting";
+  const bookingOutcomeUnknown = state.bookingStatus === "OutcomeUnknown";
+  const bookingFrozen = bookingPending || bookingOutcomeUnknown;
+  const paymentPending = state.paymentStatus === "Submitting";
+  const recoveryMetadata =
+    typeof window === "undefined"
+      ? null
+      : parseRecoveryMetadata(
+          (window.history.state as Record<string, unknown> | null)?.[
+            BOOKING_HISTORY_STATE_KEY
+          ]
+        );
+
+  const replaceRecoveryMetadata = useCallback(
+    (
+      metadata:
+        | {
+            version: 1;
+            bookingId: string;
+            payment?: {
+              idempotencyKey: string;
+              status: "pending" | "outcome-unknown";
+            };
+          }
+        | null
+    ) => {
+      if (
+        !mounted.current ||
+        window.location.pathname !== "/admin/bookings/historical/new"
+      )
+        return;
+      const next = { ...window.history.state };
+      if (metadata) next[BOOKING_HISTORY_STATE_KEY] = metadata;
+      else delete next[BOOKING_HISTORY_STATE_KEY];
+      window.history.replaceState(next, "", window.location.href);
+    },
+    []
   );
-  const committed = Boolean(state.booking);
-  const bookingPending = state.phase === "BookingSubmitting";
-  const paymentPending = state.phase === "PaymentSubmitting";
 
   useEffect(() => {
-    if (!permissions.canRecordHistoricalBookings) {
-      router.replace(ROUTES.admin.bookings.list);
-    }
-  }, [permissions.canRecordHistoricalBookings, router]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (
-      committed ||
-      (state.currentStep === 1 &&
-        Object.values(state.draft).every((value) =>
-          Array.isArray(value)
-            ? value.length === 0
-            : value === "" || value === "1" || value === "existing"
-        ))
-    )
-      return;
+      !permissions.canRecordHistoricalBookings &&
+      !state.booking &&
+      !state.recoveryBookingId &&
+      !recoveryMetadata
+    ) {
+      router.replace(ROUTES.admin.bookings.list);
+    }
+  }, [
+    permissions.canRecordHistoricalBookings,
+    recoveryMetadata,
+    router,
+    state.booking,
+    state.recoveryBookingId,
+  ]);
+
+  useEffect(() => {
+    const draftPristine =
+      state.currentStep === 1 &&
+      Object.values(state.draft).every((value) =>
+        Array.isArray(value)
+          ? value.length === 0
+          : value === "" || value === "1" || value === "existing"
+      );
+    const shouldWarn =
+      bookingFrozen ||
+      paymentPending ||
+      state.paymentStatus === "OutcomeUnknown" ||
+      (!committed && !draftPristine);
+    if (!shouldWarn) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [committed, state.currentStep, state.draft]);
+  }, [
+    bookingFrozen,
+    committed,
+    paymentPending,
+    state.currentStep,
+    state.draft,
+    state.paymentStatus,
+  ]);
 
   useEffect(() => {
     if (Object.keys(state.validationErrors).length > 0) {
-      errorSummaryRef.current?.focus();
       const first = Object.keys(state.validationErrors)[0];
-      if (first) document.getElementById(fieldId[first] ?? first)?.focus();
+      requestAnimationFrame(() => {
+        errorSummaryRef.current?.focus();
+        if (first) document.getElementById(fieldId[first] ?? first)?.focus();
+      });
     }
   }, [state.validationErrors]);
 
@@ -240,7 +330,11 @@ export function HistoricalBookingWizard() {
   const next = () => {
     const result = validateHistoricalWizardStep(state.currentStep, state.draft);
     if (!result.valid) {
-      dispatch({ type: "validationFailed", errors: result.errors });
+      dispatch({
+        type: "validationFailed",
+        errors: result.errors,
+        step: state.currentStep,
+      });
       return;
     }
     if (state.currentStep < 6) {
@@ -261,111 +355,326 @@ export function HistoricalBookingWizard() {
     }
   };
 
-  const loadOwnerReview = useCallback(async (bookingId: string) => {
-    try {
-      const review =
-        await historicalBookingsService.reviewOwnerAttribution(bookingId);
-      dispatch({ type: "ownerReviewLoaded", review });
-    } catch (error) {
-      const issue = ownerReviewIssue(error);
-      dispatch({
-        type:
-          issue.kind === "review-required"
-            ? "ownerReviewRequired"
-            : "ownerReviewUnavailable",
-        issue,
-      });
+  const loadOwnerReview = useCallback(async (
+    bookingId: string,
+    purpose: "created" | "recovery",
+    paymentOutcomeUnknown = false
+  ) => {
+    if (ownerReviewInFlight.current) return;
+    if (!canReviewOwner) {
+      if (purpose === "recovery") {
+        dispatch({
+          type: "recoveryUnverified",
+          issue: {
+            kind: "forbidden",
+            message:
+              "The retained booking ID cannot be verified with the current permissions.",
+            retryable: false,
+          },
+        });
+      } else {
+        dispatch({
+          type: "ownerReviewUnavailable",
+          issue: {
+            kind: "forbidden",
+            message:
+              "Owner-attribution details are unavailable to the current user.",
+            retryable: false,
+          },
+        });
+      }
+      return;
     }
-  }, []);
+    ownerReviewInFlight.current = true;
+    const generation = ++ownerReviewGeneration.current;
+    try {
+      const raw =
+        await historicalBookingsService.reviewOwnerAttribution(bookingId);
+      if (!mounted.current || generation !== ownerReviewGeneration.current)
+        return;
+      const review = parseOwnerReviewResponse(raw);
+      if (!review || review.bookingId !== bookingId) {
+        const bookingMismatch = review?.bookingId !== undefined;
+        if (purpose === "recovery") {
+          dispatch({
+            type: "recoveryUnverified",
+            issue: {
+              kind: "malformed",
+              message: bookingMismatch
+                ? "The server response referred to a different booking. Verification stopped."
+                : "The retained booking could not be verified from the server response.",
+              retryable: !bookingMismatch,
+            },
+          });
+        } else {
+          dispatch({
+            type: "ownerReviewUnavailable",
+            issue: {
+              kind: "malformed",
+              message: bookingMismatch
+                ? "Owner attribution referred to a different booking. The booking remains created."
+                : "Owner attribution returned an invalid response. The booking remains created.",
+              retryable: !bookingMismatch,
+            },
+          });
+        }
+        return;
+      }
+      if (purpose === "recovery") {
+        dispatch({
+          type: "recoveryConfirmed",
+          bookingId,
+          review,
+          paymentOutcomeUnknown,
+        });
+      } else {
+        dispatch({ type: "ownerReviewLoaded", review });
+      }
+    } catch (error) {
+      if (!mounted.current || generation !== ownerReviewGeneration.current)
+        return;
+      const issue = ownerReviewIssue(error);
+      if (purpose === "recovery") {
+        if (issue.kind === "review-required") {
+          dispatch({
+            type: "recoveryConfirmed",
+            bookingId,
+            reviewIssue: issue,
+            paymentOutcomeUnknown,
+          });
+        } else {
+          dispatch({
+            type: "recoveryUnverified",
+            issue: {
+              kind:
+                issue.kind === "forbidden"
+                  ? "forbidden"
+                  : issue.kind === "not-found"
+                    ? "not-found"
+                    : "transport",
+              message:
+                issue.kind === "forbidden"
+                  ? "The retained booking ID cannot be verified with the current permissions."
+                  : issue.kind === "not-found"
+                    ? "The retained booking ID was not found. No booking success has been confirmed."
+                    : "Booking verification is temporarily unavailable.",
+              retryable:
+                issue.kind !== "forbidden" && issue.kind !== "not-found",
+            },
+          });
+        }
+      } else {
+        dispatch({
+          type:
+            issue.kind === "review-required"
+              ? "ownerReviewRequired"
+              : "ownerReviewUnavailable",
+          issue,
+        });
+      }
+    } finally {
+      if (generation === ownerReviewGeneration.current)
+        ownerReviewInFlight.current = false;
+    }
+  }, [canReviewOwner]);
 
   useEffect(() => {
-    if (state.booking || recoveryStarted.current) return;
-    const retained = (window.history.state as Record<string, unknown> | null)?.[
-      BOOKING_HISTORY_STATE_KEY
-    ];
-    if (typeof retained !== "string" || !GUID_PATTERN.test(retained)) return;
+    if (state.booking || state.recoveryBookingId || recoveryStarted.current)
+      return;
+    if (!recoveryMetadata) return;
     recoveryStarted.current = true;
-    dispatch({ type: "bookingRecovered", bookingId: retained });
-    void loadOwnerReview(retained);
-  }, [loadOwnerReview, state.booking]);
+    dispatch({
+      type: "recoveryVerifying",
+      bookingId: recoveryMetadata.bookingId,
+      paymentOutcomeUnknown: Boolean(recoveryMetadata.payment),
+    });
+    void loadOwnerReview(
+      recoveryMetadata.bookingId,
+      "recovery",
+      Boolean(recoveryMetadata.payment)
+    );
+  }, [
+    loadOwnerReview,
+    recoveryMetadata,
+    state.booking,
+    state.recoveryBookingId,
+  ]);
 
   const submitBooking = async () => {
     if (bookingSubmitting.current || committed) return;
     const validation = validateAllHistoricalWizardSteps(state.draft);
     if (!validation.valid) {
-      dispatch({ type: "validationFailed", errors: validation.errors });
+      dispatch({
+        type: "validationFailed",
+        errors: validation.errors,
+        step: firstInvalidStep(validation.errors),
+      });
       return;
     }
-    const request = buildHistoricalBookingRequest(state.draft);
-    bookingIdentity.current = resolveCommandIdentity(
-      bookingIdentity.current,
-      request
-    );
+    const request =
+      bookingOutcomeUnknown && bookingCommand.current
+        ? bookingCommand.current.request
+        : buildHistoricalBookingRequest(state.draft);
+    const identity =
+      bookingOutcomeUnknown && bookingCommand.current
+        ? bookingCommand.current.identity
+        : resolveCommandIdentity(bookingCommand.current?.identity ?? null, request);
+    bookingCommand.current = { identity, request };
     bookingSubmitting.current = true;
     dispatch({ type: "bookingSubmitting" });
     try {
-      const booking = await historicalBookingsService.recordBooking(
+      const raw = await historicalBookingsService.recordBooking(
         request,
-        bookingIdentity.current.key
+        identity.key
       );
-      window.history.replaceState(
-        { ...window.history.state, [BOOKING_HISTORY_STATE_KEY]: booking.id },
-        "",
-        window.location.href
-      );
+      const booking = parseHistoricalBookingResponse(raw);
+      if (!booking) {
+        dispatch({
+          type: "bookingOutcomeUnknown",
+          message:
+            "The server response was invalid, so the booking outcome is unknown. Retry the unchanged command or reconcile with operations.",
+        });
+        return;
+      }
+      replaceRecoveryMetadata({ version: 1, bookingId: booking.id });
       recoveryStarted.current = true;
       dispatch({ type: "bookingCreated", booking });
-      void loadOwnerReview(booking.id);
+      bookingCommand.current = null;
+      void loadOwnerReview(booking.id, "created");
     } catch (error) {
-      dispatch({
-        type: "bookingFailed",
-        message: bookingErrorMessage(error),
-        conflict:
-          error instanceof ApiError
-            ? (toHistoricalWizardConflict(error) ?? undefined)
-            : undefined,
-      });
+      if (
+        !(error instanceof ApiError) ||
+        error.status === 0 ||
+        error.code === "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+      ) {
+        dispatch({
+          type: "bookingOutcomeUnknown",
+          message:
+            error instanceof ApiError &&
+            error.code === "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+              ? "The original booking command is still processing. Retry the unchanged command with the same request identity."
+              : "The booking outcome is unknown because the response was not received. The server may have committed it; retrying unchanged is safe.",
+        });
+      } else {
+        dispatch({
+          type: "bookingFailed",
+          message: bookingErrorMessage(error),
+          conflict: toHistoricalWizardConflict(error) ?? undefined,
+        });
+      }
     } finally {
       bookingSubmitting.current = false;
     }
   };
 
   const retryOwnerReview = () => {
-    if (!state.booking || !state.ownerReviewIssue?.retryable) return;
+    if (
+      !state.booking ||
+      !state.ownerReviewIssue?.retryable ||
+      ownerReviewInFlight.current
+    )
+      return;
     dispatch({ type: "ownerReviewRetrying" });
-    void loadOwnerReview(state.booking.id);
+    void loadOwnerReview(state.booking.id, "created");
+  };
+
+  const retryRecoveryVerification = () => {
+    if (
+      !state.recoveryBookingId ||
+      !state.recoveryIssue?.retryable ||
+      ownerReviewInFlight.current
+    )
+      return;
+    dispatch({ type: "recoveryRetrying" });
+    void loadOwnerReview(
+      state.recoveryBookingId,
+      "recovery",
+      Boolean(recoveryMetadata?.payment)
+    );
   };
 
   const submitPayment = async () => {
-    if (!state.booking || paymentSubmitting.current || state.payment) return;
+    if (
+      !state.booking ||
+      paymentSubmitting.current ||
+      state.payment ||
+      state.paymentStatus === "ReconciliationRequired"
+    )
+      return;
     const validation = validateHistoricalPaymentDraft(state.paymentDraft);
     if (!validation.valid) {
-      dispatch({ type: "validationFailed", errors: validation.errors });
+      dispatch({ type: "paymentValidationFailed", errors: validation.errors });
       return;
     }
-    const request = buildHistoricalPaymentRequest(state.paymentDraft);
-    paymentIdentity.current = resolveCommandIdentity(
-      paymentIdentity.current,
-      request
-    );
+    const retryingUnknown =
+      state.paymentStatus === "OutcomeUnknown" && paymentCommand.current;
+    const request = retryingUnknown
+      ? paymentCommand.current!.request
+      : buildHistoricalPaymentRequest(state.paymentDraft);
+    const identity = retryingUnknown
+      ? paymentCommand.current!.identity
+      : resolveCommandIdentity(paymentCommand.current?.identity ?? null, request);
+    paymentCommand.current = { identity, request };
+    replaceRecoveryMetadata({
+      version: 1,
+      bookingId: state.booking.id,
+      payment: { idempotencyKey: identity.key, status: "pending" },
+    });
     paymentSubmitting.current = true;
     dispatch({ type: "paymentSubmitting" });
     try {
-      const payment = await historicalBookingsService.recordPayment(
+      const raw = await historicalBookingsService.recordPayment(
         state.booking.id,
         request,
-        paymentIdentity.current.key
+        identity.key
       );
+      const payment = parseHistoricalPaymentResponse(raw);
+      if (!payment || payment.bookingId !== state.booking.id) {
+        replaceRecoveryMetadata({
+          version: 1,
+          bookingId: state.booking.id,
+          payment: { idempotencyKey: identity.key, status: "outcome-unknown" },
+        });
+        dispatch({
+          type: "paymentOutcomeUnknown",
+          message:
+            "The payment response was invalid. Reconcile the existing attempt before recording another payment.",
+        });
+        return;
+      }
+      replaceRecoveryMetadata({ version: 1, bookingId: state.booking.id });
       dispatch({ type: "paymentRecorded", payment });
+      paymentCommand.current = null;
     } catch (error) {
-      dispatch({ type: "paymentFailed", message: paymentErrorMessage(error) });
+      if (
+        !(error instanceof ApiError) ||
+        error.status === 0 ||
+        error.code === "HISTORICAL_PAYMENT_REQUEST_IN_PROGRESS"
+      ) {
+        replaceRecoveryMetadata({
+          version: 1,
+          bookingId: state.booking.id,
+          payment: { idempotencyKey: identity.key, status: "outcome-unknown" },
+        });
+        dispatch({
+          type: "paymentOutcomeUnknown",
+          message:
+            "The payment outcome is unknown. Retry this unchanged attempt in this page, or reconcile it before recording another payment.",
+        });
+      } else {
+        replaceRecoveryMetadata({ version: 1, bookingId: state.booking.id });
+        dispatch({
+          type: "paymentFailed",
+          message: paymentErrorMessage(error),
+        });
+      }
     } finally {
       paymentSubmitting.current = false;
     }
   };
 
   const acknowledgeConflicts = () => {
-    if (!state.conflict) return;
+    if (!state.conflict?.acknowledgeable) return;
     updateDraft({
       acknowledgedDuplicateOf: state.conflict.candidates.map(
         (item) => item.bookingId
@@ -374,15 +683,52 @@ export function HistoricalBookingWizard() {
         (item) => item.dateBlockId
       ),
     });
-    bookingIdentity.current = null;
+    bookingCommand.current = null;
   };
 
-  if (!permissions.canRecordHistoricalBookings) return null;
+  const draftDirty = Object.entries(state.draft).some(([key, value]) =>
+    Array.isArray(value)
+      ? value.length > 0
+      : value !== "" &&
+        !(key === "guestCount" && value === "1") &&
+        !(key === "clientMode" && value === "existing")
+  );
+
+  const navigateToBookings = () => {
+    if (bookingPending || paymentPending || bookingOutcomeUnknown) return;
+    if (!committed && draftDirty) {
+      if (!window.confirm("Discard this historical booking draft?")) return;
+    }
+    router.push(ROUTES.admin.bookings.list);
+  };
+
+  if (
+    !state.booking &&
+    (state.bookingStatus === "RecoveredVerifying" ||
+      state.bookingStatus === "RecoveredUnverified")
+  ) {
+    return (
+      <RecoveredBookingView
+        bookingId={state.recoveryBookingId}
+        verifying={state.bookingStatus === "RecoveredVerifying"}
+        issue={state.recoveryIssue}
+        onRetry={retryRecoveryVerification}
+      />
+    );
+  }
+
+  if (
+    !permissions.canRecordHistoricalBookings &&
+    !state.booking &&
+    !state.recoveryBookingId
+  )
+    return null;
 
   if (state.booking) {
     return (
       <BookingCreatedView
         state={state}
+        canReviewOwner={canReviewOwner}
         canRecordPayment={permissions.canRecordHistoricalPayments}
         paymentPending={paymentPending}
         onRetryOwnerReview={retryOwnerReview}
@@ -401,12 +747,14 @@ export function HistoricalBookingWizard() {
     >
       <header className="flex flex-col gap-3 border-b border-neutral-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <Link
-            href={ROUTES.admin.bookings.list}
+          <button
+            type="button"
+            disabled={bookingFrozen}
+            onClick={navigateToBookings}
             className="inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-800"
           >
             <ArrowLeft aria-hidden size={14} /> Bookings
-          </Link>
+          </button>
           <h1 className="mt-2 text-2xl font-bold text-neutral-900">
             Record historical booking
           </h1>
@@ -424,21 +772,39 @@ export function HistoricalBookingWizard() {
         <HistoricalWizardStepper
           currentStep={state.currentStep}
           furthestStep={furthestStep}
-          disabled={bookingPending}
+          disabled={bookingFrozen}
+          invalidStep={
+            Object.keys(state.validationErrors).length > 0
+              ? state.currentStep
+              : undefined
+          }
           onStepSelect={(step) => dispatch({ type: "goToStep", step })}
         />
 
         <div className="p-4 sm:p-6">
           <div ref={errorSummaryRef} tabIndex={-1} className="outline-none">
-            <FieldErrorSummary errors={state.validationErrors} />
+            <FieldErrorSummary
+              errors={state.validationErrors}
+              step={state.currentStep}
+            />
           </div>
           {state.bookingError && (
             <div
               role="alert"
               className="mt-4 border-s-4 border-error bg-error-bg px-4 py-3 text-sm text-neutral-800"
             >
-              <p className="font-semibold text-error">Booking not created</p>
+              <p className="font-semibold text-error">
+                {bookingOutcomeUnknown
+                  ? "Booking outcome unknown"
+                  : "Booking not created"}
+              </p>
               <p className="mt-1">{state.bookingError}</p>
+              {bookingOutcomeUnknown && (
+                <p className="mt-2 text-xs text-neutral-700">
+                  The details are locked. Retry uses the same body and
+                  Idempotency-Key; do not start a second command.
+                </p>
+              )}
             </div>
           )}
           {state.conflict && (
@@ -448,7 +814,11 @@ export function HistoricalBookingWizard() {
             />
           )}
 
-          <div className="mt-5 min-h-[360px]">
+          <fieldset
+            disabled={bookingFrozen}
+            aria-label="Historical booking draft"
+            className="mt-5 min-h-[360px] disabled:cursor-not-allowed disabled:opacity-70"
+          >
             {state.currentStep === 1 && (
               <ProvenanceStep
                 draft={state.draft}
@@ -489,10 +859,9 @@ export function HistoricalBookingWizard() {
               <ReviewStep
                 draft={state.draft}
                 unitName={selectedUnit?.name}
-                clientName={selectedClient?.name}
               />
             )}
-          </div>
+          </fieldset>
         </div>
 
         <footer className="flex flex-col-reverse gap-3 border-t border-neutral-200 bg-neutral-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
@@ -501,7 +870,7 @@ export function HistoricalBookingWizard() {
               type="button"
               variant="outline"
               onClick={back}
-              disabled={state.currentStep === 1 || bookingPending}
+              disabled={state.currentStep === 1 || bookingFrozen}
               leftIcon={<ArrowLeft aria-hidden size={16} />}
             >
               Back
@@ -509,11 +878,8 @@ export function HistoricalBookingWizard() {
             <Button
               type="button"
               variant="ghost"
-              disabled={bookingPending}
-              onClick={() => {
-                if (window.confirm("Discard this historical booking draft?"))
-                  router.push(ROUTES.admin.bookings.list);
-              }}
+              disabled={bookingFrozen}
+              onClick={navigateToBookings}
             >
               Cancel
             </Button>
@@ -533,7 +899,9 @@ export function HistoricalBookingWizard() {
               isLoading={bookingPending}
               leftIcon={<ClipboardCheck aria-hidden size={16} />}
             >
-              Record historical booking
+              {bookingOutcomeUnknown
+                ? "Retry unchanged booking command"
+                : "Record historical booking"}
             </Button>
           )}
         </footer>
@@ -663,7 +1031,9 @@ function StayStep({
         </div>
       )}
       <Combobox
+        id={fieldId.unitId}
         label="Unit"
+        required
         options={options}
         value={draft.unitId || null}
         disabled={!canLoad || isLoading}
@@ -753,7 +1123,9 @@ function ClientStep({
             </div>
           )}
           <Combobox
+            id={fieldId.clientId}
             label="Existing client"
+            required
             options={clients.map((client) => ({
               value: client.id,
               label: `${client.name} · ${client.phone}${client.isActive ? "" : " · Inactive"}`,
@@ -924,12 +1296,20 @@ function OwnerPolicyStep() {
 function ReviewStep({
   draft,
   unitName,
-  clientName,
 }: {
   draft: HistoricalBookingDraft;
   unitName?: string;
-  clientName?: string;
 }) {
+  const request = buildHistoricalBookingRequest(draft);
+  const sourceLabel =
+    HISTORICAL_ORIGINAL_SOURCES.find(
+      (option) => option.value === request.originalSource
+    )?.label ?? request.originalSource;
+  const reasonLabel =
+    HISTORICAL_ENTRY_REASONS.find(
+      (option) => option.value === request.historicalEntryReason
+    )?.label ?? request.historicalEntryReason;
+  const notProvided = "Not provided";
   return (
     <div className="space-y-5">
       <StepHeading
@@ -939,38 +1319,76 @@ function ReviewStep({
       />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.75fr)]">
         <dl className="border-y border-neutral-200">
+          <SummaryRow label="Original source" value={sourceLabel} />
+          <SummaryRow label="Historical reason" value={reasonLabel} />
           <SummaryRow
-            label="Provenance"
-            value={`${draft.originalSource} · ${draft.historicalEntryReason}`}
+            label="Historical entry note"
+            value={request.historicalEntryNote ?? notProvided}
           />
           <SummaryRow
             label="Original booking date"
-            value={draft.actualBookedAt}
+            value={request.actualBookedAt}
           />
           <SummaryRow
             label="Unit"
-            value={unitName ?? compactId(draft.unitId)}
+            value={unitName ?? request.unitId}
           />
           <SummaryRow
             label="Occupied dates"
-            value={`${draft.checkInDate} → ${draft.checkOutDate}`}
+            value={`${request.checkInDate} → ${request.checkOutDate}`}
           />
           <SummaryRow
-            label="Client"
+            label="Client mode"
+            value={request.clientId ? "Existing client" : "New client"}
+          />
+          <SummaryRow
+            label={request.clientId ? "Existing client ID" : "New client name"}
             value={
-              draft.clientMode === "existing"
-                ? (clientName ?? compactId(draft.clientId))
-                : draft.newClientName
+              request.clientId
+                ? request.clientId
+                : request.newClient?.name
             }
           />
-          <SummaryRow label="Guests" value={draft.guestCount} />
+          {!request.clientId && (
+            <>
+              <SummaryRow
+                label="New client phone"
+                value={request.newClient?.phone}
+              />
+              <SummaryRow
+                label="New client email"
+                value={request.newClient?.email ?? notProvided}
+              />
+            </>
+          )}
+          <SummaryRow label="Guests" value={String(request.guestCount)} />
           <SummaryRow
             label="Agreed amount"
-            value={safeMoney(draft.agreedAmount)}
+            value={safeMoney(request.agreedAmount)}
           />
           <SummaryRow
             label="External reference"
-            value={draft.externalReference || "None"}
+            value={request.externalReference ?? notProvided}
+          />
+          <SummaryRow
+            label="Internal notes"
+            value={request.internalNotes ?? notProvided}
+          />
+          <SummaryRow
+            label="Acknowledged probable bookings"
+            value={
+              request.acknowledgedDuplicateOf.length
+                ? request.acknowledgedDuplicateOf.join(", ")
+                : notProvided
+            }
+          />
+          <SummaryRow
+            label="Acknowledged date blocks"
+            value={
+              request.acknowledgedDateBlockIds.length
+                ? request.acknowledgedDateBlockIds.join(", ")
+                : notProvided
+            }
           />
         </dl>
         <div>
@@ -1006,7 +1424,8 @@ function ConflictPanel({
   onAcknowledge: () => void;
 }) {
   const canAcknowledge =
-    conflict.candidates.length > 0 || conflict.dateBlocks.length > 0;
+    conflict.acknowledgeable &&
+    (conflict.candidates.length > 0 || conflict.dateBlocks.length > 0);
   return (
     <section
       aria-label="Booking conflict"
@@ -1025,6 +1444,11 @@ function ConflictPanel({
           <p className="mt-1 text-sm text-neutral-700">{conflict.message}</p>
         </div>
       </div>
+      {conflict.exactDuplicateOf && (
+        <p className="mt-3 font-mono text-xs text-neutral-700">
+          Existing booking: {conflict.exactDuplicateOf}
+        </p>
+      )}
       {conflict.candidates.length > 0 && (
         <ul className="mt-3 space-y-2">
           {conflict.candidates.map((item) => (
@@ -1045,6 +1469,16 @@ function ConflictPanel({
           ))}
         </ul>
       )}
+      {conflict.hardConflicts.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {conflict.hardConflicts.map((item) => (
+            <li key={item.bookingId} className="text-xs text-neutral-700">
+              Booking {item.bookingId} · {item.status} · {item.checkInDate} to{" "}
+              {item.checkOutDate}
+            </li>
+          ))}
+        </ul>
+      )}
       {canAcknowledge && (
         <Button
           type="button"
@@ -1060,15 +1494,76 @@ function ConflictPanel({
   );
 }
 
+function RecoveredBookingView({
+  bookingId,
+  verifying,
+  issue,
+  onRetry,
+}: {
+  bookingId: string | null;
+  verifying: boolean;
+  issue: HistoricalWizardState["recoveryIssue"];
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      className="mx-auto max-w-3xl border border-neutral-200 bg-white p-6 shadow-sm"
+      data-testid="recovered-booking-verification"
+    >
+      <FileClock aria-hidden size={22} className="text-primary-600" />
+      <h1 className="mt-3 text-xl font-semibold text-neutral-900">
+        Verifying retained booking
+      </h1>
+      <p className="mt-2 text-sm text-neutral-600">
+        A booking ID was retained in this tab, but browser state is not trusted
+        as proof that the booking exists.
+      </p>
+      {bookingId && (
+        <p className="mt-3 font-mono text-xs text-neutral-700">{bookingId}</p>
+      )}
+      {verifying ? (
+        <p className="mt-4 flex items-center gap-2 text-sm text-neutral-600">
+          <RefreshCw aria-hidden size={15} className="animate-spin" />
+          Checking authoritative server state…
+        </p>
+      ) : (
+        <div
+          role="alert"
+          className="mt-4 border-s-4 border-warning bg-warning-bg px-4 py-3"
+        >
+          <p className="text-sm font-semibold text-neutral-900">
+            Booking success is not confirmed
+          </p>
+          <p className="mt-1 text-sm text-neutral-700">{issue?.message}</p>
+          {issue?.retryable && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-3"
+              onClick={onRetry}
+              leftIcon={<RefreshCw aria-hidden size={14} />}
+            >
+              Retry verification
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BookingCreatedView({
   state,
+  canReviewOwner,
   canRecordPayment,
   paymentPending,
   onRetryOwnerReview,
   onUpdatePayment,
   onSubmitPayment,
 }: {
-  state: ReturnType<typeof createInitialHistoricalWizardState>;
+  state: HistoricalWizardState;
+  canReviewOwner: boolean;
   canRecordPayment: boolean;
   paymentPending: boolean;
   onRetryOwnerReview: () => void;
@@ -1153,7 +1648,11 @@ function BookingCreatedView({
               Open booking details <ExternalLink aria-hidden size={14} />
             </Link>
           </section>
-          <OwnerReviewPanel state={state} onRetry={onRetryOwnerReview} />
+          <OwnerReviewPanel
+            state={state}
+            allowed={canReviewOwner}
+            onRetry={onRetryOwnerReview}
+          />
         </div>
         <PaymentPanel
           state={state}
@@ -1169,9 +1668,11 @@ function BookingCreatedView({
 
 function OwnerReviewPanel({
   state,
+  allowed,
   onRetry,
 }: {
-  state: ReturnType<typeof createInitialHistoricalWizardState>;
+  state: HistoricalWizardState;
+  allowed: boolean;
   onRetry: () => void;
 }) {
   return (
@@ -1185,13 +1686,17 @@ function OwnerReviewPanel({
           Owner attribution review
         </h2>
       </div>
-      {state.phase === "BookingCreatedOwnerReviewLoading" && (
+      {!allowed ? (
+        <p className="mt-3 text-sm text-neutral-600">
+          Owner-attribution details are unavailable to the current user.
+        </p>
+      ) : state.ownerReviewStatus === "Loading" ? (
         <p className="mt-3 flex items-center gap-2 text-sm text-neutral-600">
           <RefreshCw aria-hidden size={15} className="animate-spin" />
           Loading persisted attribution…
         </p>
-      )}
-      {state.ownerReview && (
+      ) : null}
+      {allowed && state.ownerReview && (
         <dl className="mt-3 border-y border-neutral-200">
           <SummaryRow
             label="Persisted owner ID"
@@ -1227,7 +1732,7 @@ function OwnerReviewPanel({
           />
         </dl>
       )}
-      {state.ownerReviewIssue && (
+      {allowed && state.ownerReviewIssue && (
         <div className="mt-3 border-s-4 border-warning bg-warning-bg px-4 py-3">
           <p className="text-sm font-semibold text-neutral-900">
             Booking created
@@ -1260,12 +1765,21 @@ function PaymentPanel({
   onChange,
   onSubmit,
 }: {
-  state: ReturnType<typeof createInitialHistoricalWizardState>;
+  state: HistoricalWizardState;
   allowed: boolean;
   pending: boolean;
   onChange: (patch: Partial<typeof state.paymentDraft>) => void;
   onSubmit: () => void;
 }) {
+  const paymentErrorSummaryRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (Object.keys(state.paymentValidationErrors).length === 0) return;
+    const first = Object.keys(state.paymentValidationErrors)[0];
+    requestAnimationFrame(() => {
+      paymentErrorSummaryRef.current?.focus();
+      if (first) document.getElementById(fieldId[first] ?? first)?.focus();
+    });
+  }, [state.paymentValidationErrors]);
   if (!allowed)
     return (
       <section className="border border-neutral-200 bg-white p-5 shadow-sm">
@@ -1280,6 +1794,23 @@ function PaymentPanel({
       </section>
     );
   if (state.payment) return <PaymentRecorded payment={state.payment} />;
+  if (state.paymentStatus === "ReconciliationRequired")
+    return (
+      <section
+        className="border border-warning bg-warning-bg p-5"
+        aria-live="polite"
+      >
+        <AlertCircle aria-hidden size={20} className="text-warning" />
+        <h2 className="mt-3 text-base font-semibold text-neutral-900">
+          Payment outcome requires reconciliation
+        </h2>
+        <p className="mt-1 text-sm text-neutral-700">
+          A prior payment command may have committed before this page reloaded.
+          No new payment can be recorded here until the existing evidence is
+          checked in the booking payment records.
+        </p>
+      </section>
+    );
   return (
     <section className="border border-neutral-200 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-2">
@@ -1298,27 +1829,36 @@ function PaymentPanel({
           className="mt-4 border-s-4 border-error bg-error-bg px-4 py-3"
         >
           <p className="text-sm font-semibold text-error">
-            Booking remains created
+            {state.paymentStatus === "OutcomeUnknown"
+              ? "Payment outcome unknown"
+              : "Booking remains created"}
           </p>
           <p className="mt-1 text-sm text-neutral-700">{state.paymentError}</p>
         </div>
       )}
+      <div
+        ref={paymentErrorSummaryRef}
+        tabIndex={-1}
+        className="outline-none"
+      >
+        <FieldErrorSummary errors={state.paymentValidationErrors} />
+      </div>
       <div className="mt-4 space-y-4">
         <Input
-          id="paymentAmount"
+          id={fieldId.paymentAmount}
           label="Amount (EGP)"
           required
           inputMode="decimal"
           value={state.paymentDraft.amount}
-          error={state.validationErrors.paymentAmount}
+          error={state.paymentValidationErrors.paymentAmount}
           onChange={(event) => onChange({ amount: event.target.value })}
         />
         <Select
-          id="paymentMethod"
+          id={fieldId.paymentMethod}
           label="Payment method"
           required
           value={state.paymentDraft.paymentMethod}
-          error={state.validationErrors.paymentMethod}
+          error={state.paymentValidationErrors.paymentMethod}
           placeholder="Select method"
           options={[...HISTORICAL_PAYMENT_METHODS]}
           onChange={(value) =>
@@ -1328,32 +1868,33 @@ function PaymentPanel({
           }
         />
         <Input
-          id="paidAt"
+          id={fieldId.paidAt}
           type="datetime-local"
           label="Paid at"
           required
           value={state.paymentDraft.paidAt}
-          error={state.validationErrors.paidAt}
+          error={state.paymentValidationErrors.paidAt}
+          helperText="Interpreted as Cairo local time."
           onChange={(event) => onChange({ paidAt: event.target.value })}
         />
         <Input
-          id="referenceNumber"
+          id={fieldId.referenceNumber}
           label="Reference (optional)"
           maxLength={100}
           value={state.paymentDraft.referenceNumber}
-          error={state.validationErrors.referenceNumber}
+          error={state.paymentValidationErrors.referenceNumber}
           onChange={(event) =>
             onChange({ referenceNumber: event.target.value })
           }
         />
         <Textarea
-          id="paymentReason"
+          id={fieldId.paymentReason}
           label="Recording reason"
           required
           maxLength={500}
           rows={3}
           value={state.paymentDraft.reason}
-          error={state.validationErrors.paymentReason}
+          error={state.paymentValidationErrors.paymentReason}
           onChange={(event) => onChange({ reason: event.target.value })}
         />
         <Button
@@ -1363,7 +1904,9 @@ function PaymentPanel({
           onClick={onSubmit}
           leftIcon={<FileClock aria-hidden size={16} />}
         >
-          Record payment evidence
+          {state.paymentStatus === "OutcomeUnknown"
+            ? "Retry unchanged payment command"
+            : "Record payment evidence"}
         </Button>
       </div>
     </section>
