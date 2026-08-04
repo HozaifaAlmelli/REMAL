@@ -975,6 +975,11 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
         Assert.Equal(0, await context.Payments.CountAsync(item => item.BookingId == seed.Booking.Id));
         Assert.Equal(0, await context.Invoices.CountAsync(item => item.BookingId == seed.Booking.Id));
         Assert.Equal(0, await context.OwnerPayouts.CountAsync(item => item.BookingId == seed.Booking.Id));
+        Assert.Equal(0, await context.Notifications.CountAsync());
+        Assert.Equal(0, await context.NotificationDeliveryLogs.CountAsync());
+        Assert.Equal(0, await context.CrmLeads.CountAsync());
+        Assert.Equal(0, await context.CrmNotes.CountAsync());
+        Assert.Equal(0, await context.CrmAssignments.CountAsync());
     }
 
     private static Task<int> OwnerCorrectionHistoryCount(AppDbContext context, Guid bookingId) =>

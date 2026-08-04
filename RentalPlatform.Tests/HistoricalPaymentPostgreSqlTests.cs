@@ -70,6 +70,10 @@ public sealed class HistoricalPaymentPostgreSqlTests
         Assert.Equal(0, await verify.Invoices.CountAsync());
         Assert.Equal(0, await verify.OwnerPayouts.CountAsync());
         Assert.Equal(0, await verify.Notifications.CountAsync());
+        Assert.Equal(0, await verify.NotificationDeliveryLogs.CountAsync());
+        Assert.Equal(0, await verify.CrmLeads.CountAsync());
+        Assert.Equal(0, await verify.CrmNotes.CountAsync());
+        Assert.Equal(0, await verify.CrmAssignments.CountAsync());
         var booking = await verify.Bookings.AsNoTracking().SingleAsync(item => item.Id == seed.Booking.Id);
         Assert.Equal(1000m, booking.AgreedAmount);
         Assert.Equal(1000m, booking.BaseAmount);

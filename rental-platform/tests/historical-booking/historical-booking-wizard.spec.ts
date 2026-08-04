@@ -519,6 +519,88 @@ test("payment timeout recovery uses its own key and never reposts booking", asyn
   expect(state.correctionCalls).toBe(0);
 });
 
+test("historical booking and payment use only ratified API calls after submission", async ({
+  page,
+}) => {
+  const state = await installApi(page);
+  const calls: Array<{ method: string; path: string }> = [];
+  const consoleErrors: string[] = [];
+  const failedRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/")) {
+      calls.push({
+        method: request.method(),
+        path: new URL(request.url()).pathname,
+      });
+    }
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      consoleErrors.push(message.text());
+    }
+  });
+  page.on("requestfailed", (request) => {
+    if (request.url().includes("/api/")) {
+      failedRequests.push(request.url());
+    }
+  });
+
+  await reachStepSix(page);
+  const preSubmissionCalls = [...calls];
+  const expectedBootstrapPaths = new Set([
+    "/api/auth/refresh",
+    "/api/internal/me/notifications/inbox/summary",
+    "/api/internal/units",
+    "/api/clients",
+  ]);
+  expect(preSubmissionCalls).toEqual(
+    expect.arrayContaining([
+      { method: "POST", path: "/api/auth/refresh" },
+      {
+        method: "GET",
+        path: "/api/internal/me/notifications/inbox/summary",
+      },
+      { method: "GET", path: "/api/internal/units" },
+      { method: "GET", path: "/api/clients" },
+    ])
+  );
+  expect(
+    preSubmissionCalls
+      .filter((call) => call.method !== "OPTIONS")
+      .every((call) => expectedBootstrapPaths.has(call.path))
+  ).toBe(true);
+  calls.length = 0;
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Record historical booking" }).click();
+  await expect(page.getByText("Historical booking created")).toBeVisible();
+  await expect(page.getByText(OWNER_ID)).toBeVisible();
+
+  await page.getByLabel("Amount (EGP)").fill("1000.00");
+  await page.getByLabel("Payment method").selectOption("cash");
+  await page.getByLabel("Paid at").fill("2026-07-15T10:30");
+  await page.getByLabel("Recording reason").fill("Verified legacy receipt");
+  await page.getByRole("button", { name: "Record payment evidence" }).click();
+  await expect(page.getByText("Payment evidence recorded")).toBeVisible();
+
+  expect(calls).toEqual([
+    { method: "POST", path: "/api/internal/bookings/historical" },
+    {
+      method: "GET",
+      path: `/api/internal/bookings/${BOOKING_ID}/owner-attribution-review`,
+    },
+    {
+      method: "POST",
+      path: `/api/internal/bookings/${BOOKING_ID}/historical-payments`,
+    },
+  ]);
+  expect(state.notificationWrites).toBe(0);
+  expect(state.invoiceCalls).toBe(0);
+  expect(state.payoutCalls).toBe(0);
+  expect(state.correctionCalls).toBe(0);
+  expect(consoleErrors).toEqual([]);
+  expect(failedRequests).toEqual([]);
+});
+
 test("wizard route and booking-list action require the dedicated permission", async ({
   page,
 }) => {
