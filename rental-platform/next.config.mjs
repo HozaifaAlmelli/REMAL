@@ -1,15 +1,37 @@
 /** @type {import('next').NextConfig} */
 
+const playwrightDistDir = process.env.PLAYWRIGHT_NEXT_DIST_DIR;
+const playwrightDistDirPattern = /^\.next-playwright-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+if (playwrightDistDir && !playwrightDistDirPattern.test(playwrightDistDir)) {
+  throw new Error(
+    "PLAYWRIGHT_NEXT_DIST_DIR must use the .next-playwright-<suite> naming convention."
+  );
+}
+
 // Local-development image host (the API's static-file server on :5001).
 const remotePatterns = [
-  { protocol: "http", hostname: "localhost", port: "5001", pathname: "/uploads/**" },
-  { protocol: "http", hostname: "127.0.0.1", port: "5001", pathname: "/uploads/**" },
+  {
+    protocol: "http",
+    hostname: "localhost",
+    port: "5001",
+    pathname: "/uploads/**",
+  },
+  {
+    protocol: "http",
+    hostname: "127.0.0.1",
+    port: "5001",
+    pathname: "/uploads/**",
+  },
 ];
 
 // Production image host(s) are environment-driven so no domain is hard-coded.
 // NEXT_PUBLIC_STORAGE_URL is the canonical uploads origin (the API domain that serves
 // /uploads/...); NEXT_PUBLIC_API_URL is a fallback. Both are read at build time.
-for (const raw of [process.env.NEXT_PUBLIC_STORAGE_URL, process.env.NEXT_PUBLIC_API_URL]) {
+for (const raw of [
+  process.env.NEXT_PUBLIC_STORAGE_URL,
+  process.env.NEXT_PUBLIC_API_URL,
+]) {
   if (!raw) continue;
   try {
     const u = new URL(raw);
@@ -20,7 +42,10 @@ for (const raw of [process.env.NEXT_PUBLIC_STORAGE_URL, process.env.NEXT_PUBLIC_
     };
     if (u.port) pattern.port = u.port;
     const exists = remotePatterns.some(
-      (p) => p.protocol === pattern.protocol && p.hostname === pattern.hostname && (p.port ?? "") === (pattern.port ?? "")
+      (p) =>
+        p.protocol === pattern.protocol &&
+        p.hostname === pattern.hostname &&
+        (p.port ?? "") === (pattern.port ?? "")
     );
     if (!exists) remotePatterns.push(pattern);
   } catch {
@@ -29,6 +54,7 @@ for (const raw of [process.env.NEXT_PUBLIC_STORAGE_URL, process.env.NEXT_PUBLIC_
 }
 
 const nextConfig = {
+  ...(playwrightDistDir ? { distDir: playwrightDistDir } : {}),
   images: {
     remotePatterns,
   },

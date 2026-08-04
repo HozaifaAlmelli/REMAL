@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { createIsolatedNextWebServer } from "./playwright.next-server";
 
 const isProductionMode = process.env.CRM_TEST_PRODUCTION === "1";
 
@@ -12,6 +13,7 @@ export default defineConfig({
     ["list"],
     ["html", { outputFolder: "playwright-report/crm-ui", open: "never" }],
   ],
+  outputDir: "test-results/crm-ui",
   use: {
     baseURL: "http://localhost:3102",
     trace: "retain-on-failure",
@@ -24,16 +26,5 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    command: isProductionMode
-      ? "npm exec next start -- -p 3102"
-      : "npm exec next dev -- -p 3102",
-    url: "http://localhost:3102/auth/admin/login",
-    reuseExistingServer: false,
-    timeout: 120_000,
-    env: {
-      ...process.env,
-      NEXT_PUBLIC_API_URL: "http://crm-fixture.local",
-    },
-  },
+  webServer: createIsolatedNextWebServer("crm", isProductionMode),
 });

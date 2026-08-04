@@ -13,6 +13,7 @@ export default defineConfig({
     ["html", { outputFolder: "playwright-report/client-smoke" }],
     ["list"],
   ],
+  outputDir: "test-results/client-smoke",
   use: {
     baseURL: "http://localhost:3001",
     trace: "on-first-retry",
