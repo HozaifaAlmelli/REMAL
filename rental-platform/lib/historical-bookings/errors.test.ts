@@ -40,6 +40,17 @@ test("safe conflict parsing accepts contract metadata and drops PII", () => {
   assert.equal(toHistoricalWizardConflict(error)?.acknowledgeable, true);
 });
 
+test("safe conflict parsing preserves RFC 9562 UUIDv7 identifiers", () => {
+  const bookingId = "019fce32-20fe-7bbb-ae0e-a1b766ea2d8e";
+  const conflict = toHistoricalWizardConflict(
+    new ApiError(409, "Duplicate", [], "HISTORICAL_DUPLICATE_BOOKING", {
+      duplicateOf: bookingId,
+    })
+  );
+
+  assert.equal(conflict?.exactDuplicateOf, bookingId);
+});
+
 test("exact duplicate scalar is displayed safely but cannot be acknowledged", () => {
   const duplicateOf = "60000000-0000-4000-8000-000000000001";
   const conflict = toHistoricalWizardConflict(

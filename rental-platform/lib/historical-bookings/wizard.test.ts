@@ -178,6 +178,19 @@ test("Cairo checkout boundary accepts yesterday and rejects today and tomorrow",
   }
 });
 
+test("persisted UUIDv7 references are valid historical command identifiers", () => {
+  const draft = {
+    ...validDraft(),
+    unitId: "019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
+  };
+
+  assert.deepEqual(validateHistoricalWizardStep(2, draft), {
+    valid: true,
+    errors: {},
+  });
+  assert.equal(buildHistoricalBookingRequest(draft).unitId, draft.unitId);
+});
+
 test("Cairo checkout boundary is independent of browser-local timezone", () => {
   const original = process.env.TZ;
   try {
