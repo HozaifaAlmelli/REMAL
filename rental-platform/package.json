@@ -16,6 +16,7 @@
     "test:client-smoke:headed": "playwright test --config=playwright.client.config.ts --headed",
     "test:crm-ui": "playwright test --config=playwright.crm.config.ts",
     "test:booking-history": "playwright test --config=playwright.booking-history.config.ts",
+    "test:playwright-isolation": "tsx --test tests/test-infrastructure/*.test.ts",
     "test:hb06": "tsx --test lib/historical-bookings/*.test.ts",
     "test:hb06:e2e": "playwright test --config=playwright.historical-booking.config.ts"
   },

@@ -56,7 +56,7 @@ function createState(): FixtureState {
 
 function corsHeaders() {
   return {
-    "access-control-allow-origin": "http://localhost:3103",
+    "access-control-allow-origin": "http://localhost:3104",
     "access-control-allow-credentials": "true",
     "access-control-allow-headers": "authorization,content-type",
     "access-control-allow-methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
@@ -479,7 +479,7 @@ test.beforeEach(async ({ page }) => {
     {
       name: "refresh_token",
       value: "sanitized-local-refresh-token",
-      url: "http://localhost:3103",
+      url: "http://localhost:3104",
       httpOnly: true,
       sameSite: "Lax",
     },
