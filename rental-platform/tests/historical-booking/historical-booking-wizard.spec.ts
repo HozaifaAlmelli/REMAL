@@ -637,8 +637,7 @@ test("wizard refreshes a stale permission projection before redirecting", async 
   await expect(
     page.getByRole("heading", { name: "Record historical booking" })
   ).toBeVisible();
-  expect(state.refreshCalls).toBeGreaterThanOrEqual(2);
-  expect(state.refreshCalls).toBeLessThanOrEqual(3);
+  expect([2, 3]).toContain(state.refreshCalls);
 });
 
 test("authorized booking-list action enters the admin historical wizard", async ({
