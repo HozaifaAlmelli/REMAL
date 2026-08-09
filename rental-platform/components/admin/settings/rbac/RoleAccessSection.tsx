@@ -22,6 +22,11 @@ import {
   useUpdateRole,
 } from "@/lib/hooks/useRbac";
 import type { RoleTemplate } from "@/lib/types/rbac.types";
+import {
+  historicalRolePermissionState,
+  normalizeHistoricalRolePermissions,
+  rbacMutationErrorMessage,
+} from "@/lib/rbac/historical-permission-policy";
 import { toastError, toastSuccess } from "@/lib/utils/toast";
 
 const createRoleSchema = z.object({
@@ -55,7 +60,9 @@ export function RoleAccessSection() {
     if (!selectedRole) return;
     setName(selectedRole.name);
     setDescription(selectedRole.description ?? "");
-    setPermissionKeys(selectedRole.permissions);
+    setPermissionKeys(
+      normalizeHistoricalRolePermissions(selectedRole.id, selectedRole.permissions)
+    );
   }, [selectedRole]);
 
   const normalizedPermissions = useMemo(
@@ -89,9 +96,21 @@ export function RoleAccessSection() {
         },
       },
       {
-        onSuccess: () => toastSuccess("Role access updated"),
-        onError: (error: Error) =>
-          toastError(error.message || "Could not update role access"),
+        onSuccess: () =>
+          toastSuccess(
+            "Role access updated. Operators in this role will be signed out on their next action and receive the updated access when they sign in again."
+          ),
+        onError: (error: Error) => {
+          setName(selectedRole.name);
+          setDescription(selectedRole.description ?? "");
+          setPermissionKeys(
+            normalizeHistoricalRolePermissions(
+              selectedRole.id,
+              selectedRole.permissions
+            )
+          );
+          toastError(rbacMutationErrorMessage(error, "Could not update role access"));
+        },
       }
     );
   };
@@ -207,28 +226,43 @@ export function RoleAccessSection() {
                       {group.module}
                     </h3>
                     <div className="grid gap-x-8 gap-y-1 md:grid-cols-2">
-                      {group.permissions.map((permission) => (
-                        <label
-                          key={permission.key}
-                          className="flex min-h-14 cursor-pointer items-center justify-between gap-4 border-b border-neutral-100 py-2 last:border-b-0"
-                        >
-                          <span className="min-w-0">
-                            <span className="block text-sm font-medium text-neutral-800">
-                              {permission.label}
+                      {group.permissions.map((permission) => {
+                        const state = historicalRolePermissionState(
+                          selectedRole.id,
+                          permission.key,
+                          permissionKeys.includes(permission.key)
+                        );
+                        const descriptionId = `role-${selectedRole.id}-permission-${permission.key.replace(/[^a-z0-9]/gi, "-")}`;
+                        return (
+                          <label
+                            key={permission.key}
+                            className={`flex min-h-14 items-center justify-between gap-4 border-b border-neutral-100 py-2 last:border-b-0 ${state.disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
+                          >
+                            <span className="min-w-0" id={descriptionId}>
+                              <span className="block text-sm font-medium text-neutral-800">
+                                {permission.label}
+                              </span>
+                              <span className="block text-xs leading-5 text-neutral-500">
+                                {permission.description}
+                              </span>
+                              {state.helperText && (
+                                <span className="mt-0.5 block text-xs font-medium text-neutral-600">
+                                  {state.helperText}
+                                </span>
+                              )}
                             </span>
-                            <span className="block text-xs leading-5 text-neutral-500">
-                              {permission.description}
-                            </span>
-                          </span>
-                          <Switch
-                            checked={permissionKeys.includes(permission.key)}
-                            onCheckedChange={(checked) =>
-                              togglePermission(permission.key, checked)
-                            }
-                            aria-label={`${permission.label} for ${selectedRole.name}`}
-                          />
-                        </label>
-                      ))}
+                            <Switch
+                              checked={state.checked}
+                              disabled={state.disabled}
+                              onCheckedChange={(checked) =>
+                                togglePermission(permission.key, checked)
+                              }
+                              aria-label={`${permission.label} for ${selectedRole.name}`}
+                              aria-describedby={descriptionId}
+                            />
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

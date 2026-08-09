@@ -31,6 +31,7 @@ export function AdminUsersSection() {
     isOpen: false,
     userId: "",
     userName: "",
+    roleTemplateId: "",
   });
 
   const [statusDialog, setStatusDialog] = useState<{
@@ -143,8 +144,8 @@ export function AdminUsersSection() {
           isLoading={isLoading}
           onChangeRole={handleOpenRoleDialog}
           onToggleStatus={handleOpenStatusDialog}
-          onEditOverrides={(userId, userName) =>
-            setOverridesDialog({ isOpen: true, userId, userName })
+          onEditOverrides={(userId, userName, roleTemplateId) =>
+            setOverridesDialog({ isOpen: true, userId, userName, roleTemplateId })
           }
         />
       ) : (
@@ -172,8 +173,14 @@ export function AdminUsersSection() {
         isOpen={overridesDialog.isOpen}
         adminUserId={overridesDialog.userId}
         adminUserName={overridesDialog.userName}
+        adminRoleTemplateId={overridesDialog.roleTemplateId}
         onClose={() =>
-          setOverridesDialog({ isOpen: false, userId: "", userName: "" })
+          setOverridesDialog({
+            isOpen: false,
+            userId: "",
+            userName: "",
+            roleTemplateId: "",
+          })
         }
       />
 
