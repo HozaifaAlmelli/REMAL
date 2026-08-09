@@ -40,6 +40,46 @@ test("safe conflict parsing accepts contract metadata and drops PII", () => {
   assert.equal(toHistoricalWizardConflict(error)?.acknowledgeable, true);
 });
 
+test("safe conflict parsing accepts only supported UUID versions and RFC variants", () => {
+  const accepted = [
+    "60000000-0000-4000-8000-000000000001",
+    "019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
+    "019FCE32-20FE-7BBB-AE0E-A1B766EA2D8E",
+    "019fce32-20fe-7bbb-8e0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-9e0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-be0e-a1b766ea2d8e",
+  ];
+  const rejected = [
+    "019fce32-20fe-0bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-6bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-8bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-9bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-0e0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-7e0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-ce0e-a1b766ea2d8e",
+    "00000000-0000-0000-0000-000000000000",
+    " 019fce32-20fe-7bbb-ae0e-a1b766ea2d8e ",
+    "019fce3220fe7bbbae0ea1b766ea2d8e",
+    "https://example.test/019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
+    "../../019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
+    "<script>019fce32-20fe-7bbb-ae0e-a1b766ea2d8e</script>",
+  ];
+  const parseExactDuplicate = (bookingId: string) =>
+    toHistoricalWizardConflict(
+      new ApiError(409, "Duplicate", [], "HISTORICAL_DUPLICATE_BOOKING", {
+        duplicateOf: bookingId,
+      })
+    )?.exactDuplicateOf;
+
+  for (const bookingId of accepted) {
+    assert.equal(parseExactDuplicate(bookingId), bookingId);
+  }
+  for (const bookingId of rejected) {
+    assert.equal(parseExactDuplicate(bookingId), null, bookingId);
+  }
+});
+
 test("exact duplicate scalar is displayed safely but cannot be acknowledged", () => {
   const duplicateOf = "60000000-0000-4000-8000-000000000001";
   const conflict = toHistoricalWizardConflict(

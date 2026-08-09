@@ -10,7 +10,7 @@ import type {
 } from "@/lib/historical-bookings/wizard";
 
 const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-57][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const UNKNOWN_COMMAND_OUTCOME_STATUSES = new Set([0, 408, 502, 503, 504]);
 
