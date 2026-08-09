@@ -178,17 +178,54 @@ test("Cairo checkout boundary accepts yesterday and rejects today and tomorrow",
   }
 });
 
-test("persisted UUIDv7 references are valid historical command identifiers", () => {
-  const draft = {
-    ...validDraft(),
-    unitId: "019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
-  };
+test("historical command and response boundaries accept only UUIDv1-v5 and UUIDv7", () => {
+  const accepted = [
+    "50000000-0000-4000-8000-000000000001",
+    "019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
+    "019FCE32-20FE-7BBB-AE0E-A1B766EA2D8E",
+    "019fce32-20fe-7bbb-8e0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-9e0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-be0e-a1b766ea2d8e",
+  ];
+  const rejected = [
+    "019fce32-20fe-0bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-6bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-8bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-9bbb-ae0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-0e0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-7e0e-a1b766ea2d8e",
+    "019fce32-20fe-7bbb-ce0e-a1b766ea2d8e",
+    "00000000-0000-0000-0000-000000000000",
+    " 019fce32-20fe-7bbb-ae0e-a1b766ea2d8e ",
+    "019fce3220fe7bbbae0ea1b766ea2d8e",
+    "https://example.test/019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
+    "../../019fce32-20fe-7bbb-ae0e-a1b766ea2d8e",
+    "<script>019fce32-20fe-7bbb-ae0e-a1b766ea2d8e</script>",
+  ];
 
-  assert.deepEqual(validateHistoricalWizardStep(2, draft), {
-    valid: true,
-    errors: {},
-  });
-  assert.equal(buildHistoricalBookingRequest(draft).unitId, draft.unitId);
+  for (const unitId of accepted) {
+    const draft = { ...validDraft(), unitId };
+    assert.equal(validateHistoricalWizardStep(2, draft).valid, true, unitId);
+    assert.equal(buildHistoricalBookingRequest(draft).unitId, unitId);
+    assert.equal(
+      parseHistoricalBookingResponse({ ...bookingResponse, unitId })?.unitId,
+      unitId
+    );
+  }
+  for (const unitId of rejected) {
+    assert.equal(
+      validateHistoricalWizardStep(2, { ...validDraft(), unitId }).errors
+        .unitId,
+      "Select a unit.",
+      unitId
+    );
+    assert.equal(
+      parseHistoricalBookingResponse({ ...bookingResponse, unitId }),
+      null,
+      unitId
+    );
+  }
 });
 
 test("Cairo checkout boundary is independent of browser-local timezone", () => {
