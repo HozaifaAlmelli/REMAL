@@ -4,6 +4,7 @@ using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Models;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Shared.Constants;
 
 namespace RentalPlatform.Business.Services;
 
@@ -12,6 +13,12 @@ public sealed class RbacAdminService : IRbacAdminService
     private const string Grant = "grant";
     private const string Deny = "deny";
     private const string SettingsAdminPermission = "settings:admin";
+    private static readonly string[] MandatorySuperAdminHistoricalPermissions =
+    {
+        RbacPermissionKeys.BookingsRecordHistorical,
+        RbacPermissionKeys.PaymentsRecordHistorical,
+        RbacPermissionKeys.BookingsCorrectOwnerAttribution
+    };
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPermissionResolver _permissionResolver;
@@ -56,6 +63,7 @@ public sealed class RbacAdminService : IRbacAdminService
         var normalizedName = ValidateName(name);
         var normalizedDescription = NormalizeDescription(description);
         var normalizedPermissions = ValidatePermissionKeys(permissionKeys);
+        ValidateHistoricalRolePermissions(Guid.Empty, normalizedPermissions);
 
         var duplicate = await _unitOfWork.RbacRoleTemplates.Query()
             .AnyAsync(role => role.Name.ToLower() == normalizedName.ToLower(), cancellationToken);
@@ -108,6 +116,8 @@ public sealed class RbacAdminService : IRbacAdminService
 
         if (role.IsSystem && !string.Equals(role.Name, normalizedName, StringComparison.Ordinal))
             throw new BusinessValidationException("System role names cannot be changed.");
+
+        ValidateHistoricalRolePermissions(role.Id, normalizedPermissions);
 
         var duplicate = await _unitOfWork.RbacRoleTemplates.Query()
             .AnyAsync(
@@ -239,8 +249,15 @@ public sealed class RbacAdminService : IRbacAdminService
         if (overlap.Length > 0)
             throw new BusinessValidationException("A permission cannot be both granted and denied.");
 
-        if (!await _unitOfWork.AdminUsers.ExistsAsync(admin => admin.Id == adminUserId, cancellationToken))
-            throw new NotFoundException("Admin user not found.");
+        var targetAdmin = await _unitOfWork.AdminUsers.Query()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(admin => admin.Id == adminUserId, cancellationToken)
+            ?? throw new NotFoundException("Admin user not found.");
+
+        ValidateHistoricalUserOverrides(
+            targetAdmin.RoleTemplateId,
+            normalizedGrants,
+            normalizedDenies);
 
         await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
         await _unitOfWork.RbacAdminUserPermissionOverrides.Query()
@@ -356,6 +373,48 @@ public sealed class RbacAdminService : IRbacAdminService
         }
 
         return normalized;
+    }
+
+    private static void ValidateHistoricalRolePermissions(
+        Guid roleTemplateId,
+        IReadOnlySet<string> proposedPermissions)
+    {
+        if (roleTemplateId == RbacSystemRoleTemplates.SuperAdminId)
+        {
+            var missing = MandatorySuperAdminHistoricalPermissions
+                .Where(permission => !proposedPermissions.Contains(permission))
+                .ToArray();
+            if (missing.Length > 0)
+            {
+                throw new BusinessValidationException(
+                    "The SuperAdmin historical-booking baseline permissions are mandatory.",
+                    RbacErrorCodes.HistoricalSuperAdminBaselineRequired);
+            }
+
+            return;
+        }
+
+        if (proposedPermissions.Contains(RbacPermissionKeys.BookingsCorrectOwnerAttribution))
+        {
+            throw new BusinessValidationException(
+                "Historical owner-attribution correction is restricted to SuperAdmin.",
+                RbacErrorCodes.OwnerCorrectionSuperAdminOnly);
+        }
+    }
+
+    private static void ValidateHistoricalUserOverrides(
+        Guid roleTemplateId,
+        IReadOnlySet<string> grants,
+        IReadOnlySet<string> denies)
+    {
+        var isSuperAdmin = roleTemplateId == RbacSystemRoleTemplates.SuperAdminId;
+        if ((!isSuperAdmin && grants.Contains(RbacPermissionKeys.BookingsCorrectOwnerAttribution)) ||
+            (isSuperAdmin && denies.Contains(RbacPermissionKeys.BookingsCorrectOwnerAttribution)))
+        {
+            throw new BusinessValidationException(
+                "Historical owner-attribution correction cannot be changed with a user override.",
+                RbacErrorCodes.OwnerCorrectionSuperAdminOnly);
+        }
     }
 
     private static string ValidateName(string name)

@@ -15,12 +15,13 @@ public static class PermissionKeys
     public const string CrmAssign = "crm:assign";
     public const string BookingsRead = "bookings:read";
     public const string BookingsWrite = "bookings:write";
-    public const string BookingsRecordHistorical = "bookings:record_historical";
-    public const string BookingsCorrectOwnerAttribution = "bookings:correct_owner_attribution";
+    public const string BookingsRecordHistorical = RbacPermissionKeys.BookingsRecordHistorical;
+    public const string BookingsCorrectOwnerAttribution =
+        RbacPermissionKeys.BookingsCorrectOwnerAttribution;
     public const string FinanceOverview = "finance:overview";
     public const string FinanceManage = "finance:manage";
     public const string FinancePayouts = "finance:payouts";
-    public const string PaymentsRecordHistorical = "payments:record_historical";
+    public const string PaymentsRecordHistorical = RbacPermissionKeys.PaymentsRecordHistorical;
     public const string UnitsRead = "units:read";
     public const string UnitsManage = "units:manage";
     public const string OwnersRead = "owners:read";
@@ -43,8 +44,8 @@ public static class PermissionKeys
             new(CrmAssign, "CRM", "Assign leads", "Assign and reassign leads and bookings."),
             new(BookingsRead, "Bookings", "View bookings", "View bookings and status history."),
             new(BookingsWrite, "Bookings", "Manage bookings", "Create, update, and advance booking lifecycle stages."),
-            new(BookingsRecordHistorical, "Bookings", "Record historical bookings", "Record completed stays from trusted historical records."),
-            new(BookingsCorrectOwnerAttribution, "Bookings", "Correct historical owner attribution", "Review and correct historical booking owner attribution with immutable audit."),
+            new(BookingsRecordHistorical, "Bookings", "Record historical bookings", "Record completed stays from trusted historical records. Unit selection requires View units. Existing-client selection requires View clients; new-client entry remains available without it. Owner attribution review requires View bookings. Optional historical payment requires Record historical payments. These permissions are granted independently."),
+            new(BookingsCorrectOwnerAttribution, "Bookings", "Correct historical owner attribution", "Review and correct historical booking owner attribution with immutable audit. This permission is restricted to the SuperAdmin role."),
             new(FinanceOverview, "Finance", "View finance overview", "View finance summaries and dashboard metrics."),
             new(FinanceManage, "Finance", "Manage transactions", "Manage invoices and payment records."),
             new(FinancePayouts, "Finance", "Manage payouts", "Create and process owner payouts."),
