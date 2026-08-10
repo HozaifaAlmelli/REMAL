@@ -9,6 +9,8 @@ public record InvoiceBalanceResponse
     public decimal PaidAmount { get; init; }
     public decimal RemainingAmount { get; init; }
     public bool IsFullyPaid { get; init; }
+    public int HistoricalPaymentEvidenceCount { get; init; }
+    public decimal HistoricalPaymentEvidenceAmount { get; init; }
 }
 
 public record BookingFinanceSnapshotResponse
@@ -19,6 +21,8 @@ public record BookingFinanceSnapshotResponse
     public decimal InvoicedAmount { get; init; }
     public decimal PaidAmount { get; init; }
     public decimal RemainingAmount { get; init; }
+    public int HistoricalPaymentEvidenceCount { get; init; }
+    public decimal HistoricalPaymentEvidenceAmount { get; init; }
     public string? OwnerPayoutStatus { get; init; }
 }
 

@@ -57,9 +57,14 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
         var activeInvoicesQuery = _unitOfWork.Invoices.Query()
             .Where(i => i.InvoiceStatus != "cancelled" && i.InvoiceStatus != "superseded");
 
-        // Get ALL paid payments in the system
+        // Platform paid revenue excludes immutable evidence of money received outside KAZA.
         var paidPaymentsQuery = _unitOfWork.Payments.Query()
-            .Where(p => p.PaymentStatus == "paid");
+            .Where(p => p.PaymentStatus == "paid" && !p.IsHistoricalRecord);
+
+        var historicalEvidenceQuery = _unitOfWork.Payments.Query()
+            .Where(p => p.PaymentStatus == "paid"
+                && p.IsHistoricalRecord
+                && p.InvoiceId == null);
 
         // Get ALL payouts
         var payoutsQuery = _unitOfWork.OwnerPayouts.Query();
@@ -73,12 +78,16 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
             {
                 var dateFromDateTime = dateFrom.Value.ToDateTime(TimeOnly.MinValue);
                 bookingsQuery = bookingsQuery.Where(b => b.CreatedAt >= dateFromDateTime);
+                historicalEvidenceQuery = historicalEvidenceQuery
+                    .Where(p => p.PaidAt >= dateFromDateTime);
             }
             
             if (dateTo.HasValue)
             {
                 var dateToDateTime = dateTo.Value.ToDateTime(TimeOnly.MaxValue);
                 bookingsQuery = bookingsQuery.Where(b => b.CreatedAt <= dateToDateTime);
+                historicalEvidenceQuery = historicalEvidenceQuery
+                    .Where(p => p.PaidAt <= dateToDateTime);
             }
 
             var bookingIds = await bookingsQuery.Select(b => b.Id).ToListAsync(cancellationToken);
@@ -91,6 +100,9 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
 
         var activeInvoices = await activeInvoicesQuery.ToListAsync(cancellationToken);
         var paidPayments = await paidPaymentsQuery.ToListAsync(cancellationToken);
+        var historicalEvidenceCount = await historicalEvidenceQuery.CountAsync(cancellationToken);
+        var historicalEvidenceAmount = await historicalEvidenceQuery
+            .SumAsync(p => p.Amount, cancellationToken);
         var payouts = await payoutsQuery.ToListAsync(cancellationToken);
 
         // Debug logging
@@ -135,6 +147,8 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
             TotalInvoicedAmount             = totalInvoiced,
             TotalPaidAmount                 = totalPaid,
             TotalRemainingAmount            = totalRemaining,
+            HistoricalPaymentEvidenceCount  = historicalEvidenceCount,
+            HistoricalPaymentEvidenceAmount = historicalEvidenceAmount,
             TotalPendingPayoutAmount        = pendingPayouts.Sum(p => p.PayoutAmount),
             TotalScheduledPayoutAmount      = scheduledPayouts.Sum(p => p.PayoutAmount),
             TotalPaidPayoutAmount           = paidPayouts.Sum(p => p.PayoutAmount),

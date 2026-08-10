@@ -9,4 +9,6 @@ public record InvoiceBalanceResult
     public decimal PaidAmount { get; init; }
     public decimal RemainingAmount { get; init; }
     public bool IsFullyPaid { get; init; }
+    public int HistoricalPaymentEvidenceCount { get; init; }
+    public decimal HistoricalPaymentEvidenceAmount { get; init; }
 }

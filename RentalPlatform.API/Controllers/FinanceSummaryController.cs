@@ -45,6 +45,8 @@ public class FinanceSummaryController : ControllerBase
                 TotalInvoicedAmount = result.TotalInvoicedAmount,
                 TotalPaidAmount = result.TotalPaidAmount,
                 TotalRemainingAmount = result.TotalRemainingAmount,
+                HistoricalPaymentEvidenceCount = result.HistoricalPaymentEvidenceCount,
+                HistoricalPaymentEvidenceAmount = result.HistoricalPaymentEvidenceAmount,
                 TotalPendingPayoutAmount = result.TotalPendingPayoutAmount,
                 TotalScheduledPayoutAmount = result.TotalScheduledPayoutAmount,
                 TotalPaidPayoutAmount = result.TotalPaidPayoutAmount
@@ -64,7 +66,9 @@ public class FinanceSummaryController : ControllerBase
             TotalAmount = summary.TotalAmount,
             PaidAmount = summary.PaidAmount,
             RemainingAmount = summary.RemainingAmount,
-            IsFullyPaid = summary.IsFullyPaid
+            IsFullyPaid = summary.IsFullyPaid,
+            HistoricalPaymentEvidenceCount = summary.HistoricalPaymentEvidenceCount,
+            HistoricalPaymentEvidenceAmount = summary.HistoricalPaymentEvidenceAmount
         }));
     }
 
@@ -83,6 +87,8 @@ public class FinanceSummaryController : ControllerBase
             InvoicedAmount = summary.InvoicedAmount,
             PaidAmount = summary.PaidAmount,
             RemainingAmount = summary.RemainingAmount,
+            HistoricalPaymentEvidenceCount = summary.HistoricalPaymentEvidenceCount,
+            HistoricalPaymentEvidenceAmount = summary.HistoricalPaymentEvidenceAmount,
             OwnerPayoutStatus = summary.OwnerPayoutStatus
         }));
     }
