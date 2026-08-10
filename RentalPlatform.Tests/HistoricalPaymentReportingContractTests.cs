@@ -42,11 +42,11 @@ public sealed class HistoricalPaymentReportingContractTests
     }
 
     [Fact]
-    public void DailyResponseRemainsOwnedByTheLaterReportingViewTicket()
+    public void DailyResponseExposesTheRatifiedEvidenceBreakdown()
     {
-        Assert.Null(typeof(FinanceAnalyticsDailySummaryResponse)
+        Assert.NotNull(typeof(FinanceAnalyticsDailySummaryResponse)
             .GetProperty("HistoricalPaymentEvidenceCount"));
-        Assert.Null(typeof(FinanceAnalyticsDailySummaryResponse)
+        Assert.NotNull(typeof(FinanceAnalyticsDailySummaryResponse)
             .GetProperty("HistoricalPaymentEvidenceAmount"));
     }
 
@@ -113,13 +113,25 @@ public sealed class HistoricalPaymentReportingContractTests
         public Task<IReadOnlyList<ReportingFinanceDailySummary>> GetDailySummaryAsync(
             DateOnly? dateFrom = null,
             DateOnly? dateTo = null,
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default,
+            bool includeHistorical = true,
+            bool historicalOnly = false) =>
             Task.FromResult<IReadOnlyList<ReportingFinanceDailySummary>>([]);
 
         public Task<FinanceAnalyticsSummaryResult> GetSummaryAsync(
             DateOnly? dateFrom = null,
             DateOnly? dateTo = null,
-            CancellationToken cancellationToken = default) => Task.FromResult(summary);
+            CancellationToken cancellationToken = default,
+            bool includeHistorical = true,
+            bool historicalOnly = false) => Task.FromResult(summary);
+
+        public Task<IReadOnlyList<ReportingFinanceStayDailySummary>> GetStayDailySummaryAsync(
+            DateOnly dateFrom,
+            DateOnly dateTo,
+            bool includeHistorical = true,
+            bool historicalOnly = false,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ReportingFinanceStayDailySummary>>([]);
     }
 
     private sealed class FinanceStub(

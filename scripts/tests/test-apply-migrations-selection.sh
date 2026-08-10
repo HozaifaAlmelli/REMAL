@@ -121,8 +121,8 @@ validate_supported_manifest_include_syntax "$ROOT/infra/db/init.prod.sql"
 assert_manifest_completeness "$ROOT/infra/db/init.prod.sql" "$ROOT/db/migrations"
 [ "$MANIFEST_COMPLETENESS_CHECKED" -eq 1 ] ||
   fail "production manifest completeness assertion did not run"
-[ "$(printf '%s\n' "$current" | wc -l | tr -d ' ')" -eq 59 ] ||
-  fail "expected 59 production-registered migrations"
+[ "$(printf '%s\n' "$current" | wc -l | tr -d ' ')" -eq 60 ] ||
+  fail "expected 60 production-registered migrations"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "$TMP"' EXIT

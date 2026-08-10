@@ -58,6 +58,9 @@ public interface IUnitOfWork
     // Reports & Analytics read-model views — IQueryable only, no write path
     IQueryable<ReportingBookingDailySummary> ReportingBookingDailySummaries { get; }
     IQueryable<ReportingFinanceDailySummary> ReportingFinanceDailySummaries { get; }
+    IQueryable<ReportingBookingStayDailySummary> ReportingBookingStayDailySummaries { get; }
+    IQueryable<ReportingFinanceStayDailySummary> ReportingFinanceStayDailySummaries { get; }
+    IQueryable<ReportingHistoricalEntryReconciliation> ReportingHistoricalEntryReconciliations { get; }
     IQueryable<ReportingReviewsDailySummary> ReportingReviewsDailySummaries { get; }
     IQueryable<ReportingNotificationsDailySummary> ReportingNotificationsDailySummaries { get; }
 

@@ -23,7 +23,9 @@ public interface IReportingFinanceAnalyticsService
     Task<IReadOnlyList<ReportingFinanceDailySummary>> GetDailySummaryAsync(
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool includeHistorical = true,
+        bool historicalOnly = false);
 
     /// <summary>
     /// Returns an aggregated finance analytics summary over all daily rows
@@ -32,5 +34,14 @@ public interface IReportingFinanceAnalyticsService
     Task<FinanceAnalyticsSummaryResult> GetSummaryAsync(
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
+        CancellationToken cancellationToken = default,
+        bool includeHistorical = true,
+        bool historicalOnly = false);
+
+    Task<IReadOnlyList<ReportingFinanceStayDailySummary>> GetStayDailySummaryAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        bool includeHistorical = true,
+        bool historicalOnly = false,
         CancellationToken cancellationToken = default);
 }

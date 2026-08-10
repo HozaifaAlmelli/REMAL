@@ -1110,7 +1110,10 @@ public sealed class HistoricalBookingPostgreSqlTests
             "0060_add_historical_financial_snapshot_verify.sql"));
         var rollbackSql = await File.ReadAllTextAsync(MigrationPath(
             "0060_add_historical_financial_snapshot_rollback.sql"));
+        var reportingRollbackSql = await File.ReadAllTextAsync(MigrationPath(
+            "0063_add_historical_reporting_read_models_rollback.sql"));
 
+        await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, reportingRollbackSql);
         await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, rollbackSql);
         Assert.False(await ColumnExistsAsync(connection, "bookings", "agreed_amount"));
 
@@ -1154,7 +1157,10 @@ public sealed class HistoricalBookingPostgreSqlTests
             "0060_add_historical_financial_snapshot.sql"));
         var rollbackSql = await File.ReadAllTextAsync(MigrationPath(
             "0060_add_historical_financial_snapshot_rollback.sql"));
+        var reportingRollbackSql = await File.ReadAllTextAsync(MigrationPath(
+            "0063_add_historical_reporting_read_models_rollback.sql"));
 
+        await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, reportingRollbackSql);
         await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, rollbackSql);
         await ExecuteSqlAsync(
             connection,

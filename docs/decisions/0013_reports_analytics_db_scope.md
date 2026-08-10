@@ -209,3 +209,29 @@ This decision supersedes any implicit assumption that Reports & Analytics requir
 - Decision 0010 — Owner Portal Business Scope
 
 All future Reports & Analytics tickets at every tier must reference this note as the governing scope constraint.
+
+---
+
+## 10. HB-08A2 Additive Extension — Owner Ratified 2026-08-10
+
+Migration `0063_add_historical_reporting_read_models.sql` preserves the exact original eight-column prefix of
+both `reporting_booking_daily_summary` and `reporting_finance_daily_summary`. It appends only:
+
+- booking recorded view: `historical_bookings_count`, historical status counts,
+  `historical_final_amount`, `historical_agreed_amount`;
+- finance recorded view: historical invoice count/amount, historical invoice-linked paid/remaining,
+  ordinary orphan count/amount and its historical-booking subset, standalone Historical Payment Evidence
+  count/amount, and `historical_agreed_amount`.
+
+The same migration creates three non-materialized, keyless read-only views:
+
+| View | Grain and bounded dictionary |
+|---|---|
+| `reporting_booking_stay_daily_summary` | `check_in_date`, `is_historical`, truthful `reporting_source`, booking/status counts, final amount, historical count/agreed amount |
+| `reporting_finance_stay_daily_summary` | `check_in_date`, `is_historical`, truthful `reporting_source`, booking/invoice counts, invoiced, invoice-linked paid, remaining, ordinary orphan and historical agreed values |
+| `reporting_historical_entry_reconciliation` | stay/recorded/actual-booked month and `original_source`, with historical count/agreed amount, entry lag, invoice-linked settlement and standalone evidence facts |
+
+Historical provenance uses `original_source`; ordinary source uses `source`. Historical Payment Evidence is
+identified only by `is_historical_record = true AND invoice_id IS NULL`, uses `paid_at` as its date, and never
+enters ordinary/invoice-linked paid or remaining totals. No write-side table, materialized view, ETL object or
+per-night allocation is introduced.

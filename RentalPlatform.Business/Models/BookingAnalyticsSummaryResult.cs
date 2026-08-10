@@ -19,4 +19,7 @@ public record BookingAnalyticsSummaryResult
     public int TotalCancelledBookingsCount { get; init; }
     public int TotalCompletedBookingsCount { get; init; }
     public decimal TotalFinalAmount { get; init; }
+    public int HistoricalBookingsCount { get; init; }
+    public decimal HistoricalFinalAmount { get; init; }
+    public decimal HistoricalAgreedAmount { get; init; }
 }

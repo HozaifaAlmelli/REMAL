@@ -24,7 +24,7 @@
 | **Sole Project Owner and Decision Authority** | **Hozaifa Almelli** |
 | Review lenses | Product · Engineering · Finance · Security · Operations — perspectives applied by the sole owner, not separate approvers |
 | Open approval items | **None.** Every decision has a final status in the [decision record](DECISION_RATIFICATION_PACKET.md) |
-| Active blockers | `PRE-00` is the only outstanding operational prerequisite. PRE-01 and PRE-02 are complete. Ticket dependencies are listed in §33 |
+| Active blockers | PRE-00, PRE-01 and PRE-02 are complete. Pilot/production remain gated by the release controls in §22 and §30 |
 | Document revision | r3 — remaining-contract closure |
 
 ### 1.1 Governance model
@@ -844,12 +844,13 @@ implementation time (latest observed: `0057`).
 Two repository facts must be fixed or accepted before this feature's migrations are trustworthy. Neither is
 caused by this feature; both would otherwise be discovered during it.
 
-Three independent prerequisites were defined. PRE-01 and PRE-02 are complete; PRE-00 remains an operational
-release gate. None is delivered inside a feature ticket.
+Three independent prerequisites were defined. PRE-01 and PRE-02 were completed by their prerequisite work;
+PRE-00 was closed on 2026-08-10 by repository census plus the owner's six negative external-consumer
+confirmations. None is delivered inside a feature ticket.
 
 | # | Prerequisite | Required outcome | Owner | Blocks |
 |---|---|---|---|---|
-| **PRE-00** | **Historical data census.** How many past-dated bookings already exist, in what state, and whether any would break the proposed constraints or migration defaults | Sanitized aggregate findings, or an honest record that no authorized dataset was available | An independent prerequisite PR. **Not HB-01** — that ticket is complete and decision-only | **Pilot and migration rollout approval.** Blocks HB-02 **only when** the migration or backfill strategy materially depends on existing-row evidence |
+| **PRE-00** | Historical/reporting consumer census | **COMPLETE.** Repository consumers are append-only safe and the owner confirmed no direct BI, spreadsheet, external query, positional consumer, reporting DB identity or external recurring report | Owner/Operations evidence recorded in HB-08 §7 | Discharged; release safety gates remain independent |
 | **PRE-01** | Database bootstrap parity through `0057` | **COMPLETE.** Fresh bootstrap includes `0057`; Strategy D documents why automated destructive rollback is unsafe | Independent prerequisite PR | Discharged |
 | **PRE-02** | Baseline test execution and reusable real-PostgreSQL integration infrastructure | **COMPLETE.** Explicit `KAZA_TEST_DB`, PostgreSQL 16 fixture, `Fast`/`PostgreSQL`/`Concurrency` categories, and executing `backend`/`backend-postgres` jobs | Independent prerequisite PR; HB-09 consumes it | Discharged |
 
@@ -913,7 +914,7 @@ The real PostgreSQL suite now exists. HB-09 must keep these scenarios executable
 ### 21.2 Safe rollout order
 
 1. **`PRE-01`** merged: `db/init.sql` and `db/migrations` are in parity, and the parity is machine-checked.
-   **`PRE-00`** run, or explicitly recorded as an outstanding deployment-readiness gate.
+   **`PRE-00`** closed by repository census and owner/Operations confirmation on 2026-08-10.
 2. Additive columns, all nullable or defaulted, in the [§11.1](#111-migration-ownership-matrix) order
    HB-02 → HB-04 → HB-05. No constraint that can fail on existing rows.
 3. New CHECK constraints added `NOT VALID`, then validated separately.
@@ -1087,11 +1088,11 @@ Each is an owner decision with an accepted risk and a revisit trigger — see th
 
 ### Active blocker
 
-Only PRE-00 remains, and it is an operational release gate rather than an owner-decision gap.
+No prerequisite remains active. Pilot and production release controls remain independent gates.
 
 | Blocker | Effect | Blocks |
 |---|---|---|
-| [`PRE-00`](#211-prerequisites-before-any-historical-migration-lands) — no census of existing past-dated bookings | Migration safety on real rows is unproven, and the size of current normal-flow backdating is unknown | Pilot and migration rollout approval; HB-02 only on existing-row evidence |
+| [`PRE-00`](#211-prerequisites-before-any-historical-migration-lands) | Complete — repository census and six owner/Operations external-consumer confirmations recorded 2026-08-10 | Discharged |
 | PRE-01 | Complete | Discharged |
 | PRE-02 | Complete | Discharged; HB-09 consumes the foundation |
 
@@ -1226,7 +1227,7 @@ Single-owner governance, so this is a self-check against each lens rather than a
 | Migration approach and rollback limitation understood (§21) | Engineering | **Done** |
 | Rollout and hardening sequencing settled (§22) | Operations · Product | **Done** |
 | Support runbook and operator documentation written | Operations | Pending implementation |
-| `PRE-00` run, or recorded as a deployment-readiness gate | Operations · Finance | **Outstanding** |
+| `PRE-00` repository/external-consumer census | Operations · Finance | **Done — owner confirmation recorded 2026-08-10** |
 | `PRE-01` closed | Engineering | **Done** |
 | `PRE-02` closed | Engineering | **Done** |
 | Final go/no-go | All five | Pending — after the pilot week |
@@ -1252,11 +1253,10 @@ Before any implementation ticket starts:
 8. Rollout sequencing settled — historical first, hardening last
    ([D-ROLL-01](DECISION_RATIFICATION_PACKET.md#d-roll-01--rollout-sequence)). **Satisfied.**
 9. **`PRE-01`** — database bootstrap parity restored. **Satisfied.** Strategy D documents rollback safety.
-10. **`PRE-00`** — historical data census run against an authorized non-production dataset, or explicitly
-    recorded as an outstanding deployment-readiness gate. **Outstanding.**
+10. **`PRE-00`** — reporting consumer census and owner/Operations confirmation. **Satisfied 2026-08-10.**
 
-Item 10 (PRE-00) is the only outstanding operational prerequisite. No material contract waits on an owner
-decision.
+All three prerequisites are closed. Pilot and production still require the independent backup, restore,
+rehearsal, integrity, reconciliation, rollback and owner-approval gates.
 
 ---
 
@@ -1315,7 +1315,7 @@ This matrix is the authoritative readiness view after the 2026-08-01 contract-cl
 | HB-05 | Final | Final | Final | Final | Dedicated store final | Booking correction lock final | Correction audit/idempotency/permission only; implemented by migration `0062` | Guarded preflight; owner-reviewed remediation | Complete | None | **READY** |
 | HB-06 | Uses final HB-02/HB-04B/HB-05 routes | Existing permissions final | Two-phase UX final; owner policy before create and read-only review after commit | Consumes canonical codes | Separate booking/payment keys | UI prevents duplicate submit; server authoritative | None | Not applicable | Complete | None | **READY** |
 | HB-07 | No new endpoint | No new permission | No automatic dispatch contract final | No new code | Not applicable | Not applicable | None | Not applicable | Complete | None | **READY** |
-| HB-08 | Three report routes final; hardening separate | Existing analytics policy | Filters/responses final | `STAY_DATES_IN_PAST` final | Read-only | Report consistency and rollout sequencing final | Views only; no number reserved | PRE-00 gates rollout | Complete | HB-05 implementation; PRE-00 and pilot gates | **BLOCKED BY DEPENDENCY** |
+| HB-08 | Three report routes final; hardening separate | Existing analytics policy | Filters/responses final | `STAY_DATES_IN_PAST` final | Read-only | Report consistency and rollout sequencing final | Views implemented by migration `0063` | PRE-00 closed; release gates remain | Complete | Pilot and release gates | **HB-08A2 IMPLEMENTED — REVIEW PENDING** |
 | HB-09 | No feature endpoint | No feature permission | Test/release evidence final | Generated inventory | Tests all command stores | Real PostgreSQL foundation final | None | Verifies each owner policy | Complete | HB-06 through HB-08 and operational evidence | **BLOCKED BY DEPENDENCY** |
 
 The dependency graph remains acyclic: HB-05 precedes HB-06/HB-08A; HB-08A precedes pilot; pilot precedes

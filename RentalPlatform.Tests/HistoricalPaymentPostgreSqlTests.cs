@@ -342,10 +342,12 @@ public sealed class HistoricalPaymentPostgreSqlTests
         var migration = await File.ReadAllTextAsync(Path.Combine(root, "db", "migrations", "0061_add_historical_payment_recording.sql"));
         var verifier = await File.ReadAllTextAsync(Path.Combine(root, "db", "migrations", "0061_add_historical_payment_recording_verify.sql"));
         var rollback = await File.ReadAllTextAsync(Path.Combine(root, "db", "migrations", "0061_add_historical_payment_recording_rollback.sql"));
+        var reportingRollback = await File.ReadAllTextAsync(Path.Combine(root, "db", "migrations", "0063_add_historical_reporting_read_models_rollback.sql"));
 
         await using (var connection = await database.OpenConnectionAsync())
         {
             await ExecuteAsync(connection, verifier);
+            await ExecuteAsync(connection, reportingRollback);
             await ExecuteAsync(connection, rollback);
             Assert.True(Convert.ToBoolean(await ScalarAsync(connection,
                 "SELECT to_regclass('public.historical_payment_idempotency_keys') IS NULL")));

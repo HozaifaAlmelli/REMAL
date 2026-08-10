@@ -63,6 +63,9 @@ public class AppDbContext : DbContext
     // Reports & Analytics read-model views (keyless, read-only)
     public DbSet<ReportingBookingDailySummary> ReportingBookingDailySummaries { get; set; } = null!;
     public DbSet<ReportingFinanceDailySummary> ReportingFinanceDailySummaries { get; set; } = null!;
+    public DbSet<ReportingBookingStayDailySummary> ReportingBookingStayDailySummaries { get; set; } = null!;
+    public DbSet<ReportingFinanceStayDailySummary> ReportingFinanceStayDailySummaries { get; set; } = null!;
+    public DbSet<ReportingHistoricalEntryReconciliation> ReportingHistoricalEntryReconciliations { get; set; } = null!;
     public DbSet<ReportingReviewsDailySummary> ReportingReviewsDailySummaries { get; set; } = null!;
     public DbSet<ReportingNotificationsDailySummary> ReportingNotificationsDailySummaries { get; set; } = null!;
 

@@ -66,6 +66,12 @@ public class UnitOfWork : IUnitOfWork
         => _context.ReportingBookingDailySummaries.AsNoTracking();
     public IQueryable<ReportingFinanceDailySummary> ReportingFinanceDailySummaries
         => _context.ReportingFinanceDailySummaries.AsNoTracking();
+    public IQueryable<ReportingBookingStayDailySummary> ReportingBookingStayDailySummaries
+        => _context.ReportingBookingStayDailySummaries.AsNoTracking();
+    public IQueryable<ReportingFinanceStayDailySummary> ReportingFinanceStayDailySummaries
+        => _context.ReportingFinanceStayDailySummaries.AsNoTracking();
+    public IQueryable<ReportingHistoricalEntryReconciliation> ReportingHistoricalEntryReconciliations
+        => _context.ReportingHistoricalEntryReconciliations.AsNoTracking();
     public IQueryable<ReportingReviewsDailySummary> ReportingReviewsDailySummaries
         => _context.ReportingReviewsDailySummaries.AsNoTracking();
     public IQueryable<ReportingNotificationsDailySummary> ReportingNotificationsDailySummaries

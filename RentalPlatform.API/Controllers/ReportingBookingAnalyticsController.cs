@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -34,7 +35,9 @@ public class ReportingBookingAnalyticsController : ControllerBase
             request.DateFrom,
             request.DateTo,
             request.BookingSource,
-            cancellationToken);
+            cancellationToken,
+            request.IncludeHistorical,
+            request.HistoricalOnly);
 
         var totalCount = rows.Count;
         var paged = rows
@@ -60,9 +63,45 @@ public class ReportingBookingAnalyticsController : ControllerBase
             request.DateFrom,
             request.DateTo,
             request.BookingSource,
-            cancellationToken);
+            cancellationToken,
+            request.IncludeHistorical,
+            request.HistoricalOnly);
 
         return Ok(ApiResponse<BookingAnalyticsSummaryResponse>.CreateSuccess(MapToSummaryResponse(result)));
+    }
+
+    // GET /api/internal/reports/bookings/stay-daily
+    [HttpGet("api/internal/reports/bookings/stay-daily")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<BookingAnalyticsStayDailySummaryResponse>>>> GetStayDailySummary(
+        [FromQuery] GetHistoricalReportingDailyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _service.GetStayDailySummaryAsync(
+            request.DateFrom,
+            request.DateTo,
+            request.IncludeHistorical,
+            request.HistoricalOnly,
+            cancellationToken);
+
+        return Ok(ApiResponse<IReadOnlyList<BookingAnalyticsStayDailySummaryResponse>>.CreateSuccess(
+            rows.Select(MapToStayDailyResponse).ToList()));
+    }
+
+    // GET /api/internal/reports/bookings/historical-reconciliation
+    [HttpGet("api/internal/reports/bookings/historical-reconciliation")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<HistoricalEntryReconciliationResponse>>>> GetHistoricalReconciliation(
+        [FromQuery] GetHistoricalReconciliationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var stayMonthFrom = ParseMonth(request.StayMonthFrom);
+        var stayMonthTo = ParseMonth(request.StayMonthTo);
+        var rows = await _service.GetHistoricalReconciliationAsync(
+            stayMonthFrom,
+            stayMonthTo,
+            cancellationToken);
+
+        return Ok(ApiResponse<IReadOnlyList<HistoricalEntryReconciliationResponse>>.CreateSuccess(
+            rows.Select(MapToReconciliationResponse).ToList()));
     }
 
     // -----------------------------------------------------------------------
@@ -81,6 +120,13 @@ public class ReportingBookingAnalyticsController : ControllerBase
             CancelledBookingsCount   = row.CancelledBookingsCount,
             CompletedBookingsCount   = row.CompletedBookingsCount,
             TotalFinalAmount         = row.TotalFinalAmount,
+            HistoricalBookingsCount = row.HistoricalBookingsCount,
+            HistoricalProspectingBookingsCount = row.HistoricalProspectingBookingsCount,
+            HistoricalConfirmedBookingsCount = row.HistoricalConfirmedBookingsCount,
+            HistoricalCancelledBookingsCount = row.HistoricalCancelledBookingsCount,
+            HistoricalCompletedBookingsCount = row.HistoricalCompletedBookingsCount,
+            HistoricalFinalAmount = row.HistoricalFinalAmount,
+            HistoricalAgreedAmount = row.HistoricalAgreedAmount,
         };
 
     private static BookingAnalyticsSummaryResponse MapToSummaryResponse(
@@ -96,5 +142,52 @@ public class ReportingBookingAnalyticsController : ControllerBase
             TotalCancelledBookingsCount = result.TotalCancelledBookingsCount,
             TotalCompletedBookingsCount = result.TotalCompletedBookingsCount,
             TotalFinalAmount            = result.TotalFinalAmount,
+            HistoricalBookingsCount     = result.HistoricalBookingsCount,
+            HistoricalFinalAmount       = result.HistoricalFinalAmount,
+            HistoricalAgreedAmount      = result.HistoricalAgreedAmount,
         };
+
+    private static BookingAnalyticsStayDailySummaryResponse MapToStayDailyResponse(
+        RentalPlatform.Data.ReadModels.ReportingBookingStayDailySummary row) =>
+        new()
+        {
+            MetricDate = row.MetricDate,
+            IsHistorical = row.IsHistorical,
+            ReportingSource = row.ReportingSource,
+            BookingsCount = row.BookingsCount,
+            ProspectingBookingsCount = row.ProspectingBookingsCount,
+            ConfirmedBookingsCount = row.ConfirmedBookingsCount,
+            CancelledBookingsCount = row.CancelledBookingsCount,
+            CompletedBookingsCount = row.CompletedBookingsCount,
+            TotalFinalAmount = row.TotalFinalAmount,
+            HistoricalBookingsCount = row.HistoricalBookingsCount,
+            HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+        };
+
+    private static HistoricalEntryReconciliationResponse MapToReconciliationResponse(
+        RentalPlatform.Data.ReadModels.ReportingHistoricalEntryReconciliation row) =>
+        new()
+        {
+            StayMonth = row.StayMonth,
+            RecordedMonth = row.RecordedMonth,
+            ActualBookedMonth = row.ActualBookedMonth,
+            OriginalSource = row.OriginalSource,
+            HistoricalBookingsCount = row.HistoricalBookingsCount,
+            HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+            EntryLagDaysP50 = row.EntryLagDaysP50,
+            EntryLagDaysMax = row.EntryLagDaysMax,
+            InvoiceCount = row.InvoiceCount,
+            InvoicedAmount = row.InvoicedAmount,
+            InvoiceLinkedPaidAmount = row.InvoiceLinkedPaidAmount,
+            HistoricalPaymentEvidenceCount = row.HistoricalPaymentEvidenceCount,
+            HistoricalPaymentEvidenceAmount = row.HistoricalPaymentEvidenceAmount,
+            HistoricalPaymentEvidenceFirstPaidDate = row.HistoricalPaymentEvidenceFirstPaidDate,
+            HistoricalPaymentEvidenceLastPaidDate = row.HistoricalPaymentEvidenceLastPaidDate,
+        };
+
+    private static DateOnly ParseMonth(string value) =>
+        DateOnly.ParseExact(
+            $"{value}-01",
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture);
 }

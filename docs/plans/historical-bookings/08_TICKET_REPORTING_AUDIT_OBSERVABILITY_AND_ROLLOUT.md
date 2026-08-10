@@ -7,10 +7,10 @@
 | Field | Value |
 |---|---|
 | Ticket | HB-08 |
-| Status | **OWNER APPROVED — BLOCKED BY DEPENDENCY** |
+| Status | **OWNER APPROVED — HB-08A2 IMPLEMENTED, PENDING REVIEW** |
 | Delivery | HB-08A reporting/rollout first; HB-08B normal-flow hardening only after pilot evidence |
-| Depends on | HB-02 through HB-05 for complete domain truth; PRE-00 blocks rollout, not documentation or implementation preparation |
-| Migration ownership | Reporting views and append-only report columns listed in §15; no migration number is reserved |
+| Depends on | HB-02 through HB-05 for complete domain truth; PRE-00 is closed; production rollout remains separately gated by §9 |
+| Migration ownership | Reporting views and append-only report columns listed in §15; implemented by migration `0063` |
 
 ## 2. Binding reporting model
 
@@ -74,12 +74,18 @@ stable IDs, result code and timing only. v1 introduces no metrics platform and n
 Operational reconciliation is database-derived and pull-only. HB-08 adds no scheduled push, notification,
 webhook or per-request post-commit verification query.
 
-## 7. External consumers
+## 7. External consumers — PRE-00 closed
 
-Rollout is blocked until Operations records whether any BI tool, direct-SQL consumer, spreadsheet or export
-depends on the reporting views. Historical rows remain included by default with additive breakdown columns;
-an opt-out is explicit. Unknown external consumers are a rollout blocker, not permission to silently exclude
-historical data.
+The repository census found no in-repository `SELECT *` or positional reporting-view consumer, export,
+BI/warehouse/ETL integration, or operational/CI query of the reporting views. On 2026-08-10 the Sole Project
+Owner, applying the Operations lens, confirmed **NO** to all six external-consumer questions: no direct BI
+database connection, scheduled spreadsheet extract, out-of-repository reporting query, `SELECT *`/positional
+consumer, reporting database identity, or external daily/weekly/monthly report. PRE-00 is therefore
+**CLOSED**. No production database was accessed to reach this conclusion.
+
+Historical rows remain included by default with additive breakdown columns; an opt-out is explicit. Backup,
+restore rehearsal, integrity comparison, reconciliation, rollback readiness and explicit owner approval remain
+independent production rollout gates under §9.
 
 ## 8. HB-08A/HB-08B split
 
@@ -192,6 +198,35 @@ payments.invoice_id IS NULL`; invoice-linked totals must count only `is_historic
 payments; ordinary orphan totals must exclude historical evidence. Catalog verifier and rollback preserve the
 prior view definitions. No table or write-side schema is owned by HB-08.
 
+### 15.1 Owner-ratified implementation dictionary — migration 0063
+
+Migration `0063_add_historical_reporting_read_models.sql` implements the dictionary below. The first eight
+columns of each existing view remain unchanged in name, type, order and meaning.
+
+| View | Implemented columns after the preserved prefix / complete new-view dictionary |
+|---|---|
+| `reporting_booking_daily_summary` | `historical_bookings_count`, historical status counts, `historical_final_amount`, `historical_agreed_amount` |
+| `reporting_booking_stay_daily_summary` | `metric_date`, `is_historical`, `reporting_source`, booking/status counts, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount` |
+| `reporting_finance_daily_summary` | historical invoice count/amount, historical invoice-linked paid/remaining, ordinary orphan count/amount and its historical-booking subset, standalone evidence count/amount, `historical_agreed_amount` |
+| `reporting_finance_stay_daily_summary` | `metric_date`, `is_historical`, `reporting_source`, booking/invoice counts, invoiced, invoice-linked paid and remaining amounts, ordinary orphan count/amount, historical booking count/agreed amount |
+| `reporting_historical_entry_reconciliation` | stay/recorded/actual-booked months, `original_source`, historical count/agreed amount, p50/max entry lag, invoice count/amount, invoice-linked paid amount, evidence count/amount and first/last evidence-paid dates |
+
+`reporting_source` is `original_source` only for Historical rows and `source` otherwise. Historical evidence is
+bucketed by `DATE(payments.paid_at)` in the recorded finance read model and is not forced onto the stay axis.
+The reconciliation read model remains aggregate and PII-free.
+
+### 15.2 HB-08A2 implementation evidence
+
+- Migration, verifier and guarded rollback: `db/migrations/0063_add_historical_reporting_read_models*.sql`.
+- Production registration: `infra/db/init.prod.sql`; development bootstrap: `db/init.sql`.
+- Keyless read models and explicit mappings: `RentalPlatform.Data/ReadModels/Reporting*` and
+  `RentalPlatform.Data/Configurations/Reporting*`.
+- Authorized APIs and bounded query logs: `ReportingBookingAnalyticsController`,
+  `ReportingFinanceAnalyticsController` and their reporting services.
+- Contract, HTTP, persisted-data, verifier and rollback coverage:
+  `HistoricalReportingContractTests`, `HistoricalReportingHttpContractTests` and
+  `HistoricalReportingPostgreSqlTests`.
+
 ## 16. Migration and rollout plan
 
 ### 16.1 Ordering
@@ -227,5 +262,6 @@ normal past-date behavior only; it does not touch stored historical records.
 
 ## 19. Readiness
 
-The contract is closed. HB-08 overall is **BLOCKED BY DEPENDENCY** until HB-05 is implemented; rollout is
-additionally blocked by PRE-00 and the release gates. HB-08B remains blocked by successful pilot evidence.
+The contract and PRE-00 are closed. HB-08A2 is implemented by migration `0063` and the three canonical API
+routes and is pending independent review; this does not mark pilot or production rollout complete. Rollout
+remains blocked by the release gates in §9. HB-08B remains blocked by successful pilot evidence.

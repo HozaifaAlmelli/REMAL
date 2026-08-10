@@ -128,3 +128,23 @@ No direct `AppDbContext` access from Business tier. No raw SQL in Business tier.
 | 4 service implementations | Filter + aggregate logic backed by `IUnitOfWork` |
 
 Nothing else is introduced in the Business tier for this domain.
+
+---
+
+## 9. HB-08A2 Additive API Extension — Owner Ratified 2026-08-10
+
+The earlier four-service/two-method statement remains the ordinary reporting baseline. HB-08A2 additively
+extends the existing booking and finance services with the following `analytics:read` routes:
+
+1. `GET /api/internal/reports/bookings/stay-daily`
+2. `GET /api/internal/reports/finance/stay-daily`
+3. `GET /api/internal/reports/bookings/historical-reconciliation`
+
+Stay-daily filters use inclusive `dateFrom`/`dateTo`; reconciliation uses inclusive `YYYY-MM`
+`stayMonthFrom`/`stayMonthTo`. Ranges are ordered and capped at 24 months. Historical rows are included by
+default. `historicalOnly=true` is restrictive and cannot be combined with `includeHistorical=false`; invalid
+requests return `400 VALIDATION_ERROR`.
+
+Responses are aggregate and PII-free. Recorded and stay axes answer different questions and must never be
+summed. `actual_booked_at` is used only for Historical reconciliation/entry-lag reporting. Historical Payment
+Evidence remains a separate count/amount on its `paid_at` date and never becomes platform settlement.

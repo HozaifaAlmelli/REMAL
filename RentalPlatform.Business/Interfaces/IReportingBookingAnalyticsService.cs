@@ -24,7 +24,9 @@ public interface IReportingBookingAnalyticsService
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
         string? bookingSource = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool includeHistorical = true,
+        bool historicalOnly = false);
 
     /// <summary>
     /// Returns an aggregated booking analytics summary over all daily rows
@@ -34,5 +36,19 @@ public interface IReportingBookingAnalyticsService
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
         string? bookingSource = null,
+        CancellationToken cancellationToken = default,
+        bool includeHistorical = true,
+        bool historicalOnly = false);
+
+    Task<IReadOnlyList<ReportingBookingStayDailySummary>> GetStayDailySummaryAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        bool includeHistorical = true,
+        bool historicalOnly = false,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ReportingHistoricalEntryReconciliation>> GetHistoricalReconciliationAsync(
+        DateOnly stayMonthFrom,
+        DateOnly stayMonthTo,
         CancellationToken cancellationToken = default);
 }

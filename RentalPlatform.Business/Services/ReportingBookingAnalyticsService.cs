@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Models;
@@ -20,38 +22,50 @@ namespace RentalPlatform.Business.Services;
 public class ReportingBookingAnalyticsService : IReportingBookingAnalyticsService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<ReportingBookingAnalyticsService> _logger;
 
-    public ReportingBookingAnalyticsService(IUnitOfWork unitOfWork)
+    public ReportingBookingAnalyticsService(
+        IUnitOfWork unitOfWork,
+        ILogger<ReportingBookingAnalyticsService> logger)
     {
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<ReportingBookingDailySummary>> GetDailySummaryAsync(
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
         string? bookingSource = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeHistorical = true,
+        bool historicalOnly = false)
     {
-        ValidateFilters(dateFrom, dateTo, bookingSource);
+        ValidateFilters(dateFrom, dateTo, bookingSource, includeHistorical, historicalOnly);
 
         var query = BuildQuery(dateFrom, dateTo, bookingSource);
 
-        return await query
+        var rows = await query
             .OrderBy(r => r.MetricDate)
             .ThenBy(r => r.BookingSource)
             .ToListAsync(cancellationToken);
+
+        return ApplyHistoricalFilter(rows, includeHistorical, historicalOnly);
     }
 
     public async Task<BookingAnalyticsSummaryResult> GetSummaryAsync(
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
         string? bookingSource = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeHistorical = true,
+        bool historicalOnly = false)
     {
-        ValidateFilters(dateFrom, dateTo, bookingSource);
+        ValidateFilters(dateFrom, dateTo, bookingSource, includeHistorical, historicalOnly);
 
-        var rows = await BuildQuery(dateFrom, dateTo, bookingSource)
-            .ToListAsync(cancellationToken);
+        var rows = ApplyHistoricalFilter(
+            await BuildQuery(dateFrom, dateTo, bookingSource).ToListAsync(cancellationToken),
+            includeHistorical,
+            historicalOnly);
 
         return new BookingAnalyticsSummaryResult
         {
@@ -64,14 +78,84 @@ public class ReportingBookingAnalyticsService : IReportingBookingAnalyticsServic
             TotalCancelledBookingsCount  = rows.Sum(r => r.CancelledBookingsCount),
             TotalCompletedBookingsCount  = rows.Sum(r => r.CompletedBookingsCount),
             TotalFinalAmount             = rows.Sum(r => r.TotalFinalAmount),
+            HistoricalBookingsCount      = rows.Sum(r => r.HistoricalBookingsCount),
+            HistoricalFinalAmount        = rows.Sum(r => r.HistoricalFinalAmount),
+            HistoricalAgreedAmount       = rows.Sum(r => r.HistoricalAgreedAmount),
         };
+    }
+
+    public async Task<IReadOnlyList<ReportingBookingStayDailySummary>> GetStayDailySummaryAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        bool includeHistorical = true,
+        bool historicalOnly = false,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateHistoricalRange(dateFrom, dateTo, includeHistorical, historicalOnly);
+        var started = Stopwatch.GetTimestamp();
+
+        var query = _unitOfWork.ReportingBookingStayDailySummaries
+            .Where(row => row.MetricDate >= dateFrom && row.MetricDate <= dateTo);
+
+        query = historicalOnly
+            ? query.Where(row => row.IsHistorical)
+            : includeHistorical
+                ? query
+                : query.Where(row => !row.IsHistorical);
+
+        var rows = await query
+            .OrderBy(row => row.MetricDate)
+            .ThenBy(row => row.IsHistorical)
+            .ThenBy(row => row.ReportingSource)
+            .ToListAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "HistoricalReportingQueryCompleted Route={Route} IncludeHistorical={IncludeHistorical} HistoricalOnly={HistoricalOnly} RowCount={RowCount} ElapsedMs={ElapsedMs}",
+            "bookings/stay-daily",
+            includeHistorical,
+            historicalOnly,
+            rows.Count,
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+
+        return rows;
+    }
+
+    public async Task<IReadOnlyList<ReportingHistoricalEntryReconciliation>> GetHistoricalReconciliationAsync(
+        DateOnly stayMonthFrom,
+        DateOnly stayMonthTo,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateMonthRange(stayMonthFrom, stayMonthTo);
+        var started = Stopwatch.GetTimestamp();
+        var exclusiveEnd = stayMonthTo.AddMonths(1);
+
+        var rows = await _unitOfWork.ReportingHistoricalEntryReconciliations
+            .Where(row => row.StayMonth >= stayMonthFrom && row.StayMonth < exclusiveEnd)
+            .OrderBy(row => row.StayMonth)
+            .ThenBy(row => row.RecordedMonth)
+            .ThenBy(row => row.ActualBookedMonth)
+            .ThenBy(row => row.OriginalSource)
+            .ToListAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "HistoricalReportingQueryCompleted Route={Route} RowCount={RowCount} ElapsedMs={ElapsedMs}",
+            "bookings/historical-reconciliation",
+            rows.Count,
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+
+        return rows;
     }
 
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
 
-    private static void ValidateFilters(DateOnly? dateFrom, DateOnly? dateTo, string? bookingSource)
+    private static void ValidateFilters(
+        DateOnly? dateFrom,
+        DateOnly? dateTo,
+        string? bookingSource,
+        bool includeHistorical,
+        bool historicalOnly)
     {
         if (dateFrom.HasValue && dateTo.HasValue && dateFrom.Value > dateTo.Value)
             throw new BusinessValidationException(
@@ -80,6 +164,95 @@ public class ReportingBookingAnalyticsService : IReportingBookingAnalyticsServic
         if (bookingSource is not null && string.IsNullOrWhiteSpace(bookingSource))
             throw new BusinessValidationException(
                 "bookingSource must not be blank when provided.");
+
+        if (dateFrom.HasValue && dateTo.HasValue)
+            ValidateHistoricalRange(dateFrom.Value, dateTo.Value, includeHistorical, historicalOnly);
+        else
+            ValidateHistoricalFilter(includeHistorical, historicalOnly);
+    }
+
+    private static void ValidateHistoricalRange(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        bool includeHistorical,
+        bool historicalOnly)
+    {
+        if (dateFrom > dateTo)
+            throw new BusinessValidationException("dateFrom must be on or before dateTo.");
+
+        if (!IsWithinInclusive24Months(dateFrom, dateTo))
+            throw new BusinessValidationException("Date range must not exceed 24 inclusive months.");
+
+        ValidateHistoricalFilter(includeHistorical, historicalOnly);
+    }
+
+    private static void ValidateMonthRange(DateOnly stayMonthFrom, DateOnly stayMonthTo)
+    {
+        if (stayMonthFrom.Day != 1 || stayMonthTo.Day != 1)
+            throw new BusinessValidationException("Stay month values must identify the first day of a month.");
+
+        if (stayMonthFrom > stayMonthTo)
+            throw new BusinessValidationException("stayMonthFrom must be on or before stayMonthTo.");
+
+        if ((((stayMonthTo.Year - stayMonthFrom.Year) * 12)
+             + stayMonthTo.Month - stayMonthFrom.Month) > 23)
+            throw new BusinessValidationException("Stay month range must not exceed 24 inclusive months.");
+    }
+
+    private static bool IsWithinInclusive24Months(DateOnly from, DateOnly to)
+    {
+        var monthDifference = ((to.Year - from.Year) * 12) + to.Month - from.Month;
+        return monthDifference < 24 || (monthDifference == 24 && to.Day < from.Day);
+    }
+
+    private static void ValidateHistoricalFilter(bool includeHistorical, bool historicalOnly)
+    {
+        if (historicalOnly && !includeHistorical)
+            throw new BusinessValidationException(
+                "historicalOnly=true cannot be combined with includeHistorical=false.");
+    }
+
+    private static IReadOnlyList<ReportingBookingDailySummary> ApplyHistoricalFilter(
+        IReadOnlyList<ReportingBookingDailySummary> rows,
+        bool includeHistorical,
+        bool historicalOnly)
+    {
+        if (includeHistorical && !historicalOnly)
+            return rows;
+
+        return rows
+            .Select(row => historicalOnly
+                ? new ReportingBookingDailySummary
+                {
+                    MetricDate = row.MetricDate,
+                    BookingSource = row.BookingSource,
+                    BookingsCreatedCount = row.HistoricalBookingsCount,
+                    ProspectingBookingsCount = row.HistoricalProspectingBookingsCount,
+                    ConfirmedBookingsCount = row.HistoricalConfirmedBookingsCount,
+                    CancelledBookingsCount = row.HistoricalCancelledBookingsCount,
+                    CompletedBookingsCount = row.HistoricalCompletedBookingsCount,
+                    TotalFinalAmount = row.HistoricalFinalAmount,
+                    HistoricalBookingsCount = row.HistoricalBookingsCount,
+                    HistoricalProspectingBookingsCount = row.HistoricalProspectingBookingsCount,
+                    HistoricalConfirmedBookingsCount = row.HistoricalConfirmedBookingsCount,
+                    HistoricalCancelledBookingsCount = row.HistoricalCancelledBookingsCount,
+                    HistoricalCompletedBookingsCount = row.HistoricalCompletedBookingsCount,
+                    HistoricalFinalAmount = row.HistoricalFinalAmount,
+                    HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+                }
+                : new ReportingBookingDailySummary
+                {
+                    MetricDate = row.MetricDate,
+                    BookingSource = row.BookingSource,
+                    BookingsCreatedCount = row.BookingsCreatedCount - row.HistoricalBookingsCount,
+                    ProspectingBookingsCount = row.ProspectingBookingsCount - row.HistoricalProspectingBookingsCount,
+                    ConfirmedBookingsCount = row.ConfirmedBookingsCount - row.HistoricalConfirmedBookingsCount,
+                    CancelledBookingsCount = row.CancelledBookingsCount - row.HistoricalCancelledBookingsCount,
+                    CompletedBookingsCount = row.CompletedBookingsCount - row.HistoricalCompletedBookingsCount,
+                    TotalFinalAmount = row.TotalFinalAmount - row.HistoricalFinalAmount,
+                })
+            .Where(row => row.BookingsCreatedCount > 0)
+            .ToList();
     }
 
     private IQueryable<ReportingBookingDailySummary> BuildQuery(
