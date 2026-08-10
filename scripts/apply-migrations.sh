@@ -28,8 +28,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/production-migrations.sh
 source "$SCRIPT_DIR/lib/production-migrations.sh"
 
+# Validate and materialize the complete production list before any database or
+# backup command. Invalid deployment metadata must fail closed without writes.
+PRODUCTION_MIGRATION_OUTPUT="$(list_production_migrations "$PRODUCTION_MANIFEST" "$MIG_DIR")"
+mapfile -t MIGRATION_FILES <<< "$PRODUCTION_MIGRATION_OUTPUT"
+
+set -a
 # shellcheck disable=SC1090
-set -a; source "$ENV_FILE"; set +a
+source "$ENV_FILE"
+set +a
 
 psql_db() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db \
   psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"; }
@@ -53,8 +60,6 @@ echo "### Taking a pre-migration backup ..."
 
 echo "### Scanning for pending migrations in $MIG_DIR ..."
 PENDING=()
-PRODUCTION_MIGRATION_OUTPUT="$(list_production_migrations "$PRODUCTION_MANIFEST" "$MIG_DIR")"
-mapfile -t MIGRATION_FILES <<< "$PRODUCTION_MIGRATION_OUTPUT"
 for f in "${MIGRATION_FILES[@]}"; do
   num="${f:0:4}"
   applied="$(psql_db -tA -c "SELECT 1 FROM schema_migrations WHERE migration_number='${num}';")"
