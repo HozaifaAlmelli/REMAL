@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
+using RentalPlatform.Shared.Constants;
 
 namespace RentalPlatform.Business.Services;
 
@@ -52,6 +53,11 @@ public sealed class PermissionResolver : IPermissionResolver
         effective.ExceptWith(overrides
             .Where(entry => entry.ModifierType == Deny)
             .Select(entry => entry.PermissionKey));
+
+        if (roleTemplateId.Value == RbacSystemRoleTemplates.SuperAdminId)
+            effective.Add(RbacPermissionKeys.BookingsCorrectOwnerAttribution);
+        else
+            effective.Remove(RbacPermissionKeys.BookingsCorrectOwnerAttribution);
 
         return effective.OrderBy(key => key, StringComparer.Ordinal).ToArray();
     }

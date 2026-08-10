@@ -56,7 +56,7 @@ function createState(): FixtureState {
 
 function corsHeaders() {
   return {
-    "access-control-allow-origin": "http://localhost:3103",
+    "access-control-allow-origin": "http://localhost:3104",
     "access-control-allow-credentials": "true",
     "access-control-allow-headers": "authorization,content-type",
     "access-control-allow-methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
@@ -479,7 +479,7 @@ test.beforeEach(async ({ page }) => {
     {
       name: "refresh_token",
       value: "sanitized-local-refresh-token",
-      url: "http://localhost:3103",
+      url: "http://localhost:3104",
       httpOnly: true,
       sameSite: "Lax",
     },
@@ -519,7 +519,7 @@ test("Admin A remains the creator when Admin B views and updates the booking", a
   await dateDialog.getByRole("button", { name: /August 12.*2026/i }).click();
   await expect(page.getByText("1 unit available")).toBeVisible();
   await page.getByRole("button", { name: /Sanitized Unit/ }).click();
-  await page.getByRole("button", { name: "Select client" }).click();
+  await page.getByRole("combobox", { name: "Client" }).click();
   await page.getByText("Sanitized Client - +201000000003").click();
   await page.getByRole("button", { name: "Create booking" }).click();
   await expect(page.getByRole("dialog", { name: "Quick Booking" })).toBeHidden();

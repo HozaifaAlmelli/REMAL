@@ -34,6 +34,21 @@ public static class HistoricalErrorCodes
     public const string HistoricalPaymentReferenceAlreadyExists = "HISTORICAL_PAYMENT_REFERENCE_ALREADY_EXISTS";
     public const string HistoricalPaymentImmutable = "HISTORICAL_PAYMENT_IMMUTABLE";
     public const string HistoricalPaymentLiveCollectionForbidden = "HISTORICAL_PAYMENT_LIVE_COLLECTION_FORBIDDEN";
+    public const string OwnerCorrectionIdempotencyKeyRequired = "OWNER_CORRECTION_IDEMPOTENCY_KEY_REQUIRED";
+    public const string OwnerCorrectionBookingNotFound = "OWNER_CORRECTION_BOOKING_NOT_FOUND";
+    public const string OwnerCorrectionBookingRequired = "OWNER_CORRECTION_BOOKING_REQUIRED";
+    public const string OwnerCorrectionCurrentAttributionRequiresReview =
+        "OWNER_CORRECTION_CURRENT_ATTRIBUTION_REQUIRES_REVIEW";
+    public const string OwnerCorrectionTargetNotFound = "OWNER_CORRECTION_TARGET_NOT_FOUND";
+    public const string OwnerCorrectionTargetInvalid = "OWNER_CORRECTION_TARGET_INVALID";
+    public const string OwnerCorrectionSameOwner = "OWNER_CORRECTION_SAME_OWNER";
+    public const string OwnerCorrectionStaleAttribution = "OWNER_CORRECTION_STALE_ATTRIBUTION";
+    public const string OwnerCorrectionPayoutReviewRequired = "OWNER_CORRECTION_PAYOUT_REVIEW_REQUIRED";
+    public const string OwnerCorrectionIdempotencyKeyReused = "OWNER_CORRECTION_IDEMPOTENCY_KEY_REUSED";
+    public const string OwnerCorrectionRequestInProgress = "OWNER_CORRECTION_REQUEST_IN_PROGRESS";
+    public const string OwnerCorrectionConflict = "OWNER_CORRECTION_CONFLICT";
+    public const string OwnerCorrectionAuditImmutable = "OWNER_CORRECTION_AUDIT_IMMUTABLE";
+    public const string StayDatesInPast = "STAY_DATES_IN_PAST";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -67,6 +82,20 @@ public static class HistoricalErrorCodes
         HistoricalPaymentExceedsAgreedAmount,
         HistoricalPaymentReferenceAlreadyExists,
         HistoricalPaymentImmutable,
-        HistoricalPaymentLiveCollectionForbidden
+        HistoricalPaymentLiveCollectionForbidden,
+        OwnerCorrectionIdempotencyKeyRequired,
+        OwnerCorrectionBookingNotFound,
+        OwnerCorrectionBookingRequired,
+        OwnerCorrectionCurrentAttributionRequiresReview,
+        OwnerCorrectionTargetNotFound,
+        OwnerCorrectionTargetInvalid,
+        OwnerCorrectionSameOwner,
+        OwnerCorrectionStaleAttribution,
+        OwnerCorrectionPayoutReviewRequired,
+        OwnerCorrectionIdempotencyKeyReused,
+        OwnerCorrectionRequestInProgress,
+        OwnerCorrectionConflict,
+        OwnerCorrectionAuditImmutable,
+        StayDatesInPast
     };
 }

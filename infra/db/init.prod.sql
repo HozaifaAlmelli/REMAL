@@ -140,6 +140,8 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 \i /docker-entrypoint-initdb.d/migrations/0060_add_historical_financial_snapshot.sql
 \echo '=== [prod] 0061: add historical payment recording ==='
 \i /docker-entrypoint-initdb.d/migrations/0061_add_historical_payment_recording.sql
+\echo '=== [prod] 0062: add historical owner attribution corrections ==='
+\i /docker-entrypoint-initdb.d/migrations/0062_add_historical_owner_attribution_corrections.sql
 
 -- ── Record the applied baseline (everything run above) ──
 -- scripts/apply-migrations.sh resumes from the highest recorded number.
@@ -151,7 +153,7 @@ FROM unnest(ARRAY[
   '0021','0022','0023','0024','0025','0026','0027','0028','0029','0030',
   '0031','0032','0033','0034','0035','0036','0037','0038','0039','0040',
   '0041','0042','0043','0044','0045','0048','0049','0050','0051','0052',
-  '0053','0054','0055','0056','0057','0058','0059','0060','0061'
+  '0053','0054','0055','0056','0057','0058','0059','0060','0061','0062'
 ]) AS n
 ON CONFLICT (migration_number) DO NOTHING;
 

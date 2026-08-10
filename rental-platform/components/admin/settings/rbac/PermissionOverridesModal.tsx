@@ -13,6 +13,11 @@ import {
 } from "@/lib/hooks/useRbac";
 import { cn } from "@/lib/utils/cn";
 import { toastError, toastSuccess } from "@/lib/utils/toast";
+import {
+  isOwnerCorrectionOverrideProtected,
+  rbacMutationErrorMessage,
+  SUPERADMIN_ROLE_TEMPLATE_ID,
+} from "@/lib/rbac/historical-permission-policy";
 
 type OverrideMode = "inherit" | "grant" | "deny";
 
@@ -20,11 +25,13 @@ export function PermissionOverridesModal({
   isOpen,
   adminUserId,
   adminUserName,
+  adminRoleTemplateId,
   onClose,
 }: {
   isOpen: boolean;
   adminUserId: string;
   adminUserName: string;
+  adminRoleTemplateId: string;
   onClose: () => void;
 }) {
   const registry = usePermissionRegistry();
@@ -34,10 +41,7 @@ export function PermissionOverridesModal({
 
   useEffect(() => {
     if (!overrides.data) return;
-    const next: Record<string, OverrideMode> = {};
-    for (const key of overrides.data.grants) next[key] = "grant";
-    for (const key of overrides.data.denies) next[key] = "deny";
-    setModes(next);
+    setModes(modesFromOverrides(overrides.data.grants, overrides.data.denies));
   }, [overrides.data]);
 
   const handleSave = () => {
@@ -52,11 +56,22 @@ export function PermissionOverridesModal({
       { adminUserId, request: { grants, denies } },
       {
         onSuccess: () => {
-          toastSuccess("Permission overrides updated");
+          toastSuccess(
+            "Permission overrides updated. This operator will be signed out on their next action and receive the updated access when they sign in again."
+          );
           onClose();
         },
-        onError: (error: Error) =>
-          toastError(error.message || "Could not update permission overrides"),
+        onError: (error: Error) => {
+          setModes(
+            modesFromOverrides(
+              overrides.data?.grants ?? [],
+              overrides.data?.denies ?? []
+            )
+          );
+          toastError(
+            rbacMutationErrorMessage(error, "Could not update permission overrides")
+          );
+        },
       }
     );
   };
@@ -103,6 +118,13 @@ export function PermissionOverridesModal({
                   {group.permissions.map((permission) => {
                     const mode = modes[permission.key] ?? "inherit";
                     const inherited = overrides.data?.inherited.includes(permission.key);
+                    const correctionProtected =
+                      isOwnerCorrectionOverrideProtected(permission.key);
+                    const correctionHelper = correctionProtected
+                      ? adminRoleTemplateId === SUPERADMIN_ROLE_TEMPLATE_ID
+                        ? "Mandatory through the SuperAdmin role; user overrides are disabled."
+                        : "Restricted to the SuperAdmin role; user overrides are disabled."
+                      : null;
                     return (
                       <div
                         key={permission.key}
@@ -122,6 +144,11 @@ export function PermissionOverridesModal({
                           <p className="mt-0.5 text-xs leading-5 text-neutral-500">
                             {permission.description}
                           </p>
+                          {correctionHelper && (
+                            <p className="mt-0.5 text-xs font-medium text-neutral-600">
+                              {correctionHelper}
+                            </p>
+                          )}
                         </div>
                         <div
                           className="grid grid-cols-3 overflow-hidden rounded-[var(--portal-radius-control)] border border-neutral-300"
@@ -132,6 +159,7 @@ export function PermissionOverridesModal({
                             <button
                               key={option}
                               type="button"
+                              disabled={correctionProtected}
                               onClick={() =>
                                 setModes((current) => ({
                                   ...current,
@@ -146,7 +174,8 @@ export function PermissionOverridesModal({
                                   "bg-primary-600 text-white",
                                 mode === option && option === "deny" &&
                                   "bg-error text-white",
-                                mode !== option && "bg-white text-neutral-600 hover:bg-neutral-50"
+                                mode !== option && "bg-white text-neutral-600 hover:bg-neutral-50",
+                                correctionProtected && "cursor-not-allowed opacity-50"
                               )}
                             >
                               {option}
@@ -173,4 +202,18 @@ export function PermissionOverridesModal({
       )}
     </Modal>
   );
+}
+
+function modesFromOverrides(
+  grants: readonly string[],
+  denies: readonly string[]
+): Record<string, OverrideMode> {
+  const next: Record<string, OverrideMode> = {};
+  for (const key of grants) {
+    if (!isOwnerCorrectionOverrideProtected(key)) next[key] = "grant";
+  }
+  for (const key of denies) {
+    if (!isOwnerCorrectionOverrideProtected(key)) next[key] = "deny";
+  }
+  return next;
 }

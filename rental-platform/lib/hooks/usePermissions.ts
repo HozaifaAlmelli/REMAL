@@ -14,6 +14,8 @@ export interface Permissions {
   canManageFinance: boolean;
   canManagePayouts: boolean;
   canManageBookings: boolean;
+  canRecordHistoricalBookings: boolean;
+  canRecordHistoricalPayments: boolean;
   canViewUnits: boolean;
   canViewOwners: boolean;
   canManageOwners: boolean;
@@ -57,6 +59,8 @@ export function usePermissions(): Permissions {
       canManageFinance: has("finance:manage"),
       canManagePayouts: has("finance:payouts"),
       canManageBookings: has("bookings:write"),
+      canRecordHistoricalBookings: has("bookings:record_historical"),
+      canRecordHistoricalPayments: has("payments:record_historical"),
       canViewUnits: has("units:read"),
       canViewOwners: has("owners:read"),
       canManageOwners: has("owners:manage"),

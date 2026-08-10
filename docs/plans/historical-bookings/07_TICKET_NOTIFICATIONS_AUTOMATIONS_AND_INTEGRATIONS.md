@@ -7,7 +7,7 @@
 | Field | Value |
 |---|---|
 | Ticket | HB-07 |
-| Status | **OWNER APPROVED — READY** |
+| Status | **IMPLEMENTED ON FEATURE BRANCH — DRAFT REVIEW REQUIRED** |
 | Depends on | HB-02 historical identity and HB-04B payment evidence identity |
 | Migration ownership | None |
 | v1 notification policy | No automatic internal or external notification |
@@ -120,4 +120,60 @@ delivery whose failure could make a successful financial command appear failed.
 
 Fast tests prove structural exclusions and future-dispatch default behavior. PostgreSQL tests assert absence of
 notification/delivery/outbox rows for booking, payment, replay, correction and failure paths while normal-flow
-regressions remain green. HB-07 is **READY**.
+regressions remain green. HB-07 is **IMPLEMENTED ON FEATURE BRANCH** and remains subject to Draft PR review and
+owner merge.
+
+## 11. Implementation evidence
+
+### 11.1 Repository census and enforcement
+
+| Mechanism | Source | Historical eligibility | HB-07 enforcement/evidence |
+|---|---|---|---|
+| Booking lifecycle client notification | `RentalPlatform.Business/Services/BookingLifecycleService.cs` | Excluded | Central `HistoricalBookingAutomationPolicy` short-circuit; ordinary notification regression remains green |
+| Confirmation-time automatic invoice | `RentalPlatform.Business/Services/BookingLifecycleService.cs` | Excluded | The same persisted-history policy gates automatic invoice creation; manual `InvoiceService` behavior is unchanged |
+| Automatic completion and finance notification sweep | `RentalPlatform.API/Services/AutoCompleteBookingsJob.cs` | Excluded | Database selector applies the shared policy expression; a defensive notification guard remains at dispatch |
+| Manual notification and delivery | `NotificationService`, `NotificationDispatchService`, notification controllers | Human-governed only | No historical command dependency or invocation; no manual tool was changed |
+| Historical booking, payment and owner-correction commands | `HistoricalBookingService`, `HistoricalPaymentService`, `HistoricalOwnerAttributionService` | No automatic side effects | Constructor/call-graph tests reject notification, invoice and payout writer dependencies |
+| Browser orchestration | `historical-bookings.service.ts`, `HistoricalBookingWizard.tsx` | Ratified command routes only | Browser request interception proves booking, owner-review and payment calls only |
+| Outbox, message bus, webhook, email, SMS, Telegram and external-accounting clients | Repository-wide census | Not implemented | No writer, publisher, queue or external client exists to invoke |
+| CRM persistence | CRM services/controllers | Explicit CRM operations only | PostgreSQL inventories prove historical commands add no CRM lead, note or assignment rows |
+
+The canonical guard is `RentalPlatform.Business/Services/HistoricalBookingAutomationPolicy.cs`. It uses the
+persisted `Booking.IsHistorical` identity both as an EF-translatable selector and as an in-memory defensive
+check. It introduces no request-controlled bypass. Audit and authorized reporting reads remain unaffected.
+
+The source tripwire `EveryAutomaticBookingSideEffectCallSiteUsesTheHistoricalPolicy` protects the currently
+known lifecycle and automatic-completion call sites. It is not a complete architectural discovery mechanism:
+a future automatic writer in a new service could omit the helper without matching that test. Extending the
+central eligibility boundary to any future writer remains a non-blocking architectural follow-up requirement.
+
+### 11.2 Verification evidence
+
+- Release build: passed with zero errors.
+- Fast tests: **110 passed, 0 failed, 0 skipped**.
+- PostgreSQL 16.13 tests: **50 passed, 0 failed, 0 skipped** against an isolated disposable database.
+- Full backend suite: **160 passed, 0 failed, 0 skipped**.
+- HB-06 state/parser tests: **34 passed, 0 failed, 0 skipped**.
+- Historical wizard browser suite: **54 passed** across desktop and mobile; the added request-surface test passed
+  in both projects.
+- Headed Chromium smoke: **7 desktop and 1 mobile passed** for booking, post-commit owner review, payment,
+  unknown outcomes, conflicts and unauthorized entry. Network inspection found no notification, invoice,
+  payout, correction, CRM, accounting, webhook or analytics write.
+- The test-assurance follow-up reran the booking-list entry and complete booking/owner-review/payment smoke in
+  headed Chromium on both desktop and mobile. Its inventory contained authentication refresh, the read-only
+  inbox summary, unit/client reference reads and only the three ratified historical command/read routes.
+- CRM regression: **15 passed**; booking-history regression: **2 passed**.
+- Production portal build and API container image build: passed.
+- Database inventories assert unchanged notification, delivery-log, invoice, invoice-item, payout and CRM row
+  counts for historical command paths. The repository has no outbox or integration queue table.
+- A real-service confirmation regression proves an ordinary `Booked` booking becomes `Confirmed` with one
+  issued invoice and one booking-stay item, while an equivalent historical `Booked` fault-injection fixture
+  creates no invoice or invoice item. The historical state is deliberate fault injection; the supported
+  historical creation path writes `Completed` directly.
+- The automatic-completion PostgreSQL regression now uses a positive ordinary outstanding balance, proves the
+  ordinary admin notification is persisted once, proves the historical row is excluded by the generated SQL
+  predicate, and exercises the defensive dispatch guard directly.
+- Mutation sensitivity was demonstrated locally by temporarily neutralizing only the confirmation-invoice
+  historical guard: the focused test failed because the historical fixture received an invoice. Restoring the
+  guard returned the suite to green, and no production-source mutation remains in the branch diff.
+- No production, staging, shared-development or existing local database was accessed, and no deployment ran.

@@ -180,23 +180,26 @@ public class BookingLifecycleService : IBookingLifecycleService
             await AppendStatusHistoryAsync(booking.Id, oldStatus, BookingStatus.Confirmed, changedByAdminUserId, notes, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            // Only create an invoice if one does not already exist for this booking.
-            // This handles cases where the booking was previously confirmed and the
-            // status was rolled back manually while the invoice remained active.
-            var existingInvoice = await _unitOfWork.Invoices.FirstOrDefaultAsync(
-                i => i.BookingId == booking.Id
-                    && i.InvoiceStatus != "cancelled"
-                    && i.InvoiceStatus != "superseded",
-                cancellationToken);
-
-            if (existingInvoice == null)
+            if (HistoricalBookingAutomationPolicy.AllowsAutomaticSideEffects(booking))
             {
-                var draftInvoice = await _invoiceService.CreateDraftFromBookingAsync(
-                    booking.Id,
-                    invoiceNumber: null,
-                    notes: "Auto-generated on confirmation",
+                // Only create an invoice if one does not already exist for this booking.
+                // This handles cases where the booking was previously confirmed and the
+                // status was rolled back manually while the invoice remained active.
+                var existingInvoice = await _unitOfWork.Invoices.FirstOrDefaultAsync(
+                    i => i.BookingId == booking.Id
+                        && i.InvoiceStatus != "cancelled"
+                        && i.InvoiceStatus != "superseded",
                     cancellationToken);
-                await _invoiceService.IssueAsync(draftInvoice.Id, cancellationToken);
+
+                if (existingInvoice == null)
+                {
+                    var draftInvoice = await _invoiceService.CreateDraftFromBookingAsync(
+                        booking.Id,
+                        invoiceNumber: null,
+                        notes: "Auto-generated on confirmation",
+                        cancellationToken);
+                    await _invoiceService.IssueAsync(draftInvoice.Id, cancellationToken);
+                }
             }
 
             await tx.CommitAsync(cancellationToken);
@@ -313,6 +316,9 @@ public class BookingLifecycleService : IBookingLifecycleService
         BookingStatus targetStatus,
         CancellationToken cancellationToken)
     {
+        if (!HistoricalBookingAutomationPolicy.AllowsAutomaticSideEffects(booking))
+            return;
+
         var templateCode = targetStatus == BookingStatus.Confirmed
             ? BookingConfirmedTemplateCode
             : BookingStatusChangedTemplateCode;

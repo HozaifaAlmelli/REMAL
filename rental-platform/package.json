@@ -15,7 +15,11 @@
     "test:client-smoke:ui": "playwright test --config=playwright.client.config.ts --ui",
     "test:client-smoke:headed": "playwright test --config=playwright.client.config.ts --headed",
     "test:crm-ui": "playwright test --config=playwright.crm.config.ts",
-    "test:booking-history": "playwright test --config=playwright.booking-history.config.ts"
+    "test:booking-history": "playwright test --config=playwright.booking-history.config.ts",
+    "test:playwright-isolation": "tsx --test tests/test-infrastructure/*.test.ts",
+    "test:hb06": "tsx --test lib/historical-bookings/*.test.ts",
+    "test:hb06:e2e": "playwright test --config=playwright.historical-booking.config.ts",
+    "test:rbac": "tsx --test lib/rbac/*.test.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.1",
@@ -63,6 +67,7 @@
     "prettier": "^3.2.0",
     "prettier-plugin-tailwindcss": "^0.5.0",
     "tailwindcss": "^3.4.0",
+    "tsx": "4.23.4",
     "typescript": "^5.4.0"
   }
 }

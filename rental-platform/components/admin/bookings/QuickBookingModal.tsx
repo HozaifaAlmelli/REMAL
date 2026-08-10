@@ -237,26 +237,23 @@ export function QuickBookingModal({ isOpen, onClose }: QuickBookingModalProps) {
         )}
 
         <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-neutral-700">
-              Client
-            </label>
-            <Combobox
-              options={clientOptions}
-              value={details.clientId || null}
-              onChange={(value) =>
-                setDetails((current) => ({
-                  ...current,
-                  clientId: value ? String(value) : "",
-                }))
-              }
-              placeholder={
-                clientsLoading ? "Loading clients..." : "Select client"
-              }
-              disabled={clientsLoading || createMutation.isPending}
-              searchable
-            />
-          </div>
+          <Combobox
+            id="quick-booking-client"
+            label="Client"
+            options={clientOptions}
+            value={details.clientId || null}
+            onChange={(value) =>
+              setDetails((current) => ({
+                ...current,
+                clientId: value ? String(value) : "",
+              }))
+            }
+            placeholder={
+              clientsLoading ? "Loading clients..." : "Select client"
+            }
+            disabled={clientsLoading || createMutation.isPending}
+            searchable
+          />
 
           <Input
             label="Guests"
