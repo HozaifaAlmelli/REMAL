@@ -18,7 +18,8 @@
     "test:booking-history": "playwright test --config=playwright.booking-history.config.ts",
     "test:playwright-isolation": "tsx --test tests/test-infrastructure/*.test.ts",
     "test:hb06": "tsx --test lib/historical-bookings/*.test.ts",
-    "test:hb06:e2e": "playwright test --config=playwright.historical-booking.config.ts"
+    "test:hb06:e2e": "playwright test --config=playwright.historical-booking.config.ts",
+    "test:rbac": "tsx --test lib/rbac/*.test.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.1",
