@@ -91,6 +91,8 @@ public class ReportingFinanceAnalyticsController : ControllerBase
             TotalInvoicedAmount             = result.TotalInvoicedAmount,
             TotalPaidAmount                 = result.TotalPaidAmount,
             TotalRemainingAmount            = result.TotalRemainingAmount,
+            HistoricalPaymentEvidenceCount  = result.HistoricalPaymentEvidenceCount,
+            HistoricalPaymentEvidenceAmount = result.HistoricalPaymentEvidenceAmount,
             TotalPendingPayoutAmount        = result.TotalPendingPayoutAmount,
             TotalScheduledPayoutAmount      = result.TotalScheduledPayoutAmount,
             TotalPaidPayoutAmount           = result.TotalPaidPayoutAmount,

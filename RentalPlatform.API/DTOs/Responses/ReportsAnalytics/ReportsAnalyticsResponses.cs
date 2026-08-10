@@ -55,6 +55,8 @@ public record FinanceAnalyticsSummaryResponse
     public decimal TotalInvoicedAmount { get; init; }
     public decimal TotalPaidAmount { get; init; }
     public decimal TotalRemainingAmount { get; init; }
+    public int HistoricalPaymentEvidenceCount { get; init; }
+    public decimal HistoricalPaymentEvidenceAmount { get; init; }
     public decimal TotalPendingPayoutAmount { get; init; }
     public decimal TotalScheduledPayoutAmount { get; init; }
     public decimal TotalPaidPayoutAmount { get; init; }
