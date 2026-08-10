@@ -61,9 +61,20 @@ docker run --rm -v /opt/kaza/uploads:/data -v /opt/kaza/backups/uploads:/backup 
 ## Migrations (tracked, gated — never during deploy)
 
 Schema changes go through `scripts/apply-migrations.sh`, which backs up first, applies
-only un-recorded `db/migrations/NNNN_*.sql`, runs each `*_verify.sql`, records success in
-the `schema_migrations` table, refuses an empty/missing ledger, refuses duplicate
-numbers, and **refuses destructive changes** unless `APPROVE_DESTRUCTIVE=1`.
+only un-recorded migrations explicitly included by the canonical production bootstrap
+`infra/db/init.prod.sql`, runs each `*_verify.sql`, records success in the
+`schema_migrations` table, refuses an empty/missing ledger, refuses duplicate or
+out-of-order production entries, and **refuses destructive changes** unless
+`APPROVE_DESTRUCTIVE=1`.
+
+This eligibility rule prevents development-only seeds from becoming production-pending
+merely because their files exist under `db/migrations`. Future development-only seed
+migrations must contain `_seed_dev_` in the filename, be included only by `db/init.sql`,
+and never be added to `infra/db/init.prod.sql`. Every legitimate production migration
+must be registered in `infra/db/init.prod.sql`; an unregistered file is intentionally
+ineligible. The production runner materializes the validated bootstrap list before
+querying the ledger, so database commands cannot consume or truncate migration discovery
+input.
 
 ```bash
 cd /opt/apps/kaza-booking
@@ -74,3 +85,6 @@ APPROVE_DESTRUCTIVE=1 ./scripts/apply-migrations.sh  # only after explicit human
 Prefer additive, nullable migrations with unique numbers. (Incident history: a duplicated
 migration number broke owner login — see
 [incidents](../incidents/2026-07-kaza-production-stabilization.md).)
+
+No production migration was executed while introducing this eligibility rule; validation
+used repository-local shell tests and isolated disposable PostgreSQL only.
