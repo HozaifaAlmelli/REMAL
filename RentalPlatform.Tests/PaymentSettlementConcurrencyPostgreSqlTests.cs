@@ -250,7 +250,7 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
         {
             Assert.Equal(12_000m, ordinaryPaid);
             Assert.True(capacity >= 12_000m);
-            Assert.Contains("paid payments linked", cancelOutcome.Error!.Message);
+            Assert.Contains("already paid", cancelOutcome.Error!.Message);
         }
     }
 
@@ -419,8 +419,7 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
         var invoice = draft;
         if (requiredCapacity > draft.TotalAmount)
         {
-            // INV-OPS-01 can overstate this adjustment, but PAY-OPS-01 only requires a
-            // supported active capacity at least as large as the pending reservations.
+            // Raise active capacity exactly to the supported pending reservations.
             invoice = await invoices.AddManualAdjustmentAsync(
                 draft.Id,
                 "Supported capacity increase",

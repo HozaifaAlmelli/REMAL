@@ -300,6 +300,20 @@ reporting defect correction.
   `INV-OPS-01` (manual-adjustment invoice-total divergence) and `INV-OPS-02` (invoice capacity shrink can
   leave paid plus pending reservations above the new capacity) remain separate release-hardening work.
 
+### 15.6 INV-OPS-01 invoice-total invariant evidence
+
+- Manual adjustment persistence previously counted the newly tracked invoice item twice after EF relationship
+  fixup, so a 2,000 adjustment on a 10,000 invoice persisted 12,000 of items but a 14,000 invoice total.
+- The canonical manual-adjustment calculation now uses the persisted item sum plus the new line exactly once.
+  Same-invoice adjustments are transactionally serialized so concurrent supported adjustments cannot lose an
+  item contribution. Caller-owned transactions remain caller-owned.
+- Focused PostgreSQL coverage compares the stored total with an independent persisted-item sum after positive,
+  sequential, zero-value, tracked, fresh-context, concurrent and reissue flows. It also proves rejected and
+  failed adjustments leave both sides unchanged and that ordinary settlement capacity uses the corrected total.
+- INV-OPS-01 changes no schema, endpoint or payment contract. Negative unit amounts remain unsupported by the
+  existing request validator. `INV-OPS-02`, covering capacity shrink against existing paid and pending
+  reservations, remains open and is not changed by this arithmetic correction.
+
 ## 16. Migration and rollout plan
 
 ### 16.1 Ordering
