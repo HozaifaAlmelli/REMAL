@@ -139,6 +139,59 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
     }
 
     [Fact]
+    public async Task MarkPaidReloadsAlreadyTrackedPaymentBeforeStatusValidation()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var callerContext = database.CreateDbContext();
+        var booking = await SeedBookingAsync(callerContext);
+        var callerService = new PaymentService(new UnitOfWork(callerContext));
+        var trackedPayment = await callerService.CreateAsync(
+            booking.Id,
+            null,
+            "cash",
+            6_000m,
+            null,
+            "PAY-OPS-01 tracked-state reload proof");
+
+        Assert.Equal(EntityState.Unchanged, callerContext.Entry(trackedPayment).State);
+        Assert.Equal("pending", trackedPayment.PaymentStatus);
+
+        await using (var externalContext = database.CreateDbContext())
+        {
+            await new PaymentService(new UnitOfWork(externalContext))
+                .CancelAsync(trackedPayment.Id, "PAY-OPS-01 external cancellation");
+        }
+
+        await using (var databaseTruth = database.CreateDbContext())
+        {
+            var persisted = await databaseTruth.Payments.AsNoTracking()
+                .SingleAsync(payment => payment.Id == trackedPayment.Id);
+            Assert.Equal("cancelled", persisted.PaymentStatus);
+            Assert.Null(persisted.PaidAt);
+        }
+
+        Assert.Equal("pending", trackedPayment.PaymentStatus);
+        var conflict = await Assert.ThrowsAsync<ConflictException>(() =>
+            callerService.MarkPaidAsync(trackedPayment.Id, null, "must observe cancellation"));
+        Assert.Null(conflict.Code);
+        Assert.Equal(
+            $"Payment {trackedPayment.Id} cannot be marked as paid: current status is 'cancelled'. " +
+            "Only pending payments can be marked as paid.",
+            conflict.Message);
+
+        await using var verify = database.CreateDbContext();
+        var finalPayment = await verify.Payments.AsNoTracking()
+            .SingleAsync(payment => payment.Id == trackedPayment.Id);
+        Assert.Equal("cancelled", finalPayment.PaymentStatus);
+        Assert.Null(finalPayment.PaidAt);
+        Assert.Equal(6_000m, finalPayment.Amount);
+        Assert.False(finalPayment.IsHistoricalRecord);
+        Assert.Equal(0m, await OrdinaryPaidAsync(verify, booking.Id));
+        Assert.False(await verify.Invoices.AnyAsync(invoice => invoice.BookingId == booking.Id));
+        Assert.False(await verify.OwnerPayouts.AnyAsync(payout => payout.BookingId == booking.Id));
+    }
+
+    [Fact]
     public async Task ConcurrentMarkPaidAndCreateShareReservationBoundary()
     {
         await using var database = await _fixture.CreateTestDatabaseAsync();
