@@ -21,4 +21,5 @@ public sealed class OwnerPortalBookingOverview
     public string Source { get; init; } = string.Empty;
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
+    public bool IsHistorical { get; set; }
 }

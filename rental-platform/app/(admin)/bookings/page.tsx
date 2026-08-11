@@ -14,6 +14,8 @@ import {
   BookingListFilters,
 } from "@/lib/types/booking.types";
 import { FileClock, Plus } from "lucide-react";
+import { historicalScopeToBookingFilter } from "@/lib/historical-reporting/presentation";
+import type { HistoricalScope } from "@/lib/types/report.types";
 
 function BookingsListContent() {
   const { canViewBookings, canManageBookings, canRecordHistoricalBookings } =
@@ -29,7 +31,9 @@ function BookingsListContent() {
   }, [canViewBookings, router]);
 
   const filters = useMemo<BookingListFilters>(
-    () => ({
+    () => {
+      const scope = (searchParams.get("bookingType") ?? "all") as HistoricalScope;
+      return {
       bookingStatus:
         (searchParams.get("bookingStatus") as FormalBookingStatus) || undefined,
       assignedAdminUserId: searchParams.get("assignedAdminUserId") || undefined,
@@ -38,9 +42,11 @@ function BookingsListContent() {
       search: searchParams.get("search") || undefined,
       agedSoftHoldsOnly:
         searchParams.get("agedSoftHoldsOnly") === "true" || undefined,
+      isHistorical: historicalScopeToBookingFilter(scope),
       page: Number(searchParams.get("page")) || 1,
       pageSize: 20,
-    }),
+      };
+    },
     [searchParams]
   );
 
@@ -57,6 +63,8 @@ function BookingsListContent() {
     if (newFilters.checkInTo) params.set("checkInTo", newFilters.checkInTo);
     if (newFilters.search) params.set("search", newFilters.search);
     if (newFilters.agedSoftHoldsOnly) params.set("agedSoftHoldsOnly", "true");
+    if (newFilters.isHistorical === true) params.set("bookingType", "historical");
+    if (newFilters.isHistorical === false) params.set("bookingType", "ordinary");
     if (newFilters.page && newFilters.page > 1)
       params.set("page", String(newFilters.page));
 

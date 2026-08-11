@@ -19,7 +19,9 @@
     "test:playwright-isolation": "tsx --test tests/test-infrastructure/*.test.ts",
     "test:hb06": "tsx --test lib/historical-bookings/*.test.ts",
     "test:hb06:e2e": "playwright test --config=playwright.historical-booking.config.ts",
-    "test:rbac": "tsx --test lib/rbac/*.test.ts"
+    "test:rbac": "tsx --test lib/rbac/*.test.ts",
+    "test:hb08a3": "tsx --test lib/historical-reporting/*.test.ts",
+    "test:hb08a3:e2e": "playwright test --config=playwright.historical-reporting.config.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.1",

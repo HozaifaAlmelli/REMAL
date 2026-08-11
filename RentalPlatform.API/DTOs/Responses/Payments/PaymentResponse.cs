@@ -15,6 +15,7 @@ public record PaymentResponse
     public string? ReferenceNumber { get; init; }
     public string? Notes { get; init; }
     public DateTime? PaidAt { get; init; }
+    public bool IsHistoricalRecord { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 }

@@ -237,12 +237,16 @@ export const endpoints = {
   reportsBookings: {
     daily: "/api/internal/reports/bookings/daily",
     summary: "/api/internal/reports/bookings/summary",
+    stayDaily: "/api/internal/reports/bookings/stay-daily",
+    historicalReconciliation:
+      "/api/internal/reports/bookings/historical-reconciliation",
   },
 
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ REPORTS â€” FINANCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   reportsFinance: {
     daily: "/api/internal/reports/finance/daily",
     summary: "/api/internal/reports/finance/summary",
+    stayDaily: "/api/internal/reports/finance/stay-daily",
   },
 
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ OWNERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

@@ -11,10 +11,12 @@ import type {
 
 interface BookingFinancialSummaryProps {
   snapshot: BookingFinanceSnapshotResponse;
+  isHistorical?: boolean;
 }
 
 export function BookingFinancialSummary({
   snapshot,
+  isHistorical = false,
 }: BookingFinancialSummaryProps) {
   const hasOutstanding = snapshot.remainingAmount > 0;
 
@@ -35,7 +37,7 @@ export function BookingFinancialSummary({
 
         {/* Paid Amount */}
         <div>
-          <p className="text-xs text-neutral-500">Paid Amount</p>
+          <p className="text-xs text-neutral-500">Platform paid amount</p>
           <p className="text-sm font-semibold text-neutral-800">
             {formatCurrency(snapshot.paidAmount)}
           </p>
@@ -86,6 +88,12 @@ export function BookingFinancialSummary({
           )}
         </div>
       </div>
+
+      {isHistorical && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+          Historical Payment Evidence is reported separately and never reduces this invoice balance.
+        </p>
+      )}
 
       {/* Quick status indicator */}
       {hasOutstanding && (

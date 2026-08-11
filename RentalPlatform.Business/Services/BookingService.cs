@@ -40,6 +40,7 @@ public class BookingService : IBookingService
         int page = 1,
         int pageSize = 20,
         bool agedSoftHoldsOnly = false,
+        bool? isHistorical = null,
         CancellationToken cancellationToken = default)
     {
         IQueryable<Booking> query = _unitOfWork.Bookings.Query()
@@ -98,6 +99,9 @@ public class BookingService : IBookingService
 
         if (checkInTo.HasValue)
             query = query.Where(b => b.CheckInDate <= checkInTo.Value);
+
+        if (isHistorical.HasValue)
+            query = query.Where(b => b.IsHistorical == isHistorical.Value);
 
         if (agedSoftHoldsOnly)
         {

@@ -31,5 +31,6 @@ public sealed class OwnerPortalBookingOverviewConfiguration
         builder.Property(x => x.Source).HasColumnName("source").HasMaxLength(50).IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+        builder.Ignore(x => x.IsHistorical);
     }
 }

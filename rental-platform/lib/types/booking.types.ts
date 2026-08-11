@@ -60,6 +60,7 @@ export interface BookingListFilters {
   checkInTo?: string;
   search?: string;
   agedSoftHoldsOnly?: boolean;
+  isHistorical?: boolean;
 }
 
 export interface CreateBookingRequest {
@@ -110,6 +111,7 @@ export interface BookingListItemResponse {
   finalAmount: number;
   source: string;
   createdAt: string;
+  isHistorical: boolean;
   isAgedSoftHold: boolean;
   softHoldAgeDays: number | null;
 }
@@ -133,6 +135,11 @@ export interface BookingDetailsResponse {
   internalNotes: string | null;
   createdAt: string;
   updatedAt: string;
+  isHistorical: boolean;
+  actualBookedAt: string | null;
+  originalSource: string | null;
+  historicalEntryReason: string | null;
+  agreedAmount: number | null;
   isAgedSoftHold: boolean;
   softHoldAgeDays: number | null;
 }
@@ -203,6 +210,7 @@ export interface PaymentResponse {
   referenceNumber: string | null;
   notes: string | null;
   paidAt: string | null;
+  isHistoricalRecord: boolean;
   createdAt: string;
   updatedAt: string;
 }

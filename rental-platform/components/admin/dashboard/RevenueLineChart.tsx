@@ -31,7 +31,7 @@ export function RevenueLineChart({ data, isLoading }: RevenueLineChartProps) {
   return (
     <div className="rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white p-5">
       <h3 className="mb-3 text-[13px] font-semibold text-neutral-900">
-        Revenue, last 30 days
+        Invoiced value by recorded date
       </h3>
       <ResponsiveContainer width="100%" height={244}>
         <LineChart data={chartData}>
@@ -53,7 +53,7 @@ export function RevenueLineChart({ data, isLoading }: RevenueLineChartProps) {
             tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
           />
           <Tooltip
-            formatter={(value: number) => [formatCurrency(value), "Revenue"]}
+            formatter={(value: number) => [formatCurrency(value), "Invoiced value"]}
             contentStyle={{
               backgroundColor: "var(--color-neutral-800)",
               border: "none",

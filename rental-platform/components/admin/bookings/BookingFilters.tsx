@@ -8,6 +8,8 @@ import { Switch } from "@/components/ui/Switch";
 import { BOOKING_STATUS_LABELS } from "@/lib/constants/booking-statuses";
 import { formatDateForApi, parseDateOnly } from "@/lib/utils/format";
 import type { BookingListFilters, FormalBookingStatus } from "@/lib/types/booking.types";
+import { HistoricalScopeControl } from "@/components/admin/analytics/HistoricalScopeControl";
+import type { HistoricalScope } from "@/lib/types/report.types";
 
 const BOOKING_STATUS_OPTIONS = Object.entries(BOOKING_STATUS_LABELS).map(([key, label]) => ({
   value: key as FormalBookingStatus,
@@ -55,10 +57,32 @@ export function BookingFilters({ filters, onChange }: BookingFiltersProps) {
     { value: "", label: "All statuses" },
     ...BOOKING_STATUS_OPTIONS,
   ];
+  const historicalScope: HistoricalScope =
+    filters.isHistorical === true
+      ? "historical"
+      : filters.isHistorical === false
+        ? "ordinary"
+        : "all";
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between py-4">
       <div className="flex flex-1 flex-wrap items-center gap-4">
+        <HistoricalScopeControl
+          value={historicalScope}
+          onChange={(scope) =>
+            onChange({
+              ...filters,
+              page: 1,
+              isHistorical:
+                scope === "historical"
+                  ? true
+                  : scope === "ordinary"
+                    ? false
+                    : undefined,
+            })
+          }
+          label="Filter bookings by type"
+        />
         <div className="w-full sm:w-64">
           <Input
             placeholder="Search name, unit, or reference…"

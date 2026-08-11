@@ -72,6 +72,7 @@ export interface OwnerPortalBookingResponse {
   bookingStatus: string;
   finalAmount: number;
   source: string;
+  isHistorical: boolean;
   createdAt: string;
   updatedAt: string;
 }

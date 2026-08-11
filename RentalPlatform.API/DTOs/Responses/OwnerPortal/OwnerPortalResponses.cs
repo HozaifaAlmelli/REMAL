@@ -29,6 +29,7 @@ public record OwnerPortalBookingResponse
     public int GuestCount { get; init; }
     public decimal FinalAmount { get; init; }
     public string Source { get; init; } = string.Empty;
+    public bool IsHistorical { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 }

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ROUTES } from "@/lib/constants/routes";
 import { ArrowLeft } from "lucide-react";
 import type { BookingDetailsResponse } from "@/lib/types/booking.types";
+import { HistoricalBadge } from "@/components/ui/HistoricalBadge";
 
 interface BookingHeaderProps {
   booking: BookingDetailsResponse;
@@ -29,13 +30,14 @@ export function BookingHeader({ booking }: BookingHeaderProps) {
 
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold text-neutral-900">
               Booking {booking?.id?.split("-")[0]?.toUpperCase()}
             </h1>
             <StatusBadge status={booking.bookingStatus} />
+            {booking.isHistorical && <HistoricalBadge />}
             <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-800">
-              {booking.source}
+              KAZA channel: {booking.source}
             </span>
           </div>
 
