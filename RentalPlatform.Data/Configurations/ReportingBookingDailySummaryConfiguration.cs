@@ -81,5 +81,13 @@ public sealed class ReportingBookingDailySummaryConfiguration
             .HasColumnName("historical_agreed_amount")
             .HasPrecision(14, 2)
             .IsRequired();
+        builder.Property(x => x.HistoricalLegacySystemBookingsCount)
+            .HasColumnName("historical_legacy_system_bookings_count").IsRequired();
+        builder.Property(x => x.HistoricalExternalPlatformBookingsCount)
+            .HasColumnName("historical_external_platform_bookings_count").IsRequired();
+        builder.Property(x => x.HistoricalOfflineRecordBookingsCount)
+            .HasColumnName("historical_offline_record_bookings_count").IsRequired();
+        builder.Property(x => x.HistoricalOtherSourceBookingsCount)
+            .HasColumnName("historical_other_source_bookings_count").IsRequired();
     }
 }

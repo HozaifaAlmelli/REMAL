@@ -41,12 +41,17 @@ public sealed class HistoricalReportingContractTests
     public void ReportingDtosExposeTheRatifiedPiiFreeDictionary()
     {
         AssertProperties<BookingAnalyticsStayDailySummaryResponse>(
-            "MetricDate", "IsHistorical", "ReportingSource", "BookingsCount",
-            "HistoricalBookingsCount", "HistoricalAgreedAmount");
+            "MetricDate", "BookingSource", "BookingsCount", "ProspectingBookingsCount",
+            "ConfirmedBookingsCount", "CancelledBookingsCount", "CompletedBookingsCount",
+            "TotalFinalAmount", "HistoricalBookingsCount",
+            "HistoricalProspectingBookingsCount", "HistoricalConfirmedBookingsCount",
+            "HistoricalCancelledBookingsCount", "HistoricalCompletedBookingsCount",
+            "HistoricalFinalAmount", "HistoricalAgreedAmount");
         AssertProperties<FinanceAnalyticsStayDailySummaryResponse>(
-            "MetricDate", "IsHistorical", "ReportingSource", "BookingsCount",
-            "TotalInvoicedAmount", "InvoiceLinkedPaidAmount", "TotalRemainingAmount",
-            "HistoricalAgreedAmount");
+            "MetricDate", "BookingSource", "BookingsWithInvoiceCount",
+            "TotalInvoicedAmount", "TotalFinalAmount", "HistoricalBookingsCount",
+            "HistoricalAgreedAmount", "HistoricalInvoicedAmount",
+            "HistoricalBookingsWithInvoiceCount");
         AssertProperties<FinanceAnalyticsDailySummaryResponse>(
             "OrdinaryOrphanPaymentCount", "OrdinaryOrphanPaymentAmount",
             "HistoricalBookingOrdinaryOrphanPaymentCount",
@@ -58,9 +63,21 @@ public sealed class HistoricalReportingContractTests
             "HistoricalBookingOrdinaryOrphanPaymentAmount",
             "HistoricalPaymentEvidenceCount", "HistoricalPaymentEvidenceAmount");
         AssertProperties<HistoricalEntryReconciliationResponse>(
-            "StayMonth", "RecordedMonth", "ActualBookedMonth", "OriginalSource",
-            "EntryLagDaysP50", "EntryLagDaysMax", "HistoricalPaymentEvidenceCount",
-            "HistoricalPaymentEvidenceAmount");
+            "BookingId", "RecordedAt", "ActualBookedAt", "EntryLagDays", "StayStart",
+            "StayEnd", "StayNights", "BookingSource", "OriginalSource",
+            "HistoricalEntryReason", "BookingStatus", "UnitId", "OwnerId",
+            "AgreedAmount", "ActiveInvoiceAmount", "OrdinaryInvoiceLinkedPaidAmount",
+            "OrdinaryUnlinkedPaidCount", "OrdinaryUnlinkedPaidAmount",
+            "HistoricalPaymentEvidenceCount", "HistoricalPaymentEvidenceAmount",
+            "FirstEvidencePaidDate", "LastEvidencePaidDate",
+            "OwnerAttributionCorrectionCount", "LastOwnerAttributionCorrectedAt");
+
+        Assert.DoesNotContain(
+            typeof(FinanceAnalyticsStayDailySummaryResponse).GetProperties(),
+            property => property.Name.Contains("Paid", StringComparison.Ordinal)
+                || property.Name.Contains("Remaining", StringComparison.Ordinal)
+                || property.Name.Contains("Evidence", StringComparison.Ordinal)
+                || property.Name.Contains("Orphan", StringComparison.Ordinal));
 
         var forbidden = new[]
         {
@@ -74,6 +91,33 @@ public sealed class HistoricalReportingContractTests
                 typeof(HistoricalEntryReconciliationResponse)
             },
             type => Assert.All(forbidden, name => Assert.Null(type.GetProperty(name))));
+    }
+
+    [Fact]
+    public void ExistingRecordedRoutesDoNotAcquireHistoricalFilterParameters()
+    {
+        Assert.Null(typeof(GetBookingAnalyticsRequest).GetProperty("IncludeHistorical"));
+        Assert.Null(typeof(GetBookingAnalyticsRequest).GetProperty("HistoricalOnly"));
+        Assert.Null(typeof(GetFinanceAnalyticsRequest).GetProperty("IncludeHistorical"));
+        Assert.Null(typeof(GetFinanceAnalyticsRequest).GetProperty("HistoricalOnly"));
+    }
+
+    [Fact]
+    public void HistoricalReportingUsesOnlyTheRatifiedBoundedEventNames()
+    {
+        var root = FindRepositoryRoot();
+        var serviceSources = File.ReadAllText(Path.Combine(
+                root, "RentalPlatform.Business", "Services", "ReportingBookingAnalyticsService.cs"))
+            + File.ReadAllText(Path.Combine(
+                root, "RentalPlatform.Business", "Services", "ReportingFinanceAnalyticsService.cs"));
+        var filterSource = File.ReadAllText(Path.Combine(
+            root, "RentalPlatform.API", "Filters", "ValidationActionFilter.cs"));
+
+        Assert.Contains("reporting.historical.query", serviceSources);
+        Assert.Contains("reporting.historical.range_rejected", filterSource);
+        Assert.DoesNotContain("ClientName", serviceSources + filterSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExternalReference", serviceSources + filterSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReferenceNumber", serviceSources + filterSource, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -93,6 +137,28 @@ public sealed class HistoricalReportingContractTests
 
         var failure = Assert.Single(result.Errors);
         Assert.Equal(HistoricalErrorCodes.ValidationError, failure.ErrorCode);
+    }
+
+    [Fact]
+    public void StayRangeUsesTheExactInclusiveLeapDayBoundary()
+    {
+        var validator = new GetHistoricalReportingDailyRequestValidator();
+        var accepted = validator.TestValidate(new GetHistoricalReportingDailyRequest
+        {
+            DateFrom = new DateOnly(2024, 2, 29),
+            DateTo = new DateOnly(2026, 2, 27)
+        });
+        var rejected = validator.TestValidate(new GetHistoricalReportingDailyRequest
+        {
+            DateFrom = new DateOnly(2024, 2, 29),
+            DateTo = new DateOnly(2026, 2, 28)
+        });
+
+        Assert.True(accepted.IsValid);
+        Assert.False(rejected.IsValid);
+        Assert.All(
+            rejected.Errors,
+            failure => Assert.Equal(HistoricalErrorCodes.ValidationError, failure.ErrorCode));
     }
 
     [Theory]
@@ -118,6 +184,31 @@ public sealed class HistoricalReportingContractTests
             failure => Assert.Equal(HistoricalErrorCodes.ValidationError, failure.ErrorCode));
     }
 
+    [Theory]
+    [InlineData(true, null)]
+    [InlineData(false, null)]
+    [InlineData(null, true)]
+    [InlineData(null, false)]
+    [InlineData(true, false)]
+    public void ReconciliationRejectsUnsupportedHistoricalFilters(
+        bool? includeHistorical,
+        bool? historicalOnly)
+    {
+        var validator = new GetHistoricalReconciliationRequestValidator();
+        var result = validator.TestValidate(new GetHistoricalReconciliationRequest
+        {
+            StayMonthFrom = "2025-01",
+            StayMonthTo = "2025-12",
+            IncludeHistorical = includeHistorical,
+            HistoricalOnly = historicalOnly
+        });
+
+        Assert.False(result.IsValid);
+        Assert.All(
+            result.Errors,
+            failure => Assert.Equal(HistoricalErrorCodes.ValidationError, failure.ErrorCode));
+    }
+
     [Fact]
     public void EfMappingsAreKeylessNamedViewsWithExplicitColumns()
     {
@@ -127,11 +218,11 @@ public sealed class HistoricalReportingContractTests
         using var context = new AppDbContext(options);
 
         AssertView<ReportingBookingStayDailySummary>(
-            context, "reporting_booking_stay_daily_summary", "reporting_source");
+            context, "reporting_booking_stay_daily_summary", "booking_source");
         AssertView<ReportingFinanceStayDailySummary>(
-            context, "reporting_finance_stay_daily_summary", "invoice_linked_paid_amount");
+            context, "reporting_finance_stay_daily_summary", "historical_bookings_with_invoice_count");
         AssertView<ReportingHistoricalEntryReconciliation>(
-            context, "reporting_historical_entry_reconciliation", "entry_lag_days_p50");
+            context, "reporting_historical_entry_reconciliation", "booking_id");
     }
 
     [Fact]
@@ -157,6 +248,10 @@ public sealed class HistoricalReportingContractTests
         Assert.Contains("CREATE OR REPLACE VIEW reporting_finance_daily_summary", migration);
         Assert.DoesNotContain("DROP VIEW reporting_booking_daily_summary", migration);
         Assert.DoesNotContain("DROP VIEW reporting_finance_daily_summary", migration);
+        Assert.DoesNotMatch(@"(?i)\b(DROP|DELETE|TRUNCATE)\b", migration);
+        Assert.DoesNotMatch(@"(?i)\b(CREATE|ALTER)\s+TABLE\b", migration);
+        Assert.DoesNotMatch(@"(?i)\bCREATE\s+(UNIQUE\s+)?INDEX\b", migration);
+        Assert.DoesNotMatch(@"(?i)\bCREATE\s+TRIGGER\b", migration);
     }
 
     private static void AssertView<T>(AppDbContext context, string viewName, string columnName)

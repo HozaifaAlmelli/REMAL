@@ -12,20 +12,29 @@ public sealed class ReportingHistoricalEntryReconciliationConfiguration
         builder.ToView("reporting_historical_entry_reconciliation");
         builder.HasNoKey();
 
-        builder.Property(x => x.StayMonth).HasColumnName("stay_month").IsRequired();
-        builder.Property(x => x.RecordedMonth).HasColumnName("recorded_month").IsRequired();
-        builder.Property(x => x.ActualBookedMonth).HasColumnName("actual_booked_month").IsRequired();
+        builder.Property(x => x.BookingId).HasColumnName("booking_id").IsRequired();
+        builder.Property(x => x.RecordedAt).HasColumnName("recorded_at").IsRequired();
+        builder.Property(x => x.ActualBookedAt).HasColumnName("actual_booked_at").IsRequired();
+        builder.Property(x => x.EntryLagDays).HasColumnName("entry_lag_days").IsRequired();
+        builder.Property(x => x.StayStart).HasColumnName("stay_start").IsRequired();
+        builder.Property(x => x.StayEnd).HasColumnName("stay_end").IsRequired();
+        builder.Property(x => x.StayNights).HasColumnName("stay_nights").IsRequired();
+        builder.Property(x => x.BookingSource).HasColumnName("booking_source").HasMaxLength(50).IsRequired();
         builder.Property(x => x.OriginalSource).HasColumnName("original_source").HasMaxLength(50).IsRequired();
-        builder.Property(x => x.HistoricalBookingsCount).HasColumnName("historical_bookings_count").IsRequired();
-        builder.Property(x => x.HistoricalAgreedAmount).HasColumnName("historical_agreed_amount").HasPrecision(14, 2).IsRequired();
-        builder.Property(x => x.EntryLagDaysP50).HasColumnName("entry_lag_days_p50").HasPrecision(10, 2).IsRequired();
-        builder.Property(x => x.EntryLagDaysMax).HasColumnName("entry_lag_days_max").IsRequired();
-        builder.Property(x => x.InvoiceCount).HasColumnName("invoice_count").IsRequired();
-        builder.Property(x => x.InvoicedAmount).HasColumnName("invoiced_amount").HasPrecision(14, 2).IsRequired();
-        builder.Property(x => x.InvoiceLinkedPaidAmount).HasColumnName("invoice_linked_paid_amount").HasPrecision(14, 2).IsRequired();
+        builder.Property(x => x.HistoricalEntryReason).HasColumnName("historical_entry_reason").HasMaxLength(50).IsRequired();
+        builder.Property(x => x.BookingStatus).HasColumnName("booking_status").HasMaxLength(50).IsRequired();
+        builder.Property(x => x.UnitId).HasColumnName("unit_id").IsRequired();
+        builder.Property(x => x.OwnerId).HasColumnName("owner_id").IsRequired();
+        builder.Property(x => x.AgreedAmount).HasColumnName("agreed_amount").HasPrecision(14, 2).IsRequired();
+        builder.Property(x => x.ActiveInvoiceAmount).HasColumnName("active_invoice_amount").HasPrecision(14, 2).IsRequired();
+        builder.Property(x => x.OrdinaryInvoiceLinkedPaidAmount).HasColumnName("ordinary_invoice_linked_paid_amount").HasPrecision(14, 2).IsRequired();
+        builder.Property(x => x.OrdinaryUnlinkedPaidCount).HasColumnName("ordinary_unlinked_paid_count").IsRequired();
+        builder.Property(x => x.OrdinaryUnlinkedPaidAmount).HasColumnName("ordinary_unlinked_paid_amount").HasPrecision(14, 2).IsRequired();
         builder.Property(x => x.HistoricalPaymentEvidenceCount).HasColumnName("historical_payment_evidence_count").IsRequired();
         builder.Property(x => x.HistoricalPaymentEvidenceAmount).HasColumnName("historical_payment_evidence_amount").HasPrecision(14, 2).IsRequired();
-        builder.Property(x => x.HistoricalPaymentEvidenceFirstPaidDate).HasColumnName("historical_payment_evidence_first_paid_date");
-        builder.Property(x => x.HistoricalPaymentEvidenceLastPaidDate).HasColumnName("historical_payment_evidence_last_paid_date");
+        builder.Property(x => x.FirstEvidencePaidDate).HasColumnName("first_evidence_paid_date");
+        builder.Property(x => x.LastEvidencePaidDate).HasColumnName("last_evidence_paid_date");
+        builder.Property(x => x.OwnerAttributionCorrectionCount).HasColumnName("owner_attribution_correction_count").IsRequired();
+        builder.Property(x => x.LastOwnerAttributionCorrectedAt).HasColumnName("last_owner_attribution_corrected_at");
     }
 }

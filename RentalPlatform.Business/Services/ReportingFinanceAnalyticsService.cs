@@ -212,30 +212,23 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
         ValidateRequiredDateRange(dateFrom, dateTo, includeHistorical, historicalOnly);
         var started = Stopwatch.GetTimestamp();
 
-        var query = _unitOfWork.ReportingFinanceStayDailySummaries
-            .Where(row => row.MetricDate >= dateFrom && row.MetricDate <= dateTo);
-
-        query = historicalOnly
-            ? query.Where(row => row.IsHistorical)
-            : includeHistorical
-                ? query
-                : query.Where(row => !row.IsHistorical);
-
-        var rows = await query
+        var rows = await _unitOfWork.ReportingFinanceStayDailySummaries
+            .Where(row => row.MetricDate >= dateFrom && row.MetricDate <= dateTo)
             .OrderBy(row => row.MetricDate)
-            .ThenBy(row => row.IsHistorical)
-            .ThenBy(row => row.ReportingSource)
+            .ThenBy(row => row.BookingSource)
             .ToListAsync(cancellationToken);
 
+        var projected = ApplyStayHistoricalFilter(rows, includeHistorical, historicalOnly);
+
         _logger.LogInformation(
-            "HistoricalReportingQueryCompleted Route={Route} IncludeHistorical={IncludeHistorical} HistoricalOnly={HistoricalOnly} RowCount={RowCount} ElapsedMs={ElapsedMs}",
+            "reporting.historical.query Route={Route} IncludeHistorical={IncludeHistorical} HistoricalOnly={HistoricalOnly} RowCount={RowCount} ElapsedMs={ElapsedMs}",
             "finance/stay-daily",
             includeHistorical,
             historicalOnly,
-            rows.Count,
+            projected.Count,
             Stopwatch.GetElapsedTime(started).TotalMilliseconds);
 
-        return rows;
+        return projected;
     }
 
     // -----------------------------------------------------------------------
@@ -282,8 +275,10 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
 
     private static bool IsWithinInclusive24Months(DateOnly from, DateOnly to)
     {
-        var monthDifference = ((to.Year - from.Year) * 12) + to.Month - from.Month;
-        return monthDifference < 24 || (monthDifference == 24 && to.Day < from.Day);
+        if (from > DateOnly.MaxValue.AddMonths(-24).AddDays(1))
+            return true;
+
+        return to <= from.AddMonths(24).AddDays(-1);
     }
 
     private static IReadOnlyList<ReportingFinanceDailySummary> ApplyHistoricalFilter(
@@ -339,6 +334,44 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
                 || row.OrdinaryOrphanPaymentCount > 0
                 || row.HistoricalPaymentEvidenceCount > 0
                 || row.HistoricalAgreedAmount != 0)
+            .ToList();
+    }
+
+    private static IReadOnlyList<ReportingFinanceStayDailySummary> ApplyStayHistoricalFilter(
+        IReadOnlyList<ReportingFinanceStayDailySummary> rows,
+        bool includeHistorical,
+        bool historicalOnly)
+    {
+        if (includeHistorical && !historicalOnly)
+            return rows;
+
+        return rows
+            .Select(row => historicalOnly
+                ? new ReportingFinanceStayDailySummary
+                {
+                    MetricDate = row.MetricDate,
+                    BookingSource = row.BookingSource,
+                    BookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
+                    TotalInvoicedAmount = row.HistoricalInvoicedAmount,
+                    TotalFinalAmount = row.HistoricalAgreedAmount,
+                    HistoricalBookingsCount = row.HistoricalBookingsCount,
+                    HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+                    HistoricalInvoicedAmount = row.HistoricalInvoicedAmount,
+                    HistoricalBookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
+                }
+                : new ReportingFinanceStayDailySummary
+                {
+                    MetricDate = row.MetricDate,
+                    BookingSource = row.BookingSource,
+                    BookingsWithInvoiceCount = row.BookingsWithInvoiceCount - row.HistoricalBookingsWithInvoiceCount,
+                    TotalInvoicedAmount = row.TotalInvoicedAmount - row.HistoricalInvoicedAmount,
+                    TotalFinalAmount = row.TotalFinalAmount - row.HistoricalAgreedAmount,
+                })
+            .Where(row =>
+                row.BookingsWithInvoiceCount > 0
+                || row.TotalInvoicedAmount != 0
+                || row.TotalFinalAmount != 0
+                || row.HistoricalBookingsCount > 0)
             .ToList();
     }
 

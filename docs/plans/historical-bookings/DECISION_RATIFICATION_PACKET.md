@@ -178,6 +178,20 @@ PostgreSQL/pilot reconciliation evidence; it adds no per-request post-commit que
 | APIs | Exact three routes and filters in HB-08; inclusive valid ranges capped at 24 months |
 | Delivery split | HB-08A reporting/rollout first; HB-08B normal-flow hardening in a separate PR after pilot evidence |
 
+#### HB-08A2 physical-contract correction record
+
+The final migration `0063` contract keeps Stay views at `(check_in_date, booking_source)` grain with
+Historical component measures; Stay Finance contains contracted/invoiced value and no cash; Recorded
+Booking contains the four `original_source` provenance counts; and reconciliation is one PII-free row per
+Historical booking with `booking_id`. Reconciliation rejects `includeHistorical` and `historicalOnly`.
+`entry_lag_days = -1` is valid at the Cairo/UTC boundary. The initial PR implementation used a different
+physical grain and monthly reconciliation shape; those were corrected before merge and were never ratified
+as replacements for this dictionary.
+
+The owner separately accepts the reporting-only payout fan-out correction in `0063`: one booking payout is
+aggregated once even when the booking has multiple active invoices. This does not alter payout writes or the
+out-of-v1 paid-payout correction decision.
+
 ### HB-09 test and release decisions
 
 PRE-01 and PRE-02 are complete. PostgreSQL tests require explicit `KAZA_TEST_DB`, use Category=PostgreSQL,

@@ -61,6 +61,28 @@ public sealed class HistoricalReportingHttpContractTests
             document.RootElement.GetProperty("code").GetString());
     }
 
+    [Theory]
+    [InlineData("includeHistorical=false")]
+    [InlineData("includeHistorical=true")]
+    [InlineData("historicalOnly=false")]
+    [InlineData("historicalOnly=true")]
+    [InlineData("includeHistorical=true&historicalOnly=true")]
+    public async Task ReconciliationFailsClosedForUnsupportedHistoricalFilters(string query)
+    {
+        await using var application = await TestApplication.StartAsync();
+        using var request = Request(
+            $"/api/internal/reports/bookings/historical-reconciliation?stayMonthFrom=2025-01&stayMonthTo=2025-12&{query}",
+            PermissionKeys.AnalyticsRead);
+
+        using var response = await application.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            HistoricalErrorCodes.ValidationError,
+            document.RootElement.GetProperty("code").GetString());
+    }
+
     private static HttpRequestMessage Request(string path, string permission)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, path);

@@ -549,6 +549,7 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
         var migration = await MigrationSql("0062_add_historical_owner_attribution_corrections.sql");
         var verifier = await MigrationSql("0062_add_historical_owner_attribution_corrections_verify.sql");
         var rollback = await MigrationSql("0062_add_historical_owner_attribution_corrections_rollback.sql");
+        var reportingRollback = await MigrationSql("0063_add_historical_reporting_read_models_rollback.sql");
 
         await using (var connection = await database.OpenConnectionAsync())
         {
@@ -563,6 +564,8 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
                 VALUES ('0062', '0062_add_historical_owner_attribution_corrections.sql')
                 ON CONFLICT (migration_number) DO NOTHING;
                 """);
+            // Rollbacks unwind dependent read models before their source domain objects.
+            await ExecuteAsync(connection, reportingRollback);
             await ExecuteAsync(connection, rollback);
             Assert.False(Convert.ToBoolean(await ScalarAsync(connection,
                 "SELECT to_regclass('public.historical_owner_attribution_corrections') IS NOT NULL")));
@@ -701,6 +704,7 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
         var migration = await MigrationSql("0062_add_historical_owner_attribution_corrections.sql");
         var verifier = await MigrationSql("0062_add_historical_owner_attribution_corrections_verify.sql");
         var rollback = await MigrationSql("0062_add_historical_owner_attribution_corrections_rollback.sql");
+        var reportingRollback = await MigrationSql("0063_add_historical_reporting_read_models_rollback.sql");
 
         SeededData seed;
         await using (var context = database.CreateDbContext())
@@ -734,6 +738,8 @@ public sealed class HistoricalOwnerAttributionPostgreSqlTests
             VALUES ('0062', '0062_add_historical_owner_attribution_corrections.sql')
             ON CONFLICT (migration_number) DO NOTHING;
             """);
+        // The clean 0062 rollback path must first unwind its 0063 reporting dependent.
+        await ExecuteAsync(connection, reportingRollback);
         await ExecuteAsync(connection, rollback);
         Assert.Equal(0L, Convert.ToInt64(await ScalarAsync(connection,
             "SELECT count(*) FROM schema_migrations WHERE migration_number = '0062'")));

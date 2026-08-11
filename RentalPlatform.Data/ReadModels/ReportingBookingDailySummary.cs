@@ -24,4 +24,8 @@ public sealed class ReportingBookingDailySummary
     public int HistoricalCompletedBookingsCount { get; init; }
     public decimal HistoricalFinalAmount { get; init; }
     public decimal HistoricalAgreedAmount { get; init; }
+    public int HistoricalLegacySystemBookingsCount { get; init; }
+    public int HistoricalExternalPlatformBookingsCount { get; init; }
+    public int HistoricalOfflineRecordBookingsCount { get; init; }
+    public int HistoricalOtherSourceBookingsCount { get; init; }
 }

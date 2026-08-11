@@ -65,11 +65,16 @@ Responses expose metric/stay date, booking counts, historical counts, agreed amo
 historical evidence count/amount, original-source breakdown, and entry-lag fields where applicable. They
 contain no client PII, free-text notes, payment reference or owner banking data.
 
+The reconciliation route is intrinsically Historical and does not accept `includeHistorical` or
+`historicalOnly`; supplying either parameter returns `400 VALIDATION_ERROR`. The two Stay routes own those
+filters. Existing recorded routes retain their pre-HB-08A2 query contract.
+
 ## 6. Audit and observability
 
 Durable audit remains in domain tables: booking history for creation/payment linkage and the HB-05 immutable
-correction table for owner changes. Structured logs are supplementary and contain bounded event names,
-stable IDs, result code and timing only. v1 introduces no metrics platform and no unbounded-cardinality labels.
+correction table for owner changes. Structured logs are supplementary and use the stable event concepts
+`reporting.historical.query` and `reporting.historical.range_rejected` with bounded route, filter, count and
+timing fields only. v1 introduces no metrics platform and no unbounded-cardinality labels.
 
 Operational reconciliation is database-derived and pull-only. HB-08 adds no scheduled push, notification,
 webhook or per-request post-commit verification query.
@@ -198,22 +203,41 @@ payments.invoice_id IS NULL`; invoice-linked totals must count only `is_historic
 payments; ordinary orphan totals must exclude historical evidence. Catalog verifier and rollback preserve the
 prior view definitions. No table or write-side schema is owned by HB-08.
 
-### 15.1 Owner-ratified implementation dictionary — migration 0063
+### 15.1 Final owner-ratified physical dictionary — migration 0063
 
 Migration `0063_add_historical_reporting_read_models.sql` implements the dictionary below. The first eight
-columns of each existing view remain unchanged in name, type, order and meaning.
+columns of each existing view remain unchanged in name, type, order and axis meaning. The sole intentional
+value correction in that frozen finance prefix is owner-payout aggregation: payouts are aggregated once per
+booking before joining invoice facts, preventing one payout from being multiplied by multiple active invoices.
 
-| View | Implemented columns after the preserved prefix / complete new-view dictionary |
+| View | Final ordered columns after the preserved prefix / complete new-view dictionary |
 |---|---|
-| `reporting_booking_daily_summary` | `historical_bookings_count`, historical status counts, `historical_final_amount`, `historical_agreed_amount` |
-| `reporting_booking_stay_daily_summary` | `metric_date`, `is_historical`, `reporting_source`, booking/status counts, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount` |
-| `reporting_finance_daily_summary` | historical invoice count/amount, historical invoice-linked paid/remaining, ordinary orphan count/amount and its historical-booking subset, standalone evidence count/amount, `historical_agreed_amount` |
-| `reporting_finance_stay_daily_summary` | `metric_date`, `is_historical`, `reporting_source`, booking/invoice counts, invoiced, invoice-linked paid and remaining amounts, ordinary orphan count/amount, historical booking count/agreed amount |
-| `reporting_historical_entry_reconciliation` | stay/recorded/actual-booked months, `original_source`, historical count/agreed amount, p50/max entry lag, invoice count/amount, invoice-linked paid amount, evidence count/amount and first/last evidence-paid dates |
+| `reporting_booking_daily_summary` | Preserved 8; then `historical_bookings_count`, four historical status counts, `historical_final_amount`, `historical_agreed_amount`, `historical_legacy_system_bookings_count`, `historical_external_platform_bookings_count`, `historical_offline_record_bookings_count`, `historical_other_source_bookings_count` |
+| `reporting_booking_stay_daily_summary` | `metric_date`, `booking_source`, `bookings_count`, four status counts, `total_final_amount`, `historical_bookings_count`, four historical status counts, `historical_final_amount`, `historical_agreed_amount` |
+| `reporting_finance_daily_summary` | Preserved 8; then `historical_bookings_with_invoice_count`, `historical_invoiced_amount`, `historical_invoice_linked_paid_amount`, `historical_remaining_amount`, ordinary unlinked count/amount and its Historical-booking subset, standalone evidence count/amount, `historical_agreed_amount` |
+| `reporting_finance_stay_daily_summary` | `metric_date`, `booking_source`, `bookings_with_invoice_count`, `total_invoiced_amount`, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_invoiced_amount`, `historical_bookings_with_invoice_count` |
+| `reporting_historical_entry_reconciliation` | One row per Historical `booking_id`: `recorded_at`, `actual_booked_at`, `entry_lag_days`, stay dates/nights, booking/original source, reason/status, unit/owner IDs, agreed and active-invoice amounts, ordinary linked/unlinked payment facts, Historical evidence facts/dates, and owner-correction count/latest timestamp |
 
-`reporting_source` is `original_source` only for Historical rows and `source` otherwise. Historical evidence is
-bucketed by `DATE(payments.paid_at)` in the recorded finance read model and is not forced onto the stay axis.
-The reconciliation read model remains aggregate and PII-free.
+The two Stay views use the final `(check_in_date, booking_source)` grain. Historical contribution is projected
+from additive measures, so mixed buckets remain decomposable without adding `is_historical` to the physical
+grain. Stay Finance contains contracted/invoiced value only: no cash, paid, remaining, orphan or evidence
+amount is attributed to a stay date.
+
+Recorded Booking provenance uses `original_source`. The `other` measure is the remainder for canonical
+`other`, structurally possible nulls, and future source codes, so the four provenance measures always sum to
+`historical_bookings_count`. Recorded Finance rows originate only from `DATE(bookings.created_at)`; evidence
+is associated through the booking's recorded bucket and cannot create a `paid_at`-only row.
+
+Reconciliation is per booking and PII-free. `entry_lag_days` is
+`DATE(bookings.created_at) - actual_booked_at`; `-1` is valid at the Cairo/UTC boundary, while values below
+`-1` violate the verification contract. Evidence first/last dates use `payments.paid_at`.
+
+#### Correction history
+
+The first PR #57 implementation used an alternative Stay grain and monthly reconciliation aggregate. The
+focused correction restored this final dictionary before merge. That alternative was coherent but was not
+the owner-ratified physical contract. The payout fan-out correction is separately and explicitly accepted as
+an intentional reporting defect correction.
 
 ### 15.2 HB-08A2 implementation evidence
 

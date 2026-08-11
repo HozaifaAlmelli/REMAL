@@ -142,9 +142,11 @@ extends the existing booking and finance services with the following `analytics:
 
 Stay-daily filters use inclusive `dateFrom`/`dateTo`; reconciliation uses inclusive `YYYY-MM`
 `stayMonthFrom`/`stayMonthTo`. Ranges are ordered and capped at 24 months. Historical rows are included by
-default. `historicalOnly=true` is restrictive and cannot be combined with `includeHistorical=false`; invalid
-requests return `400 VALIDATION_ERROR`.
+default. On Stay routes, `historicalOnly=true` is restrictive and cannot be combined with
+`includeHistorical=false`; invalid requests return `400 VALIDATION_ERROR`. Reconciliation is intrinsically
+Historical and rejects either filter when supplied. Existing recorded routes do not acquire these filters.
 
-Responses are aggregate and PII-free. Recorded and stay axes answer different questions and must never be
-summed. `actual_booked_at` is used only for Historical reconciliation/entry-lag reporting. Historical Payment
-Evidence remains a separate count/amount on its `paid_at` date and never becomes platform settlement.
+Responses are PII-free. Recorded and stay axes answer different questions and must never be summed.
+`actual_booked_at` is used only for per-booking Historical reconciliation/entry-lag reporting. Stay Finance
+contains no cash measures. Historical Payment Evidence remains separate, uses `paid_at` for first/last
+evidence dates in reconciliation, and never becomes platform settlement.

@@ -28,13 +28,6 @@ public class GetBookingAnalyticsRequestValidator : AbstractValidator<GetBookingA
             .Must(s => s is null || !string.IsNullOrWhiteSpace(s))
             .WithMessage("BookingSource must not be blank when provided.");
 
-        HistoricalReportingValidationRules.Add(this);
-
-        RuleFor(x => x)
-            .Must(x => !x.DateFrom.HasValue || !x.DateTo.HasValue
-                || HistoricalReportingValidationRules.IsWithinInclusive24Months(x.DateFrom.Value, x.DateTo.Value))
-            .WithMessage("Date range must not exceed 24 inclusive months.")
-            .WithErrorCode(HistoricalErrorCodes.ValidationError);
     }
 }
 
@@ -57,13 +50,6 @@ public class GetFinanceAnalyticsRequestValidator : AbstractValidator<GetFinanceA
             .WithMessage("DateFrom must be on or before DateTo.")
             .When(x => x.DateFrom.HasValue && x.DateTo.HasValue);
 
-        HistoricalReportingValidationRules.Add(this);
-
-        RuleFor(x => x)
-            .Must(x => !x.DateFrom.HasValue || !x.DateTo.HasValue
-                || HistoricalReportingValidationRules.IsWithinInclusive24Months(x.DateFrom.Value, x.DateTo.Value))
-            .WithMessage("Date range must not exceed 24 inclusive months.")
-            .WithErrorCode(HistoricalErrorCodes.ValidationError);
     }
 }
 
@@ -101,21 +87,11 @@ internal static class HistoricalReportingValidationRules
 {
     public static bool IsWithinInclusive24Months(DateOnly from, DateOnly to)
     {
-        var monthDifference = ((to.Year - from.Year) * 12) + to.Month - from.Month;
-        return monthDifference < 24 || (monthDifference == 24 && to.Day < from.Day);
+        if (from > DateOnly.MaxValue.AddMonths(-24).AddDays(1))
+            return true;
+
+        return to <= from.AddMonths(24).AddDays(-1);
     }
-
-    public static void Add(AbstractValidator<GetBookingAnalyticsRequest> validator) =>
-        validator.RuleFor(x => x)
-            .Must(x => !x.HistoricalOnly || x.IncludeHistorical)
-            .WithMessage("HistoricalOnly=true cannot be combined with IncludeHistorical=false.")
-            .WithErrorCode(HistoricalErrorCodes.ValidationError);
-
-    public static void Add(AbstractValidator<GetFinanceAnalyticsRequest> validator) =>
-        validator.RuleFor(x => x)
-            .Must(x => !x.HistoricalOnly || x.IncludeHistorical)
-            .WithMessage("HistoricalOnly=true cannot be combined with IncludeHistorical=false.")
-            .WithErrorCode(HistoricalErrorCodes.ValidationError);
 
     public static void Add(AbstractValidator<GetHistoricalReportingDailyRequest> validator) =>
         validator.RuleFor(x => x)
@@ -144,6 +120,16 @@ public sealed class GetHistoricalReconciliationRequestValidator
                 || !TryMonth(x.StayMonthTo, out var to)
                 || (from <= to && (((to.Year - from.Year) * 12) + to.Month - from.Month) <= 23))
             .WithMessage("Stay month range must be ordered and not exceed 24 inclusive months.")
+            .WithErrorCode(HistoricalErrorCodes.ValidationError);
+
+        RuleFor(x => x.IncludeHistorical)
+            .Null()
+            .WithMessage("IncludeHistorical is not supported for historical reconciliation.")
+            .WithErrorCode(HistoricalErrorCodes.ValidationError);
+
+        RuleFor(x => x.HistoricalOnly)
+            .Null()
+            .WithMessage("HistoricalOnly is not supported for historical reconciliation.")
             .WithErrorCode(HistoricalErrorCodes.ValidationError);
     }
 

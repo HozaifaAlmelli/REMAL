@@ -33,9 +33,7 @@ public class ReportingFinanceAnalyticsController : ControllerBase
         var rows = await _service.GetDailySummaryAsync(
             request.DateFrom,
             request.DateTo,
-            cancellationToken,
-            request.IncludeHistorical,
-            request.HistoricalOnly);
+            cancellationToken);
 
         var totalCount = rows.Count;
         var paged = rows
@@ -60,9 +58,7 @@ public class ReportingFinanceAnalyticsController : ControllerBase
         var result = await _service.GetSummaryAsync(
             request.DateFrom,
             request.DateTo,
-            cancellationToken,
-            request.IncludeHistorical,
-            request.HistoricalOnly);
+            cancellationToken);
 
         return Ok(ApiResponse<FinanceAnalyticsSummaryResponse>.CreateSuccess(MapToSummaryResponse(result)));
     }
@@ -144,16 +140,13 @@ public class ReportingFinanceAnalyticsController : ControllerBase
         new()
         {
             MetricDate = row.MetricDate,
-            IsHistorical = row.IsHistorical,
-            ReportingSource = row.ReportingSource,
-            BookingsCount = row.BookingsCount,
+            BookingSource = row.BookingSource,
             BookingsWithInvoiceCount = row.BookingsWithInvoiceCount,
             TotalInvoicedAmount = row.TotalInvoicedAmount,
-            InvoiceLinkedPaidAmount = row.InvoiceLinkedPaidAmount,
-            TotalRemainingAmount = row.TotalRemainingAmount,
-            OrdinaryOrphanPaymentCount = row.OrdinaryOrphanPaymentCount,
-            OrdinaryOrphanPaymentAmount = row.OrdinaryOrphanPaymentAmount,
+            TotalFinalAmount = row.TotalFinalAmount,
             HistoricalBookingsCount = row.HistoricalBookingsCount,
             HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+            HistoricalInvoicedAmount = row.HistoricalInvoicedAmount,
+            HistoricalBookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
         };
 }

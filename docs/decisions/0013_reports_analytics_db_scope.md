@@ -212,13 +212,13 @@ All future Reports & Analytics tickets at every tier must reference this note as
 
 ---
 
-## 10. HB-08A2 Additive Extension — Owner Ratified 2026-08-10
+## 10. HB-08A2 Additive Extension — Final Owner-Ratified Dictionary
 
 Migration `0063_add_historical_reporting_read_models.sql` preserves the exact original eight-column prefix of
 both `reporting_booking_daily_summary` and `reporting_finance_daily_summary`. It appends only:
 
 - booking recorded view: `historical_bookings_count`, historical status counts,
-  `historical_final_amount`, `historical_agreed_amount`;
+  `historical_final_amount`, `historical_agreed_amount`, and the four fixed provenance counts;
 - finance recorded view: historical invoice count/amount, historical invoice-linked paid/remaining,
   ordinary orphan count/amount and its historical-booking subset, standalone Historical Payment Evidence
   count/amount, and `historical_agreed_amount`.
@@ -227,11 +227,13 @@ The same migration creates three non-materialized, keyless read-only views:
 
 | View | Grain and bounded dictionary |
 |---|---|
-| `reporting_booking_stay_daily_summary` | `check_in_date`, `is_historical`, truthful `reporting_source`, booking/status counts, final amount, historical count/agreed amount |
-| `reporting_finance_stay_daily_summary` | `check_in_date`, `is_historical`, truthful `reporting_source`, booking/invoice counts, invoiced, invoice-linked paid, remaining, ordinary orphan and historical agreed values |
-| `reporting_historical_entry_reconciliation` | stay/recorded/actual-booked month and `original_source`, with historical count/agreed amount, entry lag, invoice-linked settlement and standalone evidence facts |
+| `reporting_booking_stay_daily_summary` | `(check_in_date, booking_source)` grain with mixed totals and additive Historical count/status/final/agreed components |
+| `reporting_finance_stay_daily_summary` | `(check_in_date, booking_source)` grain with contracted/final and active-invoice value only, including `historical_bookings_with_invoice_count`; no cash or remaining measures |
+| `reporting_historical_entry_reconciliation` | one PII-free row per Historical `booking_id`, with recorded/actual/stay facts, entry lag, finance/evidence facts and owner-correction facts |
 
-Historical provenance uses `original_source`; ordinary source uses `source`. Historical Payment Evidence is
-identified only by `is_historical_record = true AND invoice_id IS NULL`, uses `paid_at` as its date, and never
-enters ordinary/invoice-linked paid or remaining totals. No write-side table, materialized view, ETL object or
-per-night allocation is introduced.
+Historical provenance uses `original_source`; the fourth fixed provenance count is a catch-all remainder.
+Historical Payment Evidence is identified only by `is_historical_record = true AND invoice_id IS NULL AND
+payment_status = 'paid'`, uses `paid_at` for its evidence dates, and never enters ordinary/invoice-linked paid
+or remaining totals. Recorded Finance cannot create a `paid_at`-only date row. The payout prefix measures are
+intentionally corrected by pre-aggregating payouts per booking so active-invoice fan-out cannot multiply them.
+No write-side table, materialized view, ETL object or per-night allocation is introduced.
