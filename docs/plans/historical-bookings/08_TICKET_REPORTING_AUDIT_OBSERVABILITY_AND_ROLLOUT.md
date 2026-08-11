@@ -205,23 +205,24 @@ prior view definitions. No table or write-side schema is owned by HB-08.
 
 ### 15.1 Final owner-ratified physical dictionary — migration 0063
 
-Migration `0063_add_historical_reporting_read_models.sql` implements the dictionary below. The first eight
-columns of each existing view remain unchanged in name, type, order and axis meaning. The sole intentional
-value correction in that frozen finance prefix is owner-payout aggregation: payouts are aggregated once per
-booking before joining invoice facts, preventing one payout from being multiplied by multiple active invoices.
+The owner froze this physical dictionary on 2026-08-11 before the final implementation correction. Migration
+`0063_add_historical_reporting_read_models.sql` implements it exactly. The first eight columns of each existing
+view remain unchanged in name, type, order and axis meaning. The sole intentional value correction in that
+frozen finance prefix is owner-payout aggregation: payouts are aggregated once per booking before joining
+invoice facts, preventing one payout from being multiplied by multiple active invoices.
 
-| View | Final ordered columns after the preserved prefix / complete new-view dictionary |
-|---|---|
-| `reporting_booking_daily_summary` | Preserved 8; then `historical_bookings_count`, four historical status counts, `historical_final_amount`, `historical_agreed_amount`, `historical_legacy_system_bookings_count`, `historical_external_platform_bookings_count`, `historical_offline_record_bookings_count`, `historical_other_source_bookings_count` |
-| `reporting_booking_stay_daily_summary` | `metric_date`, `booking_source`, `bookings_count`, four status counts, `total_final_amount`, `historical_bookings_count`, four historical status counts, `historical_final_amount`, `historical_agreed_amount` |
-| `reporting_finance_daily_summary` | Preserved 8; then `historical_bookings_with_invoice_count`, `historical_invoiced_amount`, `historical_invoice_linked_paid_amount`, `historical_remaining_amount`, ordinary unlinked count/amount and its Historical-booking subset, standalone evidence count/amount, `historical_agreed_amount` |
-| `reporting_finance_stay_daily_summary` | `metric_date`, `booking_source`, `bookings_with_invoice_count`, `total_invoiced_amount`, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_invoiced_amount`, `historical_bookings_with_invoice_count` |
-| `reporting_historical_entry_reconciliation` | One row per Historical `booking_id`: `recorded_at`, `actual_booked_at`, `entry_lag_days`, stay dates/nights, booking/original source, reason/status, unit/owner IDs, agreed and active-invoice amounts, ordinary linked/unlinked payment facts, Historical evidence facts/dates, and owner-correction count/latest timestamp |
+| View | Count | Final ordered columns |
+|---|---:|---|
+| `reporting_booking_daily_summary` | 14 | `metric_date`, `booking_source`, `bookings_created_count`, `prospecting_bookings_count`, `confirmed_bookings_count`, `cancelled_bookings_count`, `completed_bookings_count`, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_legacy_system_bookings_count`, `historical_external_platform_bookings_count`, `historical_offline_record_bookings_count`, `historical_other_source_bookings_count` |
+| `reporting_booking_stay_daily_summary` | 14 | `stay_start_date`, `booking_source`, `stay_bookings_count`, `prospecting_bookings_count`, `confirmed_bookings_count`, `cancelled_bookings_count`, `completed_bookings_count`, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_legacy_system_bookings_count`, `historical_external_platform_bookings_count`, `historical_offline_record_bookings_count`, `historical_other_source_bookings_count` |
+| `reporting_finance_daily_summary` | 16 | `metric_date`, `bookings_with_invoice_count`, `total_invoiced_amount`, `total_paid_amount`, `total_remaining_amount`, `total_pending_payout_amount`, `total_scheduled_payout_amount`, `total_paid_payout_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_bookings_with_invoice_count`, `historical_invoiced_amount`, `ordinary_unlinked_paid_count`, `ordinary_unlinked_paid_amount`, `historical_evidence_recorded_count`, `historical_evidence_recorded_amount` |
+| `reporting_finance_stay_daily_summary` | 9 | `stay_start_date`, `stay_bookings_count`, `bookings_with_invoice_count`, `total_invoiced_amount`, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_bookings_with_invoice_count`, `historical_invoiced_amount` |
+| `reporting_historical_entry_reconciliation` | 25 | `booking_id`, `recorded_date`, `recorded_at`, `actual_booked_at`, `entry_lag_days`, `stay_start_date`, `stay_end_date`, `stay_nights`, `booking_source`, `original_source`, `historical_entry_reason`, `booking_status`, `unit_id`, `owner_id`, `agreed_amount`, `invoiced_amount`, `invoice_linked_paid_amount`, `ordinary_unlinked_paid_count`, `ordinary_unlinked_paid_amount`, `historical_payment_evidence_count`, `historical_payment_evidence_amount`, `first_evidence_paid_date`, `last_evidence_paid_date`, `owner_attribution_correction_count`, `last_owner_attribution_corrected_at` |
 
-The two Stay views use the final `(check_in_date, booking_source)` grain. Historical contribution is projected
-from additive measures, so mixed buckets remain decomposable without adding `is_historical` to the physical
-grain. Stay Finance contains contracted/invoiced value only: no cash, paid, remaining, orphan or evidence
-amount is attributed to a stay date.
+Booking Stay uses `(check_in_date, booking_source)` grain. Finance Stay uses `check_in_date` grain without a
+source split. Historical contribution is projected from additive measures, so mixed buckets remain
+decomposable without adding `is_historical` to either physical grain. Stay Finance contains contracted and
+invoiced value only: no cash, paid, remaining, unlinked-payment or evidence amount is attributed to a stay date.
 
 Recorded Booking provenance uses `original_source`. The `other` measure is the remainder for canonical
 `other`, structurally possible nulls, and future source codes, so the four provenance measures always sum to
@@ -234,10 +235,12 @@ Reconciliation is per booking and PII-free. `entry_lag_days` is
 
 #### Correction history
 
-The first PR #57 implementation used an alternative Stay grain and monthly reconciliation aggregate. The
-focused correction restored this final dictionary before merge. That alternative was coherent but was not
-the owner-ratified physical contract. The payout fan-out correction is separately and explicitly accepted as
-an intentional reporting defect correction.
+The original PR #57 implementation and its first correction produced alternative `19 / 15 / 19 / 9 / 24`
+physical dictionaries. Independent review rejected those implementation-authored alternatives. They did not
+ratify themselves and are not retained as approved fields. The final correction normalized all five views to
+the owner-frozen `14 / 14 / 16 / 9 / 25` contract before merge. The finance invoice-count amendment is included
+in both finance views. The payout fan-out correction is separately and explicitly accepted as an intentional
+reporting defect correction.
 
 ### 15.2 HB-08A2 implementation evidence
 

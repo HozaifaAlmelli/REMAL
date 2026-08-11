@@ -24,9 +24,7 @@ public interface IReportingBookingAnalyticsService
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
         string? bookingSource = null,
-        CancellationToken cancellationToken = default,
-        bool includeHistorical = true,
-        bool historicalOnly = false);
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns an aggregated booking analytics summary over all daily rows
@@ -36,9 +34,7 @@ public interface IReportingBookingAnalyticsService
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
         string? bookingSource = null,
-        CancellationToken cancellationToken = default,
-        bool includeHistorical = true,
-        bool historicalOnly = false);
+        CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ReportingBookingStayDailySummary>> GetStayDailySummaryAsync(
         DateOnly dateFrom,

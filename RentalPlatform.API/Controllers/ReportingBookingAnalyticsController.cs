@@ -79,8 +79,16 @@ public class ReportingBookingAnalyticsController : ControllerBase
             request.HistoricalOnly,
             cancellationToken);
 
+        var pagination = CreatePagination(rows.Count, request.Page, request.PageSize);
+        var paged = rows
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .Select(MapToStayDailyResponse)
+            .ToList();
+
         return Ok(ApiResponse<IReadOnlyList<BookingAnalyticsStayDailySummaryResponse>>.CreateSuccess(
-            rows.Select(MapToStayDailyResponse).ToList()));
+            paged,
+            pagination: pagination));
     }
 
     // GET /api/internal/reports/bookings/historical-reconciliation
@@ -96,8 +104,16 @@ public class ReportingBookingAnalyticsController : ControllerBase
             stayMonthTo,
             cancellationToken);
 
+        var pagination = CreatePagination(rows.Count, request.Page, request.PageSize);
+        var paged = rows
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .Select(MapToReconciliationResponse)
+            .ToList();
+
         return Ok(ApiResponse<IReadOnlyList<HistoricalEntryReconciliationResponse>>.CreateSuccess(
-            rows.Select(MapToReconciliationResponse).ToList()));
+            paged,
+            pagination: pagination));
     }
 
     // -----------------------------------------------------------------------
@@ -117,11 +133,6 @@ public class ReportingBookingAnalyticsController : ControllerBase
             CompletedBookingsCount   = row.CompletedBookingsCount,
             TotalFinalAmount         = row.TotalFinalAmount,
             HistoricalBookingsCount = row.HistoricalBookingsCount,
-            HistoricalProspectingBookingsCount = row.HistoricalProspectingBookingsCount,
-            HistoricalConfirmedBookingsCount = row.HistoricalConfirmedBookingsCount,
-            HistoricalCancelledBookingsCount = row.HistoricalCancelledBookingsCount,
-            HistoricalCompletedBookingsCount = row.HistoricalCompletedBookingsCount,
-            HistoricalFinalAmount = row.HistoricalFinalAmount,
             HistoricalAgreedAmount = row.HistoricalAgreedAmount,
             HistoricalLegacySystemBookingsCount = row.HistoricalLegacySystemBookingsCount,
             HistoricalExternalPlatformBookingsCount = row.HistoricalExternalPlatformBookingsCount,
@@ -143,7 +154,6 @@ public class ReportingBookingAnalyticsController : ControllerBase
             TotalCompletedBookingsCount = result.TotalCompletedBookingsCount,
             TotalFinalAmount            = result.TotalFinalAmount,
             HistoricalBookingsCount     = result.HistoricalBookingsCount,
-            HistoricalFinalAmount       = result.HistoricalFinalAmount,
             HistoricalAgreedAmount      = result.HistoricalAgreedAmount,
             HistoricalLegacySystemBookingsCount = result.HistoricalLegacySystemBookingsCount,
             HistoricalExternalPlatformBookingsCount = result.HistoricalExternalPlatformBookingsCount,
@@ -155,21 +165,20 @@ public class ReportingBookingAnalyticsController : ControllerBase
         RentalPlatform.Data.ReadModels.ReportingBookingStayDailySummary row) =>
         new()
         {
-            MetricDate = row.MetricDate,
+            StayStartDate = row.StayStartDate,
             BookingSource = row.BookingSource,
-            BookingsCount = row.BookingsCount,
+            StayBookingsCount = row.StayBookingsCount,
             ProspectingBookingsCount = row.ProspectingBookingsCount,
             ConfirmedBookingsCount = row.ConfirmedBookingsCount,
             CancelledBookingsCount = row.CancelledBookingsCount,
             CompletedBookingsCount = row.CompletedBookingsCount,
             TotalFinalAmount = row.TotalFinalAmount,
             HistoricalBookingsCount = row.HistoricalBookingsCount,
-            HistoricalProspectingBookingsCount = row.HistoricalProspectingBookingsCount,
-            HistoricalConfirmedBookingsCount = row.HistoricalConfirmedBookingsCount,
-            HistoricalCancelledBookingsCount = row.HistoricalCancelledBookingsCount,
-            HistoricalCompletedBookingsCount = row.HistoricalCompletedBookingsCount,
-            HistoricalFinalAmount = row.HistoricalFinalAmount,
             HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+            HistoricalLegacySystemBookingsCount = row.HistoricalLegacySystemBookingsCount,
+            HistoricalExternalPlatformBookingsCount = row.HistoricalExternalPlatformBookingsCount,
+            HistoricalOfflineRecordBookingsCount = row.HistoricalOfflineRecordBookingsCount,
+            HistoricalOtherSourceBookingsCount = row.HistoricalOtherSourceBookingsCount,
         };
 
     private static HistoricalEntryReconciliationResponse MapToReconciliationResponse(
@@ -177,11 +186,12 @@ public class ReportingBookingAnalyticsController : ControllerBase
         new()
         {
             BookingId = row.BookingId,
+            RecordedDate = row.RecordedDate,
             RecordedAt = row.RecordedAt,
             ActualBookedAt = row.ActualBookedAt,
             EntryLagDays = row.EntryLagDays,
-            StayStart = row.StayStart,
-            StayEnd = row.StayEnd,
+            StayStartDate = row.StayStartDate,
+            StayEndDate = row.StayEndDate,
             StayNights = row.StayNights,
             BookingSource = row.BookingSource,
             OriginalSource = row.OriginalSource,
@@ -190,8 +200,8 @@ public class ReportingBookingAnalyticsController : ControllerBase
             UnitId = row.UnitId,
             OwnerId = row.OwnerId,
             AgreedAmount = row.AgreedAmount,
-            ActiveInvoiceAmount = row.ActiveInvoiceAmount,
-            OrdinaryInvoiceLinkedPaidAmount = row.OrdinaryInvoiceLinkedPaidAmount,
+            InvoicedAmount = row.InvoicedAmount,
+            InvoiceLinkedPaidAmount = row.InvoiceLinkedPaidAmount,
             OrdinaryUnlinkedPaidCount = row.OrdinaryUnlinkedPaidCount,
             OrdinaryUnlinkedPaidAmount = row.OrdinaryUnlinkedPaidAmount,
             HistoricalPaymentEvidenceCount = row.HistoricalPaymentEvidenceCount,
@@ -201,6 +211,12 @@ public class ReportingBookingAnalyticsController : ControllerBase
             OwnerAttributionCorrectionCount = row.OwnerAttributionCorrectionCount,
             LastOwnerAttributionCorrectedAt = row.LastOwnerAttributionCorrectedAt,
         };
+
+    private static PaginationMeta CreatePagination(int totalCount, int page, int pageSize)
+    {
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+        return new PaginationMeta(totalCount, page, pageSize, totalPages);
+    }
 
     private static DateOnly ParseMonth(string value) =>
         DateOnly.ParseExact(

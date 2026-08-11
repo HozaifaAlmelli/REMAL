@@ -17,16 +17,6 @@ SELECT
     COUNT(*) FILTER (WHERE b.booking_status = 'completed')          AS completed_bookings_count,
     COALESCE(SUM(b.final_amount), 0)::DECIMAL(14,2)                 AS total_final_amount,
     COUNT(*) FILTER (WHERE b.is_historical)::INT                    AS historical_bookings_count,
-    COUNT(*) FILTER (WHERE b.is_historical AND b.booking_status = 'prospecting')::INT
-                                                                     AS historical_prospecting_bookings_count,
-    COUNT(*) FILTER (WHERE b.is_historical AND b.booking_status = 'confirmed')::INT
-                                                                     AS historical_confirmed_bookings_count,
-    COUNT(*) FILTER (WHERE b.is_historical AND b.booking_status = 'cancelled')::INT
-                                                                     AS historical_cancelled_bookings_count,
-    COUNT(*) FILTER (WHERE b.is_historical AND b.booking_status = 'completed')::INT
-                                                                     AS historical_completed_bookings_count,
-    COALESCE(SUM(b.final_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
-                                                                     AS historical_final_amount,
     COALESCE(SUM(b.agreed_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
                                                                      AS historical_agreed_amount,
     COUNT(*) FILTER (
@@ -53,27 +43,32 @@ COMMENT ON VIEW reporting_booking_daily_summary IS
 
 CREATE VIEW reporting_booking_stay_daily_summary AS
 SELECT
-    b.check_in_date                                                  AS metric_date,
+    b.check_in_date                                                  AS stay_start_date,
     b.source                                                         AS booking_source,
-    COUNT(*)::INT                                                    AS bookings_count,
+    COUNT(*)::INT                                                    AS stay_bookings_count,
     COUNT(*) FILTER (WHERE b.booking_status = 'prospecting')::INT    AS prospecting_bookings_count,
     COUNT(*) FILTER (WHERE b.booking_status = 'confirmed')::INT      AS confirmed_bookings_count,
     COUNT(*) FILTER (WHERE b.booking_status = 'cancelled')::INT      AS cancelled_bookings_count,
     COUNT(*) FILTER (WHERE b.booking_status = 'completed')::INT      AS completed_bookings_count,
     COALESCE(SUM(b.final_amount), 0)::DECIMAL(14,2)                  AS total_final_amount,
     COUNT(*) FILTER (WHERE b.is_historical)::INT                     AS historical_bookings_count,
-    COUNT(*) FILTER (WHERE b.is_historical AND b.booking_status = 'prospecting')::INT
-                                                                      AS historical_prospecting_bookings_count,
-    COUNT(*) FILTER (WHERE b.is_historical AND b.booking_status = 'confirmed')::INT
-                                                                      AS historical_confirmed_bookings_count,
-    COUNT(*) FILTER (WHERE b.is_historical AND b.booking_status = 'cancelled')::INT
-                                                                      AS historical_cancelled_bookings_count,
-    COUNT(*) FILTER (WHERE b.is_historical AND b.booking_status = 'completed')::INT
-                                                                      AS historical_completed_bookings_count,
-    COALESCE(SUM(b.final_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
-                                                                      AS historical_final_amount,
     COALESCE(SUM(b.agreed_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
-                                                                      AS historical_agreed_amount
+                                                                      AS historical_agreed_amount,
+    COUNT(*) FILTER (
+        WHERE b.is_historical AND b.original_source = 'legacy_system'
+    )::INT                                                           AS historical_legacy_system_bookings_count,
+    COUNT(*) FILTER (
+        WHERE b.is_historical AND b.original_source = 'external_platform'
+    )::INT                                                           AS historical_external_platform_bookings_count,
+    COUNT(*) FILTER (
+        WHERE b.is_historical AND b.original_source = 'offline_record'
+    )::INT                                                           AS historical_offline_record_bookings_count,
+    COUNT(*) FILTER (
+        WHERE b.is_historical
+          AND (b.original_source IS NULL OR b.original_source NOT IN (
+              'legacy_system', 'external_platform', 'offline_record'
+          ))
+    )::INT                                                           AS historical_other_source_bookings_count
 FROM bookings b
 GROUP BY b.check_in_date, b.source;
 
@@ -106,7 +101,7 @@ invoice_linked_paid AS (
      AND NOT p.is_historical_record
     GROUP BY ai.booking_id
 ),
-ordinary_orphan_paid AS (
+ordinary_unlinked_paid AS (
     SELECT
         p.booking_id,
         COUNT(*)::INT                                                AS payment_count,
@@ -150,30 +145,22 @@ SELECT
     COALESCE(SUM(pt.pending_payout_amount), 0)::DECIMAL(14,2)        AS total_pending_payout_amount,
     COALESCE(SUM(pt.scheduled_payout_amount), 0)::DECIMAL(14,2)      AS total_scheduled_payout_amount,
     COALESCE(SUM(pt.paid_payout_amount), 0)::DECIMAL(14,2)           AS total_paid_payout_amount,
+    COUNT(*) FILTER (WHERE b.is_historical)::INT                     AS historical_bookings_count,
+    COALESCE(SUM(b.agreed_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
+                                                                      AS historical_agreed_amount,
     COUNT(*) FILTER (
         WHERE b.is_historical AND COALESCE(it.invoice_count, 0) > 0
     )::INT                                                           AS historical_bookings_with_invoice_count,
     COALESCE(SUM(it.invoiced_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
                                                                       AS historical_invoiced_amount,
-    COALESCE(SUM(ilp.paid_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
-                                                                      AS historical_invoice_linked_paid_amount,
-    (COALESCE(SUM(it.invoiced_amount) FILTER (WHERE b.is_historical), 0)
-     - COALESCE(SUM(ilp.paid_amount) FILTER (WHERE b.is_historical), 0))::DECIMAL(14,2)
-                                                                      AS historical_remaining_amount,
-    COALESCE(SUM(oop.payment_count), 0)::INT                         AS ordinary_orphan_payment_count,
-    COALESCE(SUM(oop.paid_amount), 0)::DECIMAL(14,2)                AS ordinary_orphan_payment_amount,
-    COALESCE(SUM(oop.payment_count) FILTER (WHERE b.is_historical), 0)::INT
-                                                                      AS historical_booking_ordinary_orphan_payment_count,
-    COALESCE(SUM(oop.paid_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
-                                                                      AS historical_booking_ordinary_orphan_payment_amount,
-    COALESCE(SUM(he.evidence_count), 0)::INT                         AS historical_payment_evidence_count,
-    COALESCE(SUM(he.evidence_amount), 0)::DECIMAL(14,2)             AS historical_payment_evidence_amount,
-    COALESCE(SUM(b.agreed_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
-                                                                      AS historical_agreed_amount
+    COALESCE(SUM(oup.payment_count), 0)::INT                         AS ordinary_unlinked_paid_count,
+    COALESCE(SUM(oup.paid_amount), 0)::DECIMAL(14,2)                AS ordinary_unlinked_paid_amount,
+    COALESCE(SUM(he.evidence_count), 0)::INT                         AS historical_evidence_recorded_count,
+    COALESCE(SUM(he.evidence_amount), 0)::DECIMAL(14,2)             AS historical_evidence_recorded_amount
 FROM bookings b
 LEFT JOIN invoice_totals it ON it.booking_id = b.id
 LEFT JOIN invoice_linked_paid ilp ON ilp.booking_id = b.id
-LEFT JOIN ordinary_orphan_paid oop ON oop.booking_id = b.id
+LEFT JOIN ordinary_unlinked_paid oup ON oup.booking_id = b.id
 LEFT JOIN historical_evidence he ON he.booking_id = b.id
 LEFT JOIN payout_totals pt ON pt.booking_id = b.id
 GROUP BY DATE(b.created_at);
@@ -195,26 +182,26 @@ WITH active_invoice_totals AS (
     GROUP BY i.booking_id
 )
 SELECT
-    b.check_in_date                                                   AS metric_date,
-    b.source                                                          AS booking_source,
+    b.check_in_date                                                   AS stay_start_date,
+    COUNT(*)::INT                                                     AS stay_bookings_count,
     COUNT(*) FILTER (WHERE COALESCE(ait.invoice_count, 0) > 0)::INT   AS bookings_with_invoice_count,
     COALESCE(SUM(ait.invoiced_amount), 0)::DECIMAL(14,2)              AS total_invoiced_amount,
     COALESCE(SUM(b.final_amount), 0)::DECIMAL(14,2)                   AS total_final_amount,
     COUNT(*) FILTER (WHERE b.is_historical)::INT                      AS historical_bookings_count,
     COALESCE(SUM(b.agreed_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
                                                                        AS historical_agreed_amount,
-    COALESCE(SUM(ait.invoiced_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
-                                                                       AS historical_invoiced_amount,
     COUNT(*) FILTER (
         WHERE b.is_historical AND COALESCE(ait.invoice_count, 0) > 0
-    )::INT                                                            AS historical_bookings_with_invoice_count
+    )::INT                                                            AS historical_bookings_with_invoice_count,
+    COALESCE(SUM(ait.invoiced_amount) FILTER (WHERE b.is_historical), 0)::DECIMAL(14,2)
+                                                                       AS historical_invoiced_amount
 FROM bookings b
 LEFT JOIN active_invoice_totals ait ON ait.booking_id = b.id
-GROUP BY b.check_in_date, b.source;
+GROUP BY b.check_in_date;
 
 COMMENT ON VIEW reporting_finance_stay_daily_summary IS
-    'Stay-period contracted and invoiced value keyed by check_in_date and booking '
-    'source. Cash, settlement, remaining balance and evidence measures are excluded.';
+    'Stay-period contracted and invoiced value keyed only by check_in_date. Cash, '
+    'settlement, remaining balance and evidence measures are excluded.';
 
 CREATE VIEW reporting_historical_entry_reconciliation AS
 WITH active_invoice_totals AS (
@@ -270,11 +257,12 @@ owner_corrections AS (
 )
 SELECT
     b.id                                                              AS booking_id,
+    DATE(b.created_at)                                                AS recorded_date,
     b.created_at                                                      AS recorded_at,
     b.actual_booked_at                                                AS actual_booked_at,
     (DATE(b.created_at) - b.actual_booked_at)::INT                    AS entry_lag_days,
-    b.check_in_date                                                   AS stay_start,
-    b.check_out_date                                                  AS stay_end,
+    b.check_in_date                                                   AS stay_start_date,
+    b.check_out_date                                                  AS stay_end_date,
     (b.check_out_date - b.check_in_date)::INT                         AS stay_nights,
     b.source                                                          AS booking_source,
     b.original_source                                                 AS original_source,
@@ -282,9 +270,9 @@ SELECT
     b.booking_status                                                  AS booking_status,
     b.unit_id                                                         AS unit_id,
     b.owner_id                                                        AS owner_id,
-    b.agreed_amount::DECIMAL(14,2)                                   AS agreed_amount,
-    COALESCE(ait.invoiced_amount, 0)::DECIMAL(14,2)                  AS active_invoice_amount,
-    COALESCE(oilp.paid_amount, 0)::DECIMAL(14,2)                     AS ordinary_invoice_linked_paid_amount,
+    b.agreed_amount::DECIMAL(12,2)                                   AS agreed_amount,
+    COALESCE(ait.invoiced_amount, 0)::DECIMAL(14,2)                  AS invoiced_amount,
+    COALESCE(oilp.paid_amount, 0)::DECIMAL(14,2)                     AS invoice_linked_paid_amount,
     COALESCE(oup.payment_count, 0)::INT                              AS ordinary_unlinked_paid_count,
     COALESCE(oup.paid_amount, 0)::DECIMAL(14,2)                     AS ordinary_unlinked_paid_amount,
     COALESCE(he.evidence_count, 0)::INT                              AS historical_payment_evidence_count,

@@ -42,12 +42,14 @@ public sealed class HistoricalPaymentReportingContractTests
     }
 
     [Fact]
-    public void DailyResponseExposesTheRatifiedEvidenceBreakdown()
+    public void RecordedDailyResponseNamesEvidenceByItsRecordedAxisContext()
     {
         Assert.NotNull(typeof(FinanceAnalyticsDailySummaryResponse)
-            .GetProperty("HistoricalPaymentEvidenceCount"));
+            .GetProperty("HistoricalEvidenceRecordedCount"));
         Assert.NotNull(typeof(FinanceAnalyticsDailySummaryResponse)
-            .GetProperty("HistoricalPaymentEvidenceAmount"));
+            .GetProperty("HistoricalEvidenceRecordedAmount"));
+        Assert.Null(typeof(FinanceAnalyticsDailySummaryResponse)
+            .GetProperty("HistoricalPaymentEvidenceCount"));
     }
 
     [Fact]
@@ -113,17 +115,13 @@ public sealed class HistoricalPaymentReportingContractTests
         public Task<IReadOnlyList<ReportingFinanceDailySummary>> GetDailySummaryAsync(
             DateOnly? dateFrom = null,
             DateOnly? dateTo = null,
-            CancellationToken cancellationToken = default,
-            bool includeHistorical = true,
-            bool historicalOnly = false) =>
+            CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ReportingFinanceDailySummary>>([]);
 
         public Task<FinanceAnalyticsSummaryResult> GetSummaryAsync(
             DateOnly? dateFrom = null,
             DateOnly? dateTo = null,
-            CancellationToken cancellationToken = default,
-            bool includeHistorical = true,
-            bool historicalOnly = false) => Task.FromResult(summary);
+            CancellationToken cancellationToken = default) => Task.FromResult(summary);
 
         public Task<IReadOnlyList<ReportingFinanceStayDailySummary>> GetStayDailySummaryAsync(
             DateOnly dateFrom,

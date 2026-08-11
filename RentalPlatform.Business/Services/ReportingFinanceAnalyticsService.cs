@@ -35,27 +35,23 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
     public async Task<IReadOnlyList<ReportingFinanceDailySummary>> GetDailySummaryAsync(
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
-        CancellationToken cancellationToken = default,
-        bool includeHistorical = true,
-        bool historicalOnly = false)
+        CancellationToken cancellationToken = default)
     {
-        ValidateDateRange(dateFrom, dateTo, includeHistorical, historicalOnly);
+        ValidateDateRange(dateFrom, dateTo);
 
         var rows = await BuildQuery(dateFrom, dateTo)
             .OrderBy(r => r.MetricDate)
             .ToListAsync(cancellationToken);
 
-        return ApplyHistoricalFilter(rows, includeHistorical, historicalOnly);
+        return rows;
     }
 
     public async Task<FinanceAnalyticsSummaryResult> GetSummaryAsync(
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
-        CancellationToken cancellationToken = default,
-        bool includeHistorical = true,
-        bool historicalOnly = false)
+        CancellationToken cancellationToken = default)
     {
-        ValidateDateRange(dateFrom, dateTo, includeHistorical, historicalOnly);
+        ValidateDateRange(dateFrom, dateTo);
 
         // FIXED: Don't filter by booking date - count ALL paid payments in the system
         // The finance summary should show total paid regardless of when booking was created
@@ -73,11 +69,6 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
             var dateToDateTime = dateTo.Value.ToDateTime(TimeOnly.MaxValue);
             bookingsQuery = bookingsQuery.Where(b => b.CreatedAt <= dateToDateTime);
         }
-
-        if (historicalOnly)
-            bookingsQuery = bookingsQuery.Where(b => b.IsHistorical);
-        else if (!includeHistorical)
-            bookingsQuery = bookingsQuery.Where(b => !b.IsHistorical);
 
         var bookingRows = await bookingsQuery
             .Select(b => new { b.Id, b.IsHistorical, b.AgreedAmount })
@@ -98,9 +89,6 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
             .Where(p => p.PaymentStatus == "paid"
                 && p.IsHistoricalRecord
                 && p.InvoiceId == null);
-
-        if (!includeHistorical)
-            historicalEvidenceQuery = historicalEvidenceQuery.Where(_ => false);
 
         // Get ALL payouts
         var payoutsQuery = _unitOfWork.OwnerPayouts.Query()
@@ -149,15 +137,8 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
         var historicalInvoices = activeInvoices
             .Where(i => historicalBookingIds.Contains(i.BookingId))
             .ToList();
-        var historicalInvoiceLinkedPayments = paidPayments
-            .Where(p => historicalBookingIds.Contains(p.BookingId) && p.InvoiceId.HasValue)
-            .ToList();
-        var ordinaryOrphanPayments = paidPayments.Where(p => !p.InvoiceId.HasValue).ToList();
-        var historicalBookingOrdinaryOrphanPayments = ordinaryOrphanPayments
-            .Where(p => historicalBookingIds.Contains(p.BookingId))
-            .ToList();
+        var ordinaryUnlinkedPayments = paidPayments.Where(p => !p.InvoiceId.HasValue).ToList();
         var historicalInvoiced = historicalInvoices.Sum(i => i.TotalAmount);
-        var historicalInvoiceLinkedPaid = historicalInvoiceLinkedPayments.Sum(p => p.Amount);
 
         _logger.LogDebug("[FinanceAnalytics] RESULT - Invoiced: {Invoiced}, Paid: {Paid}, Remaining: {Remaining}", totalInvoiced, totalPaid, totalRemaining);
 
@@ -190,15 +171,12 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
             TotalPendingPayoutAmount        = pendingPayouts.Sum(p => p.PayoutAmount),
             TotalScheduledPayoutAmount      = scheduledPayouts.Sum(p => p.PayoutAmount),
             TotalPaidPayoutAmount           = paidPayouts.Sum(p => p.PayoutAmount),
+            HistoricalBookingsCount        = bookingRows.Count(b => b.IsHistorical),
+            HistoricalAgreedAmount          = bookingRows.Where(b => b.IsHistorical).Sum(b => b.AgreedAmount ?? 0m),
             HistoricalBookingsWithInvoiceCount = historicalInvoices.Select(i => i.BookingId).Distinct().Count(),
             HistoricalInvoicedAmount        = historicalInvoiced,
-            HistoricalInvoiceLinkedPaidAmount = historicalInvoiceLinkedPaid,
-            HistoricalRemainingAmount       = historicalInvoiced - historicalInvoiceLinkedPaid,
-            OrdinaryOrphanPaymentCount      = ordinaryOrphanPayments.Count,
-            OrdinaryOrphanPaymentAmount     = ordinaryOrphanPayments.Sum(p => p.Amount),
-            HistoricalBookingOrdinaryOrphanPaymentCount = historicalBookingOrdinaryOrphanPayments.Count,
-            HistoricalBookingOrdinaryOrphanPaymentAmount = historicalBookingOrdinaryOrphanPayments.Sum(p => p.Amount),
-            HistoricalAgreedAmount          = bookingRows.Where(b => b.IsHistorical).Sum(b => b.AgreedAmount ?? 0m),
+            OrdinaryUnlinkedPaidCount       = ordinaryUnlinkedPayments.Count,
+            OrdinaryUnlinkedPaidAmount      = ordinaryUnlinkedPayments.Sum(p => p.Amount),
         };
     }
 
@@ -213,9 +191,8 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
         var started = Stopwatch.GetTimestamp();
 
         var rows = await _unitOfWork.ReportingFinanceStayDailySummaries
-            .Where(row => row.MetricDate >= dateFrom && row.MetricDate <= dateTo)
-            .OrderBy(row => row.MetricDate)
-            .ThenBy(row => row.BookingSource)
+            .Where(row => row.StayStartDate >= dateFrom && row.StayStartDate <= dateTo)
+            .OrderBy(row => row.StayStartDate)
             .ToListAsync(cancellationToken);
 
         var projected = ApplyStayHistoricalFilter(rows, includeHistorical, historicalOnly);
@@ -237,18 +214,12 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
 
     private static void ValidateDateRange(
         DateOnly? dateFrom,
-        DateOnly? dateTo,
-        bool includeHistorical,
-        bool historicalOnly)
+        DateOnly? dateTo)
     {
         if (dateFrom.HasValue && dateTo.HasValue && dateFrom.Value > dateTo.Value)
             throw new BusinessValidationException(
                 $"dateFrom ({dateFrom.Value}) must not be later than dateTo ({dateTo.Value}).");
 
-        if (dateFrom.HasValue && dateTo.HasValue)
-            ValidateRequiredDateRange(dateFrom.Value, dateTo.Value, includeHistorical, historicalOnly);
-        else
-            ValidateHistoricalFilter(includeHistorical, historicalOnly);
     }
 
     private static void ValidateRequiredDateRange(
@@ -281,62 +252,6 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
         return to <= from.AddMonths(24).AddDays(-1);
     }
 
-    private static IReadOnlyList<ReportingFinanceDailySummary> ApplyHistoricalFilter(
-        IReadOnlyList<ReportingFinanceDailySummary> rows,
-        bool includeHistorical,
-        bool historicalOnly)
-    {
-        if (includeHistorical && !historicalOnly)
-            return rows;
-
-        return rows
-            .Select(row => historicalOnly
-                ? new ReportingFinanceDailySummary
-                {
-                    MetricDate = row.MetricDate,
-                    BookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
-                    TotalInvoicedAmount = row.HistoricalInvoicedAmount,
-                    TotalPaidAmount = row.HistoricalInvoiceLinkedPaidAmount,
-                    TotalRemainingAmount = row.HistoricalRemainingAmount,
-                    HistoricalBookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
-                    HistoricalInvoicedAmount = row.HistoricalInvoicedAmount,
-                    HistoricalInvoiceLinkedPaidAmount = row.HistoricalInvoiceLinkedPaidAmount,
-                    HistoricalRemainingAmount = row.HistoricalRemainingAmount,
-                    OrdinaryOrphanPaymentCount = row.HistoricalBookingOrdinaryOrphanPaymentCount,
-                    OrdinaryOrphanPaymentAmount = row.HistoricalBookingOrdinaryOrphanPaymentAmount,
-                    HistoricalBookingOrdinaryOrphanPaymentCount = row.HistoricalBookingOrdinaryOrphanPaymentCount,
-                    HistoricalBookingOrdinaryOrphanPaymentAmount = row.HistoricalBookingOrdinaryOrphanPaymentAmount,
-                    HistoricalPaymentEvidenceCount = row.HistoricalPaymentEvidenceCount,
-                    HistoricalPaymentEvidenceAmount = row.HistoricalPaymentEvidenceAmount,
-                    HistoricalAgreedAmount = row.HistoricalAgreedAmount,
-                }
-                : new ReportingFinanceDailySummary
-                {
-                    MetricDate = row.MetricDate,
-                    BookingsWithInvoiceCount = row.BookingsWithInvoiceCount - row.HistoricalBookingsWithInvoiceCount,
-                    TotalInvoicedAmount = row.TotalInvoicedAmount - row.HistoricalInvoicedAmount,
-                    TotalPaidAmount = row.TotalPaidAmount - row.HistoricalInvoiceLinkedPaidAmount,
-                    TotalRemainingAmount = row.TotalRemainingAmount - row.HistoricalRemainingAmount,
-                    TotalPendingPayoutAmount = row.TotalPendingPayoutAmount,
-                    TotalScheduledPayoutAmount = row.TotalScheduledPayoutAmount,
-                    TotalPaidPayoutAmount = row.TotalPaidPayoutAmount,
-                    OrdinaryOrphanPaymentCount = row.OrdinaryOrphanPaymentCount - row.HistoricalBookingOrdinaryOrphanPaymentCount,
-                    OrdinaryOrphanPaymentAmount = row.OrdinaryOrphanPaymentAmount - row.HistoricalBookingOrdinaryOrphanPaymentAmount,
-                })
-            .Where(row =>
-                row.BookingsWithInvoiceCount > 0
-                || row.TotalInvoicedAmount != 0
-                || row.TotalPaidAmount != 0
-                || row.TotalRemainingAmount != 0
-                || row.TotalPendingPayoutAmount != 0
-                || row.TotalScheduledPayoutAmount != 0
-                || row.TotalPaidPayoutAmount != 0
-                || row.OrdinaryOrphanPaymentCount > 0
-                || row.HistoricalPaymentEvidenceCount > 0
-                || row.HistoricalAgreedAmount != 0)
-            .ToList();
-    }
-
     private static IReadOnlyList<ReportingFinanceStayDailySummary> ApplyStayHistoricalFilter(
         IReadOnlyList<ReportingFinanceStayDailySummary> rows,
         bool includeHistorical,
@@ -349,8 +264,8 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
             .Select(row => historicalOnly
                 ? new ReportingFinanceStayDailySummary
                 {
-                    MetricDate = row.MetricDate,
-                    BookingSource = row.BookingSource,
+                    StayStartDate = row.StayStartDate,
+                    StayBookingsCount = row.HistoricalBookingsCount,
                     BookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
                     TotalInvoicedAmount = row.HistoricalInvoicedAmount,
                     TotalFinalAmount = row.HistoricalAgreedAmount,
@@ -361,14 +276,14 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
                 }
                 : new ReportingFinanceStayDailySummary
                 {
-                    MetricDate = row.MetricDate,
-                    BookingSource = row.BookingSource,
+                    StayStartDate = row.StayStartDate,
+                    StayBookingsCount = row.StayBookingsCount - row.HistoricalBookingsCount,
                     BookingsWithInvoiceCount = row.BookingsWithInvoiceCount - row.HistoricalBookingsWithInvoiceCount,
                     TotalInvoicedAmount = row.TotalInvoicedAmount - row.HistoricalInvoicedAmount,
                     TotalFinalAmount = row.TotalFinalAmount - row.HistoricalAgreedAmount,
                 })
             .Where(row =>
-                row.BookingsWithInvoiceCount > 0
+                row.StayBookingsCount > 0
                 || row.TotalInvoicedAmount != 0
                 || row.TotalFinalAmount != 0
                 || row.HistoricalBookingsCount > 0)

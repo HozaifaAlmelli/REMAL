@@ -76,8 +76,18 @@ public class ReportingFinanceAnalyticsController : ControllerBase
             request.HistoricalOnly,
             cancellationToken);
 
+        var totalCount = rows.Count;
+        var paged = rows
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .Select(MapToStayDailyResponse)
+            .ToList();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)request.PageSize));
+        var pagination = new PaginationMeta(totalCount, request.Page, request.PageSize, totalPages);
+
         return Ok(ApiResponse<IReadOnlyList<FinanceAnalyticsStayDailySummaryResponse>>.CreateSuccess(
-            rows.Select(MapToStayDailyResponse).ToList()));
+            paged,
+            pagination: pagination));
     }
 
     // -----------------------------------------------------------------------
@@ -96,17 +106,14 @@ public class ReportingFinanceAnalyticsController : ControllerBase
             TotalPendingPayoutAmount    = row.TotalPendingPayoutAmount,
             TotalScheduledPayoutAmount  = row.TotalScheduledPayoutAmount,
             TotalPaidPayoutAmount       = row.TotalPaidPayoutAmount,
+            HistoricalBookingsCount = row.HistoricalBookingsCount,
+            HistoricalAgreedAmount = row.HistoricalAgreedAmount,
             HistoricalBookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
             HistoricalInvoicedAmount = row.HistoricalInvoicedAmount,
-            HistoricalInvoiceLinkedPaidAmount = row.HistoricalInvoiceLinkedPaidAmount,
-            HistoricalRemainingAmount = row.HistoricalRemainingAmount,
-            OrdinaryOrphanPaymentCount = row.OrdinaryOrphanPaymentCount,
-            OrdinaryOrphanPaymentAmount = row.OrdinaryOrphanPaymentAmount,
-            HistoricalBookingOrdinaryOrphanPaymentCount = row.HistoricalBookingOrdinaryOrphanPaymentCount,
-            HistoricalBookingOrdinaryOrphanPaymentAmount = row.HistoricalBookingOrdinaryOrphanPaymentAmount,
-            HistoricalPaymentEvidenceCount = row.HistoricalPaymentEvidenceCount,
-            HistoricalPaymentEvidenceAmount = row.HistoricalPaymentEvidenceAmount,
-            HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+            OrdinaryUnlinkedPaidCount = row.OrdinaryUnlinkedPaidCount,
+            OrdinaryUnlinkedPaidAmount = row.OrdinaryUnlinkedPaidAmount,
+            HistoricalEvidenceRecordedCount = row.HistoricalEvidenceRecordedCount,
+            HistoricalEvidenceRecordedAmount = row.HistoricalEvidenceRecordedAmount,
         };
 
     private static FinanceAnalyticsSummaryResponse MapToSummaryResponse(
@@ -124,29 +131,26 @@ public class ReportingFinanceAnalyticsController : ControllerBase
             TotalPendingPayoutAmount        = result.TotalPendingPayoutAmount,
             TotalScheduledPayoutAmount      = result.TotalScheduledPayoutAmount,
             TotalPaidPayoutAmount           = result.TotalPaidPayoutAmount,
+            HistoricalBookingsCount = result.HistoricalBookingsCount,
+            HistoricalAgreedAmount = result.HistoricalAgreedAmount,
             HistoricalBookingsWithInvoiceCount = result.HistoricalBookingsWithInvoiceCount,
             HistoricalInvoicedAmount = result.HistoricalInvoicedAmount,
-            HistoricalInvoiceLinkedPaidAmount = result.HistoricalInvoiceLinkedPaidAmount,
-            HistoricalRemainingAmount = result.HistoricalRemainingAmount,
-            OrdinaryOrphanPaymentCount = result.OrdinaryOrphanPaymentCount,
-            OrdinaryOrphanPaymentAmount = result.OrdinaryOrphanPaymentAmount,
-            HistoricalBookingOrdinaryOrphanPaymentCount = result.HistoricalBookingOrdinaryOrphanPaymentCount,
-            HistoricalBookingOrdinaryOrphanPaymentAmount = result.HistoricalBookingOrdinaryOrphanPaymentAmount,
-            HistoricalAgreedAmount = result.HistoricalAgreedAmount,
+            OrdinaryUnlinkedPaidCount = result.OrdinaryUnlinkedPaidCount,
+            OrdinaryUnlinkedPaidAmount = result.OrdinaryUnlinkedPaidAmount,
         };
 
     private static FinanceAnalyticsStayDailySummaryResponse MapToStayDailyResponse(
         RentalPlatform.Data.ReadModels.ReportingFinanceStayDailySummary row) =>
         new()
         {
-            MetricDate = row.MetricDate,
-            BookingSource = row.BookingSource,
+            StayStartDate = row.StayStartDate,
+            StayBookingsCount = row.StayBookingsCount,
             BookingsWithInvoiceCount = row.BookingsWithInvoiceCount,
             TotalInvoicedAmount = row.TotalInvoicedAmount,
             TotalFinalAmount = row.TotalFinalAmount,
             HistoricalBookingsCount = row.HistoricalBookingsCount,
             HistoricalAgreedAmount = row.HistoricalAgreedAmount,
-            HistoricalInvoicedAmount = row.HistoricalInvoicedAmount,
             HistoricalBookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
+            HistoricalInvoicedAmount = row.HistoricalInvoicedAmount,
         };
 }

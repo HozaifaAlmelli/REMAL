@@ -38,18 +38,15 @@ BEGIN
         'metric_date', 'booking_source', 'bookings_created_count',
         'prospecting_bookings_count', 'confirmed_bookings_count',
         'cancelled_bookings_count', 'completed_bookings_count', 'total_final_amount',
-        'historical_bookings_count', 'historical_prospecting_bookings_count',
-        'historical_confirmed_bookings_count', 'historical_cancelled_bookings_count',
-        'historical_completed_bookings_count', 'historical_final_amount',
-        'historical_agreed_amount', 'historical_legacy_system_bookings_count',
+        'historical_bookings_count', 'historical_agreed_amount',
+        'historical_legacy_system_bookings_count',
         'historical_external_platform_bookings_count',
         'historical_offline_record_bookings_count',
         'historical_other_source_bookings_count'
     ]::TEXT[] OR actual_types IS DISTINCT FROM ARRAY[
         'date', 'character varying(50)', 'bigint', 'bigint', 'bigint', 'bigint',
-        'bigint', 'numeric(14,2)', 'integer', 'integer', 'integer', 'integer',
-        'integer', 'numeric(14,2)', 'numeric(14,2)', 'integer', 'integer',
-        'integer', 'integer'
+        'bigint', 'numeric(14,2)', 'integer', 'numeric(14,2)', 'integer',
+        'integer', 'integer', 'integer'
     ]::TEXT[] THEN
         RAISE EXCEPTION '0063 verifier: recorded booking dictionary is invalid: % / %',
             actual_columns, actual_types;
@@ -91,19 +88,37 @@ BEGIN
       AND a.attnum > 0 AND NOT a.attisdropped;
 
     IF actual_columns IS DISTINCT FROM ARRAY[
-        'metric_date', 'booking_source', 'bookings_count', 'prospecting_bookings_count',
+        'stay_start_date', 'booking_source', 'stay_bookings_count', 'prospecting_bookings_count',
         'confirmed_bookings_count', 'cancelled_bookings_count',
         'completed_bookings_count', 'total_final_amount', 'historical_bookings_count',
-        'historical_prospecting_bookings_count', 'historical_confirmed_bookings_count',
-        'historical_cancelled_bookings_count', 'historical_completed_bookings_count',
-        'historical_final_amount', 'historical_agreed_amount'
+        'historical_agreed_amount', 'historical_legacy_system_bookings_count',
+        'historical_external_platform_bookings_count',
+        'historical_offline_record_bookings_count',
+        'historical_other_source_bookings_count'
     ]::TEXT[] OR actual_types IS DISTINCT FROM ARRAY[
         'date', 'character varying(50)', 'integer', 'integer', 'integer', 'integer',
-        'integer', 'numeric(14,2)', 'integer', 'integer', 'integer', 'integer',
-        'integer', 'numeric(14,2)', 'numeric(14,2)'
+        'integer', 'numeric(14,2)', 'integer', 'numeric(14,2)', 'integer',
+        'integer', 'integer', 'integer'
     ]::TEXT[] THEN
         RAISE EXCEPTION '0063 verifier: stay booking dictionary is invalid: % / %',
             actual_columns, actual_types;
+    END IF;
+
+    SELECT pg_get_viewdef('reporting_booking_stay_daily_summary'::regclass, TRUE) INTO definition;
+    IF POSITION('original_source' IN definition) = 0
+       OR definition !~* 'original_source[[:space:]]+IS[[:space:]]+NULL' THEN
+        RAISE EXCEPTION '0063 verifier: stay provenance remainder is not catch-all';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM reporting_booking_stay_daily_summary
+        WHERE historical_legacy_system_bookings_count
+            + historical_external_platform_bookings_count
+            + historical_offline_record_bookings_count
+            + historical_other_source_bookings_count
+            <> historical_bookings_count
+    ) THEN
+        RAISE EXCEPTION '0063 verifier: stay provenance components do not reconcile';
     END IF;
 
     SELECT ARRAY_AGG(a.attname ORDER BY a.attnum),
@@ -117,19 +132,15 @@ BEGIN
         'metric_date', 'bookings_with_invoice_count', 'total_invoiced_amount',
         'total_paid_amount', 'total_remaining_amount', 'total_pending_payout_amount',
         'total_scheduled_payout_amount', 'total_paid_payout_amount',
+        'historical_bookings_count', 'historical_agreed_amount',
         'historical_bookings_with_invoice_count', 'historical_invoiced_amount',
-        'historical_invoice_linked_paid_amount', 'historical_remaining_amount',
-        'ordinary_orphan_payment_count', 'ordinary_orphan_payment_amount',
-        'historical_booking_ordinary_orphan_payment_count',
-        'historical_booking_ordinary_orphan_payment_amount',
-        'historical_payment_evidence_count', 'historical_payment_evidence_amount',
-        'historical_agreed_amount'
+        'ordinary_unlinked_paid_count', 'ordinary_unlinked_paid_amount',
+        'historical_evidence_recorded_count', 'historical_evidence_recorded_amount'
     ]::TEXT[] OR actual_types IS DISTINCT FROM ARRAY[
         'date', 'integer', 'numeric(14,2)', 'numeric(14,2)', 'numeric(14,2)',
         'numeric(14,2)', 'numeric(14,2)', 'numeric(14,2)', 'integer',
-        'numeric(14,2)', 'numeric(14,2)', 'numeric(14,2)', 'integer',
         'numeric(14,2)', 'integer', 'numeric(14,2)', 'integer', 'numeric(14,2)',
-        'numeric(14,2)'
+        'integer', 'numeric(14,2)'
     ]::TEXT[] THEN
         RAISE EXCEPTION '0063 verifier: recorded finance dictionary is invalid: % / %',
             actual_columns, actual_types;
@@ -160,13 +171,13 @@ BEGIN
       AND a.attnum > 0 AND NOT a.attisdropped;
 
     IF actual_columns IS DISTINCT FROM ARRAY[
-        'metric_date', 'booking_source', 'bookings_with_invoice_count',
+        'stay_start_date', 'stay_bookings_count', 'bookings_with_invoice_count',
         'total_invoiced_amount', 'total_final_amount', 'historical_bookings_count',
-        'historical_agreed_amount', 'historical_invoiced_amount',
-        'historical_bookings_with_invoice_count'
+        'historical_agreed_amount', 'historical_bookings_with_invoice_count',
+        'historical_invoiced_amount'
     ]::TEXT[] OR actual_types IS DISTINCT FROM ARRAY[
-        'date', 'character varying(50)', 'integer', 'numeric(14,2)', 'numeric(14,2)',
-        'integer', 'numeric(14,2)', 'numeric(14,2)', 'integer'
+        'date', 'integer', 'integer', 'numeric(14,2)', 'numeric(14,2)',
+        'integer', 'numeric(14,2)', 'integer', 'numeric(14,2)'
     ]::TEXT[] THEN
         RAISE EXCEPTION '0063 verifier: stay finance dictionary is invalid: % / %',
             actual_columns, actual_types;
@@ -174,7 +185,7 @@ BEGIN
 
     IF actual_columns && ARRAY[
         'paid_amount', 'invoice_linked_paid_amount', 'total_remaining_amount',
-        'ordinary_orphan_payment_count', 'ordinary_orphan_payment_amount',
+        'ordinary_unlinked_paid_count', 'ordinary_unlinked_paid_amount',
         'historical_payment_evidence_count', 'historical_payment_evidence_amount'
     ]::TEXT[] THEN
         RAISE EXCEPTION '0063 verifier: cash or remaining measure exists on stay finance';
@@ -188,19 +199,19 @@ BEGIN
       AND a.attnum > 0 AND NOT a.attisdropped;
 
     IF actual_columns IS DISTINCT FROM ARRAY[
-        'booking_id', 'recorded_at', 'actual_booked_at', 'entry_lag_days',
-        'stay_start', 'stay_end', 'stay_nights', 'booking_source', 'original_source',
+        'booking_id', 'recorded_date', 'recorded_at', 'actual_booked_at', 'entry_lag_days',
+        'stay_start_date', 'stay_end_date', 'stay_nights', 'booking_source', 'original_source',
         'historical_entry_reason', 'booking_status', 'unit_id', 'owner_id',
-        'agreed_amount', 'active_invoice_amount', 'ordinary_invoice_linked_paid_amount',
+        'agreed_amount', 'invoiced_amount', 'invoice_linked_paid_amount',
         'ordinary_unlinked_paid_count', 'ordinary_unlinked_paid_amount',
         'historical_payment_evidence_count', 'historical_payment_evidence_amount',
         'first_evidence_paid_date', 'last_evidence_paid_date',
         'owner_attribution_correction_count', 'last_owner_attribution_corrected_at'
     ]::TEXT[] OR actual_types IS DISTINCT FROM ARRAY[
-        'uuid', 'timestamp without time zone', 'date', 'integer', 'date', 'date',
+        'uuid', 'date', 'timestamp without time zone', 'date', 'integer', 'date', 'date',
         'integer', 'character varying(50)', 'character varying(50)',
         'character varying(50)', 'character varying(50)', 'uuid', 'uuid',
-        'numeric(14,2)', 'numeric(14,2)', 'numeric(14,2)', 'integer',
+        'numeric(12,2)', 'numeric(14,2)', 'numeric(14,2)', 'integer',
         'numeric(14,2)', 'integer', 'numeric(14,2)', 'date', 'date', 'integer',
         'timestamp with time zone'
     ]::TEXT[] THEN

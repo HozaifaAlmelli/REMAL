@@ -25,6 +25,8 @@ public record GetHistoricalReportingDailyRequest
     public DateOnly DateTo { get; init; }
     public bool IncludeHistorical { get; init; } = true;
     public bool HistoricalOnly { get; init; }
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 30;
 }
 
 public record GetHistoricalReconciliationRequest
@@ -33,6 +35,8 @@ public record GetHistoricalReconciliationRequest
     public string StayMonthTo { get; init; } = string.Empty;
     public bool? IncludeHistorical { get; init; }
     public bool? HistoricalOnly { get; init; }
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 30;
 }
 
 public record GetReviewsAnalyticsRequest

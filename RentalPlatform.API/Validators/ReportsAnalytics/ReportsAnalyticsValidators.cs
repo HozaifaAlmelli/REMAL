@@ -79,6 +79,8 @@ public sealed class GetHistoricalReportingDailyRequestValidator
             .WithMessage("Date range must not exceed 24 inclusive months.")
             .WithErrorCode(HistoricalErrorCodes.ValidationError);
 
+        HistoricalReportingValidationRules.AddPagination(this);
+
         HistoricalReportingValidationRules.Add(this);
     }
 }
@@ -98,6 +100,18 @@ internal static class HistoricalReportingValidationRules
             .Must(x => !x.HistoricalOnly || x.IncludeHistorical)
             .WithMessage("HistoricalOnly=true cannot be combined with IncludeHistorical=false.")
             .WithErrorCode(HistoricalErrorCodes.ValidationError);
+
+    public static void AddPagination(AbstractValidator<GetHistoricalReportingDailyRequest> validator)
+    {
+        validator.RuleFor(x => x.Page)
+            .GreaterThanOrEqualTo(1)
+            .WithMessage("Page must be 1 or greater.")
+            .WithErrorCode(HistoricalErrorCodes.ValidationError);
+        validator.RuleFor(x => x.PageSize)
+            .InclusiveBetween(1, 100)
+            .WithMessage("PageSize must be between 1 and 100.")
+            .WithErrorCode(HistoricalErrorCodes.ValidationError);
+    }
 }
 
 public sealed class GetHistoricalReconciliationRequestValidator
@@ -130,6 +144,16 @@ public sealed class GetHistoricalReconciliationRequestValidator
         RuleFor(x => x.HistoricalOnly)
             .Null()
             .WithMessage("HistoricalOnly is not supported for historical reconciliation.")
+            .WithErrorCode(HistoricalErrorCodes.ValidationError);
+
+        RuleFor(x => x.Page)
+            .GreaterThanOrEqualTo(1)
+            .WithMessage("Page must be 1 or greater.")
+            .WithErrorCode(HistoricalErrorCodes.ValidationError);
+
+        RuleFor(x => x.PageSize)
+            .InclusiveBetween(1, 100)
+            .WithMessage("PageSize must be between 1 and 100.")
             .WithErrorCode(HistoricalErrorCodes.ValidationError);
     }
 

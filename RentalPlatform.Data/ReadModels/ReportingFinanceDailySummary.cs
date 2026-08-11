@@ -18,15 +18,12 @@ public sealed class ReportingFinanceDailySummary
     public decimal TotalPendingPayoutAmount { get; init; }
     public decimal TotalScheduledPayoutAmount { get; init; }
     public decimal TotalPaidPayoutAmount { get; init; }
+    public int HistoricalBookingsCount { get; init; }
+    public decimal HistoricalAgreedAmount { get; init; }
     public int HistoricalBookingsWithInvoiceCount { get; init; }
     public decimal HistoricalInvoicedAmount { get; init; }
-    public decimal HistoricalInvoiceLinkedPaidAmount { get; init; }
-    public decimal HistoricalRemainingAmount { get; init; }
-    public int OrdinaryOrphanPaymentCount { get; init; }
-    public decimal OrdinaryOrphanPaymentAmount { get; init; }
-    public int HistoricalBookingOrdinaryOrphanPaymentCount { get; init; }
-    public decimal HistoricalBookingOrdinaryOrphanPaymentAmount { get; init; }
-    public int HistoricalPaymentEvidenceCount { get; init; }
-    public decimal HistoricalPaymentEvidenceAmount { get; init; }
-    public decimal HistoricalAgreedAmount { get; init; }
+    public int OrdinaryUnlinkedPaidCount { get; init; }
+    public decimal OrdinaryUnlinkedPaidAmount { get; init; }
+    public int HistoricalEvidenceRecordedCount { get; init; }
+    public decimal HistoricalEvidenceRecordedAmount { get; init; }
 }

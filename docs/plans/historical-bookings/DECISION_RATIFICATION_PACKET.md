@@ -180,13 +180,17 @@ PostgreSQL/pilot reconciliation evidence; it adds no per-request post-commit que
 
 #### HB-08A2 physical-contract correction record
 
-The final migration `0063` contract keeps Stay views at `(check_in_date, booking_source)` grain with
-Historical component measures; Stay Finance contains contracted/invoiced value and no cash; Recorded
-Booking contains the four `original_source` provenance counts; and reconciliation is one PII-free row per
-Historical booking with `booking_id`. Reconciliation rejects `includeHistorical` and `historicalOnly`.
-`entry_lag_days = -1` is valid at the Cairo/UTC boundary. The initial PR implementation used a different
-physical grain and monthly reconciliation shape; those were corrected before merge and were never ratified
-as replacements for this dictionary.
+On 2026-08-11 the owner froze the final migration `0063` dictionaries at exactly `14 / 14 / 16 / 9 / 25`
+columns before the final implementation correction. Booking Stay uses `(check_in_date, booking_source)` grain;
+Finance Stay uses `check_in_date` grain and contains contracted/invoiced value with no cash. Both finance views
+contain `historical_bookings_with_invoice_count`. Recorded Booking contains the four `original_source`
+provenance counts, and reconciliation is one 25-column PII-free row per Historical booking with `booking_id`
+and explicit `recorded_date`. Reconciliation rejects `includeHistorical` and `historicalOnly`.
+`entry_lag_days = -1` is valid at the Cairo/UTC boundary.
+
+The original PR implementation and first correction used alternative `19 / 15 / 19 / 9 / 24` dictionaries.
+Independent review rejected those implementation-authored alternatives; neither commit self-ratified its
+schema. The final correction removed every extra field and restored the owner-frozen contract before merge.
 
 The owner separately accepts the reporting-only payout fan-out correction in `0063`: one booking payout is
 aggregated once even when the booking has multiple active invoices. This does not alter payout writes or the

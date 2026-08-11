@@ -24,7 +24,7 @@ public sealed class ReportingBookingDailySummaryConfiguration
 
         builder.Property(x => x.BookingSource)
             .HasColumnName("booking_source")
-            .HasMaxLength(100)
+            .HasMaxLength(50)
             .IsRequired();
 
         builder.Property(x => x.BookingsCreatedCount)
@@ -54,27 +54,6 @@ public sealed class ReportingBookingDailySummaryConfiguration
 
         builder.Property(x => x.HistoricalBookingsCount)
             .HasColumnName("historical_bookings_count")
-            .IsRequired();
-
-        builder.Property(x => x.HistoricalProspectingBookingsCount)
-            .HasColumnName("historical_prospecting_bookings_count")
-            .IsRequired();
-
-        builder.Property(x => x.HistoricalConfirmedBookingsCount)
-            .HasColumnName("historical_confirmed_bookings_count")
-            .IsRequired();
-
-        builder.Property(x => x.HistoricalCancelledBookingsCount)
-            .HasColumnName("historical_cancelled_bookings_count")
-            .IsRequired();
-
-        builder.Property(x => x.HistoricalCompletedBookingsCount)
-            .HasColumnName("historical_completed_bookings_count")
-            .IsRequired();
-
-        builder.Property(x => x.HistoricalFinalAmount)
-            .HasColumnName("historical_final_amount")
-            .HasPrecision(14, 2)
             .IsRequired();
 
         builder.Property(x => x.HistoricalAgreedAmount)

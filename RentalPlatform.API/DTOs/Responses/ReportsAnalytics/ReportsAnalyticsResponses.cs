@@ -17,11 +17,6 @@ public record BookingAnalyticsDailySummaryResponse
     public int CompletedBookingsCount { get; init; }
     public decimal TotalFinalAmount { get; init; }
     public int HistoricalBookingsCount { get; init; }
-    public int HistoricalProspectingBookingsCount { get; init; }
-    public int HistoricalConfirmedBookingsCount { get; init; }
-    public int HistoricalCancelledBookingsCount { get; init; }
-    public int HistoricalCompletedBookingsCount { get; init; }
-    public decimal HistoricalFinalAmount { get; init; }
     public decimal HistoricalAgreedAmount { get; init; }
     public int HistoricalLegacySystemBookingsCount { get; init; }
     public int HistoricalExternalPlatformBookingsCount { get; init; }
@@ -41,7 +36,6 @@ public record BookingAnalyticsSummaryResponse
     public int TotalCompletedBookingsCount { get; init; }
     public decimal TotalFinalAmount { get; init; }
     public int HistoricalBookingsCount { get; init; }
-    public decimal HistoricalFinalAmount { get; init; }
     public decimal HistoricalAgreedAmount { get; init; }
     public int HistoricalLegacySystemBookingsCount { get; init; }
     public int HistoricalExternalPlatformBookingsCount { get; init; }
@@ -51,31 +45,31 @@ public record BookingAnalyticsSummaryResponse
 
 public record BookingAnalyticsStayDailySummaryResponse
 {
-    public DateOnly MetricDate { get; init; }
+    public DateOnly StayStartDate { get; init; }
     public string BookingSource { get; init; } = string.Empty;
-    public int BookingsCount { get; init; }
+    public int StayBookingsCount { get; init; }
     public int ProspectingBookingsCount { get; init; }
     public int ConfirmedBookingsCount { get; init; }
     public int CancelledBookingsCount { get; init; }
     public int CompletedBookingsCount { get; init; }
     public decimal TotalFinalAmount { get; init; }
     public int HistoricalBookingsCount { get; init; }
-    public int HistoricalProspectingBookingsCount { get; init; }
-    public int HistoricalConfirmedBookingsCount { get; init; }
-    public int HistoricalCancelledBookingsCount { get; init; }
-    public int HistoricalCompletedBookingsCount { get; init; }
-    public decimal HistoricalFinalAmount { get; init; }
     public decimal HistoricalAgreedAmount { get; init; }
+    public int HistoricalLegacySystemBookingsCount { get; init; }
+    public int HistoricalExternalPlatformBookingsCount { get; init; }
+    public int HistoricalOfflineRecordBookingsCount { get; init; }
+    public int HistoricalOtherSourceBookingsCount { get; init; }
 }
 
 public record HistoricalEntryReconciliationResponse
 {
     public Guid BookingId { get; init; }
+    public DateOnly RecordedDate { get; init; }
     public DateTime RecordedAt { get; init; }
     public DateOnly ActualBookedAt { get; init; }
     public int EntryLagDays { get; init; }
-    public DateOnly StayStart { get; init; }
-    public DateOnly StayEnd { get; init; }
+    public DateOnly StayStartDate { get; init; }
+    public DateOnly StayEndDate { get; init; }
     public int StayNights { get; init; }
     public string BookingSource { get; init; } = string.Empty;
     public string OriginalSource { get; init; } = string.Empty;
@@ -84,8 +78,8 @@ public record HistoricalEntryReconciliationResponse
     public Guid UnitId { get; init; }
     public Guid OwnerId { get; init; }
     public decimal AgreedAmount { get; init; }
-    public decimal ActiveInvoiceAmount { get; init; }
-    public decimal OrdinaryInvoiceLinkedPaidAmount { get; init; }
+    public decimal InvoicedAmount { get; init; }
+    public decimal InvoiceLinkedPaidAmount { get; init; }
     public int OrdinaryUnlinkedPaidCount { get; init; }
     public decimal OrdinaryUnlinkedPaidAmount { get; init; }
     public int HistoricalPaymentEvidenceCount { get; init; }
@@ -110,17 +104,14 @@ public record FinanceAnalyticsDailySummaryResponse
     public decimal TotalPendingPayoutAmount { get; init; }
     public decimal TotalScheduledPayoutAmount { get; init; }
     public decimal TotalPaidPayoutAmount { get; init; }
+    public int HistoricalBookingsCount { get; init; }
+    public decimal HistoricalAgreedAmount { get; init; }
     public int HistoricalBookingsWithInvoiceCount { get; init; }
     public decimal HistoricalInvoicedAmount { get; init; }
-    public decimal HistoricalInvoiceLinkedPaidAmount { get; init; }
-    public decimal HistoricalRemainingAmount { get; init; }
-    public int OrdinaryOrphanPaymentCount { get; init; }
-    public decimal OrdinaryOrphanPaymentAmount { get; init; }
-    public int HistoricalBookingOrdinaryOrphanPaymentCount { get; init; }
-    public decimal HistoricalBookingOrdinaryOrphanPaymentAmount { get; init; }
-    public int HistoricalPaymentEvidenceCount { get; init; }
-    public decimal HistoricalPaymentEvidenceAmount { get; init; }
-    public decimal HistoricalAgreedAmount { get; init; }
+    public int OrdinaryUnlinkedPaidCount { get; init; }
+    public decimal OrdinaryUnlinkedPaidAmount { get; init; }
+    public int HistoricalEvidenceRecordedCount { get; init; }
+    public decimal HistoricalEvidenceRecordedAmount { get; init; }
 }
 
 public record FinanceAnalyticsSummaryResponse
@@ -136,28 +127,25 @@ public record FinanceAnalyticsSummaryResponse
     public decimal TotalPendingPayoutAmount { get; init; }
     public decimal TotalScheduledPayoutAmount { get; init; }
     public decimal TotalPaidPayoutAmount { get; init; }
+    public int HistoricalBookingsCount { get; init; }
+    public decimal HistoricalAgreedAmount { get; init; }
     public int HistoricalBookingsWithInvoiceCount { get; init; }
     public decimal HistoricalInvoicedAmount { get; init; }
-    public decimal HistoricalInvoiceLinkedPaidAmount { get; init; }
-    public decimal HistoricalRemainingAmount { get; init; }
-    public int OrdinaryOrphanPaymentCount { get; init; }
-    public decimal OrdinaryOrphanPaymentAmount { get; init; }
-    public int HistoricalBookingOrdinaryOrphanPaymentCount { get; init; }
-    public decimal HistoricalBookingOrdinaryOrphanPaymentAmount { get; init; }
-    public decimal HistoricalAgreedAmount { get; init; }
+    public int OrdinaryUnlinkedPaidCount { get; init; }
+    public decimal OrdinaryUnlinkedPaidAmount { get; init; }
 }
 
 public record FinanceAnalyticsStayDailySummaryResponse
 {
-    public DateOnly MetricDate { get; init; }
-    public string BookingSource { get; init; } = string.Empty;
+    public DateOnly StayStartDate { get; init; }
+    public int StayBookingsCount { get; init; }
     public int BookingsWithInvoiceCount { get; init; }
     public decimal TotalInvoicedAmount { get; init; }
     public decimal TotalFinalAmount { get; init; }
     public int HistoricalBookingsCount { get; init; }
     public decimal HistoricalAgreedAmount { get; init; }
-    public decimal HistoricalInvoicedAmount { get; init; }
     public int HistoricalBookingsWithInvoiceCount { get; init; }
+    public decimal HistoricalInvoicedAmount { get; init; }
 }
 
 // ---------------------------------------------------------------------------

@@ -40,33 +40,34 @@ public sealed class HistoricalReportingContractTests
     [Fact]
     public void ReportingDtosExposeTheRatifiedPiiFreeDictionary()
     {
-        AssertProperties<BookingAnalyticsStayDailySummaryResponse>(
-            "MetricDate", "BookingSource", "BookingsCount", "ProspectingBookingsCount",
+        AssertExactProperties<BookingAnalyticsStayDailySummaryResponse>(
+            "StayStartDate", "BookingSource", "StayBookingsCount", "ProspectingBookingsCount",
             "ConfirmedBookingsCount", "CancelledBookingsCount", "CompletedBookingsCount",
             "TotalFinalAmount", "HistoricalBookingsCount",
-            "HistoricalProspectingBookingsCount", "HistoricalConfirmedBookingsCount",
-            "HistoricalCancelledBookingsCount", "HistoricalCompletedBookingsCount",
-            "HistoricalFinalAmount", "HistoricalAgreedAmount");
-        AssertProperties<FinanceAnalyticsStayDailySummaryResponse>(
-            "MetricDate", "BookingSource", "BookingsWithInvoiceCount",
+            "HistoricalAgreedAmount", "HistoricalLegacySystemBookingsCount",
+            "HistoricalExternalPlatformBookingsCount", "HistoricalOfflineRecordBookingsCount",
+            "HistoricalOtherSourceBookingsCount");
+        AssertExactProperties<FinanceAnalyticsStayDailySummaryResponse>(
+            "StayStartDate", "StayBookingsCount", "BookingsWithInvoiceCount",
             "TotalInvoicedAmount", "TotalFinalAmount", "HistoricalBookingsCount",
-            "HistoricalAgreedAmount", "HistoricalInvoicedAmount",
-            "HistoricalBookingsWithInvoiceCount");
-        AssertProperties<FinanceAnalyticsDailySummaryResponse>(
-            "OrdinaryOrphanPaymentCount", "OrdinaryOrphanPaymentAmount",
-            "HistoricalBookingOrdinaryOrphanPaymentCount",
-            "HistoricalBookingOrdinaryOrphanPaymentAmount",
-            "HistoricalPaymentEvidenceCount", "HistoricalPaymentEvidenceAmount");
+            "HistoricalAgreedAmount", "HistoricalBookingsWithInvoiceCount",
+            "HistoricalInvoicedAmount");
+        AssertExactProperties<FinanceAnalyticsDailySummaryResponse>(
+            "MetricDate", "BookingsWithInvoiceCount", "TotalInvoicedAmount",
+            "TotalPaidAmount", "TotalRemainingAmount", "TotalPendingPayoutAmount",
+            "TotalScheduledPayoutAmount", "TotalPaidPayoutAmount", "HistoricalBookingsCount",
+            "HistoricalAgreedAmount", "HistoricalBookingsWithInvoiceCount",
+            "HistoricalInvoicedAmount", "OrdinaryUnlinkedPaidCount",
+            "OrdinaryUnlinkedPaidAmount", "HistoricalEvidenceRecordedCount",
+            "HistoricalEvidenceRecordedAmount");
         AssertProperties<FinanceAnalyticsSummaryResponse>(
-            "OrdinaryOrphanPaymentCount", "OrdinaryOrphanPaymentAmount",
-            "HistoricalBookingOrdinaryOrphanPaymentCount",
-            "HistoricalBookingOrdinaryOrphanPaymentAmount",
+            "OrdinaryUnlinkedPaidCount", "OrdinaryUnlinkedPaidAmount",
             "HistoricalPaymentEvidenceCount", "HistoricalPaymentEvidenceAmount");
-        AssertProperties<HistoricalEntryReconciliationResponse>(
-            "BookingId", "RecordedAt", "ActualBookedAt", "EntryLagDays", "StayStart",
-            "StayEnd", "StayNights", "BookingSource", "OriginalSource",
+        AssertExactProperties<HistoricalEntryReconciliationResponse>(
+            "BookingId", "RecordedDate", "RecordedAt", "ActualBookedAt", "EntryLagDays",
+            "StayStartDate", "StayEndDate", "StayNights", "BookingSource", "OriginalSource",
             "HistoricalEntryReason", "BookingStatus", "UnitId", "OwnerId",
-            "AgreedAmount", "ActiveInvoiceAmount", "OrdinaryInvoiceLinkedPaidAmount",
+            "AgreedAmount", "InvoicedAmount", "InvoiceLinkedPaidAmount",
             "OrdinaryUnlinkedPaidCount", "OrdinaryUnlinkedPaidAmount",
             "HistoricalPaymentEvidenceCount", "HistoricalPaymentEvidenceAmount",
             "FirstEvidencePaidDate", "LastEvidencePaidDate",
@@ -145,13 +146,13 @@ public sealed class HistoricalReportingContractTests
         var validator = new GetHistoricalReportingDailyRequestValidator();
         var accepted = validator.TestValidate(new GetHistoricalReportingDailyRequest
         {
-            DateFrom = new DateOnly(2024, 2, 29),
-            DateTo = new DateOnly(2026, 2, 27)
+            DateFrom = new DateOnly(2028, 2, 29),
+            DateTo = new DateOnly(2030, 2, 27)
         });
         var rejected = validator.TestValidate(new GetHistoricalReportingDailyRequest
         {
-            DateFrom = new DateOnly(2024, 2, 29),
-            DateTo = new DateOnly(2026, 2, 28)
+            DateFrom = new DateOnly(2028, 2, 29),
+            DateTo = new DateOnly(2030, 2, 28)
         });
 
         Assert.True(accepted.IsValid);
@@ -270,6 +271,12 @@ public sealed class HistoricalReportingContractTests
     {
         var properties = typeof(T).GetProperties().Select(property => property.Name).ToHashSet();
         Assert.All(propertyNames, name => Assert.Contains(name, properties));
+    }
+
+    private static void AssertExactProperties<T>(params string[] propertyNames)
+    {
+        var actual = typeof(T).GetProperties().Select(property => property.Name).Order().ToArray();
+        Assert.Equal(propertyNames.Order().ToArray(), actual);
     }
 
     private static int Count(string source, string value) =>

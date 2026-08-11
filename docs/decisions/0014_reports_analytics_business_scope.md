@@ -145,6 +145,8 @@ Stay-daily filters use inclusive `dateFrom`/`dateTo`; reconciliation uses inclus
 default. On Stay routes, `historicalOnly=true` is restrictive and cannot be combined with
 `includeHistorical=false`; invalid requests return `400 VALIDATION_ERROR`. Reconciliation is intrinsically
 Historical and rejects either filter when supplied. Existing recorded routes do not acquire these filters.
+All three new list routes use the established `ApiResponse<IReadOnlyList<T>>` plus `PaginationMeta` envelope;
+`page` starts at 1 and `pageSize` is bounded to 1 through 100.
 
 Responses are PII-free. Recorded and stay axes answer different questions and must never be summed.
 `actual_booked_at` is used only for per-booking Historical reconciliation/entry-lag reporting. Stay Finance

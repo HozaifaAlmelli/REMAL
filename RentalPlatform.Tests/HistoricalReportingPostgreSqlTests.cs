@@ -53,37 +53,27 @@ public sealed class HistoricalReportingPostgreSqlTests
                 + recordedAdmin.HistoricalOfflineRecordBookingsCount
                 + recordedAdmin.HistoricalOtherSourceBookingsCount);
 
-        var ordinaryRecorded = await bookingService.GetDailySummaryAsync(
-            DateOnly.FromDateTime(RecordedAt), DateOnly.FromDateTime(RecordedAt),
-            cancellationToken: default, includeHistorical: false);
-        var ordinaryRecordedAdmin = Assert.Single(ordinaryRecorded, row => row.BookingSource == "admin");
-        Assert.Equal(seed.OrdinaryBookings, ordinaryRecordedAdmin.BookingsCreatedCount);
-        Assert.Equal(0, ordinaryRecordedAdmin.HistoricalBookingsCount);
-
-        var historicalRecorded = await bookingService.GetDailySummaryAsync(
-            DateOnly.FromDateTime(RecordedAt), DateOnly.FromDateTime(RecordedAt),
-            cancellationToken: default, includeHistorical: true, historicalOnly: true);
-        var historicalRecordedAdmin = Assert.Single(historicalRecorded, row => row.BookingSource == "admin");
-        Assert.Equal(seed.HistoricalBookings, historicalRecordedAdmin.BookingsCreatedCount);
-        Assert.Equal(seed.HistoricalAgreedAmount, historicalRecordedAdmin.TotalFinalAmount);
-
         var stayAll = await bookingService.GetStayDailySummaryAsync(MixedStayDate, MixedStayDate);
         var stayAllAdmin = Assert.Single(stayAll, row => row.BookingSource == "admin");
-        Assert.Equal(seed.TotalBookings, stayAllAdmin.BookingsCount);
+        Assert.Equal(seed.TotalBookings - 1, stayAllAdmin.StayBookingsCount);
         Assert.Equal(seed.HistoricalBookings, stayAllAdmin.HistoricalBookingsCount);
+        Assert.Equal(1, stayAllAdmin.HistoricalLegacySystemBookingsCount);
+        Assert.Equal(1, stayAllAdmin.HistoricalExternalPlatformBookingsCount);
+        Assert.Equal(1, stayAllAdmin.HistoricalOfflineRecordBookingsCount);
+        Assert.Equal(2, stayAllAdmin.HistoricalOtherSourceBookingsCount);
 
         var stayOrdinary = await bookingService.GetStayDailySummaryAsync(
             MixedStayDate, MixedStayDate, includeHistorical: false);
         var stayOrdinaryAdmin = Assert.Single(stayOrdinary, row => row.BookingSource == "admin");
-        Assert.Equal(seed.OrdinaryBookings, stayOrdinaryAdmin.BookingsCount);
+        Assert.Equal(seed.OrdinaryBookings - 1, stayOrdinaryAdmin.StayBookingsCount);
         Assert.Equal(0, stayOrdinaryAdmin.HistoricalBookingsCount);
 
         var stayHistorical = await bookingService.GetStayDailySummaryAsync(
             MixedStayDate, MixedStayDate, includeHistorical: true, historicalOnly: true);
         var stayHistoricalAdmin = Assert.Single(stayHistorical, row => row.BookingSource == "admin");
-        Assert.Equal(seed.HistoricalBookings, stayHistoricalAdmin.BookingsCount);
+        Assert.Equal(seed.HistoricalBookings, stayHistoricalAdmin.StayBookingsCount);
         Assert.Equal(seed.HistoricalAgreedAmount, stayHistoricalAdmin.TotalFinalAmount);
-        Assert.Equal(stayAllAdmin.BookingsCount, stayOrdinaryAdmin.BookingsCount + stayHistoricalAdmin.BookingsCount);
+        Assert.Equal(stayAllAdmin.StayBookingsCount, stayOrdinaryAdmin.StayBookingsCount + stayHistoricalAdmin.StayBookingsCount);
         Assert.Equal(stayAllAdmin.TotalFinalAmount, stayOrdinaryAdmin.TotalFinalAmount + stayHistoricalAdmin.TotalFinalAmount);
 
         var recordedFinance = await financeService.GetDailySummaryAsync(
@@ -95,12 +85,12 @@ public sealed class HistoricalReportingPostgreSqlTests
         Assert.Equal(1_000m, financeRecordedBucket.HistoricalInvoicedAmount);
         Assert.Equal(800m, financeRecordedBucket.TotalPaidAmount);
         Assert.Equal(1_200m, financeRecordedBucket.TotalRemainingAmount);
-        Assert.Equal(2, financeRecordedBucket.OrdinaryOrphanPaymentCount);
-        Assert.Equal(75m, financeRecordedBucket.OrdinaryOrphanPaymentAmount);
-        Assert.Equal(1, financeRecordedBucket.HistoricalBookingOrdinaryOrphanPaymentCount);
-        Assert.Equal(50m, financeRecordedBucket.HistoricalBookingOrdinaryOrphanPaymentAmount);
-        Assert.Equal(2, financeRecordedBucket.HistoricalPaymentEvidenceCount);
-        Assert.Equal(701.48m, financeRecordedBucket.HistoricalPaymentEvidenceAmount);
+        Assert.Equal(seed.HistoricalBookings, financeRecordedBucket.HistoricalBookingsCount);
+        Assert.Equal(seed.HistoricalAgreedAmount, financeRecordedBucket.HistoricalAgreedAmount);
+        Assert.Equal(2, financeRecordedBucket.OrdinaryUnlinkedPaidCount);
+        Assert.Equal(75m, financeRecordedBucket.OrdinaryUnlinkedPaidAmount);
+        Assert.Equal(2, financeRecordedBucket.HistoricalEvidenceRecordedCount);
+        Assert.Equal(701.48m, financeRecordedBucket.HistoricalEvidenceRecordedAmount);
 
         var phantomEvidenceDate = await financeService.GetDailySummaryAsync(EvidenceDate, EvidenceDate);
         Assert.Empty(phantomEvidenceDate);
@@ -112,17 +102,23 @@ public sealed class HistoricalReportingPostgreSqlTests
             MixedStayDate, MixedStayDate, includeHistorical: true, historicalOnly: true));
 
         Assert.Equal(2, stayFinanceAll.BookingsWithInvoiceCount);
+        Assert.Equal(seed.TotalBookings - 1, stayFinanceAll.StayBookingsCount);
         Assert.Equal(1, stayFinanceAll.HistoricalBookingsWithInvoiceCount);
         Assert.Equal(2_000m, stayFinanceAll.TotalInvoicedAmount);
         Assert.Equal(1_000m, stayFinanceAll.HistoricalInvoicedAmount);
         Assert.Equal(seed.TotalFinalAmount, stayFinanceAll.TotalFinalAmount);
         Assert.Equal(seed.HistoricalAgreedAmount, stayFinanceAll.HistoricalAgreedAmount);
         Assert.Equal(1, stayFinanceOrdinary.BookingsWithInvoiceCount);
+        Assert.Equal(seed.OrdinaryBookings - 1, stayFinanceOrdinary.StayBookingsCount);
         Assert.Equal(1_000m, stayFinanceOrdinary.TotalInvoicedAmount);
         Assert.Equal(seed.OrdinaryFinalAmount, stayFinanceOrdinary.TotalFinalAmount);
         Assert.Equal(1, stayFinanceHistorical.BookingsWithInvoiceCount);
+        Assert.Equal(seed.HistoricalBookings, stayFinanceHistorical.StayBookingsCount);
         Assert.Equal(1_000m, stayFinanceHistorical.TotalInvoicedAmount);
         Assert.Equal(seed.HistoricalAgreedAmount, stayFinanceHistorical.TotalFinalAmount);
+        Assert.Equal(
+            stayFinanceAll.StayBookingsCount,
+            stayFinanceOrdinary.StayBookingsCount + stayFinanceHistorical.StayBookingsCount);
         Assert.Equal(
             stayFinanceAll.BookingsWithInvoiceCount,
             stayFinanceOrdinary.BookingsWithInvoiceCount + stayFinanceHistorical.BookingsWithInvoiceCount);
@@ -138,12 +134,13 @@ public sealed class HistoricalReportingPostgreSqlTests
         Assert.Equal(seed.HistoricalBookings, reconciliation.Count);
         Assert.Equal(reconciliation.Count, reconciliation.Select(row => row.BookingId).Distinct().Count());
         var activeHistorical = Assert.Single(reconciliation, row => row.BookingId == seed.ActiveHistoricalId);
+        Assert.Equal(DateOnly.FromDateTime(RecordedAt), activeHistorical.RecordedDate);
         Assert.Equal(RecordedAt, activeHistorical.RecordedAt);
         Assert.Equal(
             DateOnly.FromDateTime(RecordedAt).DayNumber - activeHistorical.ActualBookedAt.DayNumber,
             activeHistorical.EntryLagDays);
-        Assert.Equal(1_000m, activeHistorical.ActiveInvoiceAmount);
-        Assert.Equal(400m, activeHistorical.OrdinaryInvoiceLinkedPaidAmount);
+        Assert.Equal(1_000m, activeHistorical.InvoicedAmount);
+        Assert.Equal(400m, activeHistorical.InvoiceLinkedPaidAmount);
         Assert.Equal(1, activeHistorical.OrdinaryUnlinkedPaidCount);
         Assert.Equal(50m, activeHistorical.OrdinaryUnlinkedPaidAmount);
         Assert.Equal(2, activeHistorical.HistoricalPaymentEvidenceCount);
@@ -180,6 +177,26 @@ public sealed class HistoricalReportingPostgreSqlTests
         Assert.Equal(boundaryCreatedAt, boundary.RecordedAt);
         Assert.Equal(new DateOnly(2026, 8, 10), boundary.ActualBookedAt);
         Assert.Equal(-1, boundary.EntryLagDays);
+    }
+
+    [Fact]
+    public async Task OrdinaryZeroValueStayWithoutInvoiceRemainsVisibleInOrdinaryProjection()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        await using var context = database.CreateDbContext();
+        await SeedMatrixAsync(context);
+        var service = new ReportingFinanceAnalyticsService(
+            new UnitOfWork(context), NullLogger<ReportingFinanceAnalyticsService>.Instance);
+        var stayDate = MixedStayDate.AddDays(10);
+
+        var row = Assert.Single(await service.GetStayDailySummaryAsync(
+            stayDate, stayDate, includeHistorical: false));
+
+        Assert.Equal(stayDate, row.StayStartDate);
+        Assert.Equal(1, row.StayBookingsCount);
+        Assert.Equal(0, row.BookingsWithInvoiceCount);
+        Assert.Equal(0m, row.TotalInvoicedAmount);
+        Assert.Equal(0m, row.TotalFinalAmount);
     }
 
     [Theory]
@@ -240,9 +257,9 @@ public sealed class HistoricalReportingPostgreSqlTests
 
         foreach (var query in new[]
                  {
-                     "SELECT * FROM reporting_booking_stay_daily_summary WHERE metric_date BETWEEN DATE '2025-01-01' AND DATE '2025-01-31'",
-                     "SELECT * FROM reporting_finance_stay_daily_summary WHERE metric_date BETWEEN DATE '2025-01-01' AND DATE '2025-01-31'",
-                     "SELECT * FROM reporting_historical_entry_reconciliation WHERE stay_start BETWEEN DATE '2025-01-01' AND DATE '2025-01-31'",
+                     "SELECT * FROM reporting_booking_stay_daily_summary WHERE stay_start_date BETWEEN DATE '2025-01-01' AND DATE '2025-01-31'",
+                     "SELECT * FROM reporting_finance_stay_daily_summary WHERE stay_start_date BETWEEN DATE '2025-01-01' AND DATE '2025-01-31'",
+                     "SELECT * FROM reporting_historical_entry_reconciliation WHERE stay_start_date BETWEEN DATE '2025-01-01' AND DATE '2025-01-31'",
                      "SELECT * FROM reporting_finance_daily_summary WHERE metric_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'"
                  })
         {
@@ -279,11 +296,11 @@ public sealed class HistoricalReportingPostgreSqlTests
 
         await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, migration);
         await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, verifier);
-        Assert.Equal(19, await ColumnCountAsync(connection, "reporting_booking_daily_summary"));
-        Assert.Equal(15, await ColumnCountAsync(connection, "reporting_booking_stay_daily_summary"));
-        Assert.Equal(19, await ColumnCountAsync(connection, "reporting_finance_daily_summary"));
+        Assert.Equal(14, await ColumnCountAsync(connection, "reporting_booking_daily_summary"));
+        Assert.Equal(14, await ColumnCountAsync(connection, "reporting_booking_stay_daily_summary"));
+        Assert.Equal(16, await ColumnCountAsync(connection, "reporting_finance_daily_summary"));
         Assert.Equal(9, await ColumnCountAsync(connection, "reporting_finance_stay_daily_summary"));
-        Assert.Equal(24, await ColumnCountAsync(connection, "reporting_historical_entry_reconciliation"));
+        Assert.Equal(25, await ColumnCountAsync(connection, "reporting_historical_entry_reconciliation"));
 
         await using var afterContext = database.CreateDbContext();
         Assert.Equal(before, await DataCountsAsync(afterContext));
@@ -291,10 +308,13 @@ public sealed class HistoricalReportingPostgreSqlTests
     }
 
     [Theory]
-    [InlineData("missing-stay-historical-invoice-count")]
-    [InlineData("cash-on-stay-finance")]
+    [InlineData("extra-recorded-booking-status")]
+    [InlineData("missing-stay-provenance")]
+    [InlineData("extra-recorded-finance-historical-paid")]
+    [InlineData("stay-finance-wrong-second-column")]
+    [InlineData("reconciliation-without-recorded-date")]
+    [InlineData("reconciliation-wrong-agreed-precision")]
     [InlineData("wrong-provenance-remainder")]
-    [InlineData("reconciliation-without-booking-id")]
     [InlineData("duplicate-reconciliation-grain")]
     [InlineData("phantom-evidence-date")]
     [InlineData("historical-evidence-in-settlement")]
@@ -322,19 +342,65 @@ public sealed class HistoricalReportingPostgreSqlTests
     {
         var sql = mutation switch
         {
-            "missing-stay-historical-invoice-count" => """
+            "extra-recorded-booking-status" => """
+                ALTER VIEW reporting_booking_daily_summary RENAME TO reporting_booking_daily_summary_base;
+                CREATE VIEW reporting_booking_daily_summary AS
+                SELECT *, 0::integer AS historical_completed_bookings_count
+                FROM reporting_booking_daily_summary_base;
+                """,
+            "missing-stay-provenance" => """
+                ALTER VIEW reporting_booking_stay_daily_summary RENAME TO reporting_booking_stay_daily_summary_base;
+                CREATE VIEW reporting_booking_stay_daily_summary AS
+                SELECT stay_start_date, booking_source, stay_bookings_count,
+                       prospecting_bookings_count, confirmed_bookings_count,
+                       cancelled_bookings_count, completed_bookings_count, total_final_amount,
+                       historical_bookings_count, historical_agreed_amount,
+                       historical_legacy_system_bookings_count,
+                       historical_external_platform_bookings_count,
+                       historical_offline_record_bookings_count
+                FROM reporting_booking_stay_daily_summary_base;
+                """,
+            "extra-recorded-finance-historical-paid" => """
+                ALTER VIEW reporting_finance_daily_summary RENAME TO reporting_finance_daily_summary_base;
+                CREATE VIEW reporting_finance_daily_summary AS
+                SELECT *, 0::numeric(14,2) AS historical_invoice_linked_paid_amount
+                FROM reporting_finance_daily_summary_base;
+                """,
+            "stay-finance-wrong-second-column" => """
                 ALTER VIEW reporting_finance_stay_daily_summary RENAME TO reporting_finance_stay_daily_summary_base;
                 CREATE VIEW reporting_finance_stay_daily_summary AS
-                SELECT metric_date, booking_source, bookings_with_invoice_count,
-                       total_invoiced_amount, total_final_amount, historical_bookings_count,
-                       historical_agreed_amount, historical_invoiced_amount
+                SELECT stay_start_date, 'admin'::varchar(50) AS booking_source,
+                       bookings_with_invoice_count, total_invoiced_amount, total_final_amount,
+                       historical_bookings_count, historical_agreed_amount,
+                       historical_bookings_with_invoice_count, historical_invoiced_amount
                 FROM reporting_finance_stay_daily_summary_base;
                 """,
-            "cash-on-stay-finance" => """
-                ALTER VIEW reporting_finance_stay_daily_summary RENAME TO reporting_finance_stay_daily_summary_base;
-                CREATE VIEW reporting_finance_stay_daily_summary AS
-                SELECT *, 0::numeric(14,2) AS invoice_linked_paid_amount
-                FROM reporting_finance_stay_daily_summary_base;
+            "reconciliation-without-recorded-date" => """
+                ALTER VIEW reporting_historical_entry_reconciliation RENAME TO reporting_historical_entry_reconciliation_base;
+                CREATE VIEW reporting_historical_entry_reconciliation AS
+                SELECT booking_id, recorded_at, actual_booked_at, entry_lag_days,
+                       stay_start_date, stay_end_date, stay_nights, booking_source, original_source,
+                       historical_entry_reason, booking_status, unit_id, owner_id, agreed_amount,
+                       invoiced_amount, invoice_linked_paid_amount, ordinary_unlinked_paid_count,
+                       ordinary_unlinked_paid_amount, historical_payment_evidence_count,
+                       historical_payment_evidence_amount, first_evidence_paid_date,
+                       last_evidence_paid_date, owner_attribution_correction_count,
+                       last_owner_attribution_corrected_at
+                FROM reporting_historical_entry_reconciliation_base;
+                """,
+            "reconciliation-wrong-agreed-precision" => """
+                ALTER VIEW reporting_historical_entry_reconciliation RENAME TO reporting_historical_entry_reconciliation_base;
+                CREATE VIEW reporting_historical_entry_reconciliation AS
+                SELECT booking_id, recorded_date, recorded_at, actual_booked_at, entry_lag_days,
+                       stay_start_date, stay_end_date, stay_nights, booking_source, original_source,
+                       historical_entry_reason, booking_status, unit_id, owner_id,
+                       agreed_amount::numeric(14,2) AS agreed_amount, invoiced_amount,
+                       invoice_linked_paid_amount, ordinary_unlinked_paid_count,
+                       ordinary_unlinked_paid_amount, historical_payment_evidence_count,
+                       historical_payment_evidence_amount, first_evidence_paid_date,
+                       last_evidence_paid_date, owner_attribution_correction_count,
+                       last_owner_attribution_corrected_at
+                FROM reporting_historical_entry_reconciliation_base;
                 """,
             "wrong-provenance-remainder" => """
                 ALTER VIEW reporting_booking_daily_summary RENAME TO reporting_booking_daily_summary_base;
@@ -342,27 +408,12 @@ public sealed class HistoricalReportingPostgreSqlTests
                 SELECT metric_date, booking_source, bookings_created_count,
                        prospecting_bookings_count, confirmed_bookings_count,
                        cancelled_bookings_count, completed_bookings_count, total_final_amount,
-                       historical_bookings_count, historical_prospecting_bookings_count,
-                       historical_confirmed_bookings_count, historical_cancelled_bookings_count,
-                       historical_completed_bookings_count, historical_final_amount,
-                       historical_agreed_amount, historical_legacy_system_bookings_count,
+                       historical_bookings_count, historical_agreed_amount,
+                       historical_legacy_system_bookings_count,
                        historical_external_platform_bookings_count,
                        historical_offline_record_bookings_count,
                        0::integer AS historical_other_source_bookings_count
                 FROM reporting_booking_daily_summary_base;
-                """,
-            "reconciliation-without-booking-id" => """
-                ALTER VIEW reporting_historical_entry_reconciliation RENAME TO reporting_historical_entry_reconciliation_base;
-                CREATE VIEW reporting_historical_entry_reconciliation AS
-                SELECT recorded_at, actual_booked_at, entry_lag_days, stay_start, stay_end,
-                       stay_nights, booking_source, original_source, historical_entry_reason,
-                       booking_status, unit_id, owner_id, agreed_amount, active_invoice_amount,
-                       ordinary_invoice_linked_paid_amount, ordinary_unlinked_paid_count,
-                       ordinary_unlinked_paid_amount, historical_payment_evidence_count,
-                       historical_payment_evidence_amount, first_evidence_paid_date,
-                       last_evidence_paid_date, owner_attribution_correction_count,
-                       last_owner_attribution_corrected_at
-                FROM reporting_historical_entry_reconciliation_base;
                 """,
             "duplicate-reconciliation-grain" => """
                 ALTER VIEW reporting_historical_entry_reconciliation RENAME TO reporting_historical_entry_reconciliation_base;
@@ -378,10 +429,9 @@ public sealed class HistoricalReportingPostgreSqlTests
                 UNION ALL
                 SELECT DATE(p.paid_at), 0::integer, 0::numeric(14,2), 0::numeric(14,2),
                        0::numeric(14,2), 0::numeric(14,2), 0::numeric(14,2),
-                       0::numeric(14,2), 0::integer, 0::numeric(14,2), 0::numeric(14,2),
                        0::numeric(14,2), 0::integer, 0::numeric(14,2), 0::integer,
-                       0::numeric(14,2), count(*)::integer, sum(p.amount)::numeric(14,2),
-                       0::numeric(14,2)
+                       0::numeric(14,2), 0::integer, 0::numeric(14,2), count(*)::integer,
+                       sum(p.amount)::numeric(14,2)
                 FROM payments p
                 WHERE p.is_historical_record AND p.invoice_id IS NULL AND p.payment_status = 'paid'
                 GROUP BY DATE(p.paid_at);
@@ -390,19 +440,16 @@ public sealed class HistoricalReportingPostgreSqlTests
                 ALTER VIEW reporting_finance_daily_summary RENAME TO reporting_finance_daily_summary_base;
                 CREATE VIEW reporting_finance_daily_summary AS
                 SELECT metric_date, bookings_with_invoice_count, total_invoiced_amount,
-                       (total_paid_amount + historical_payment_evidence_amount)::numeric(14,2)
+                       (total_paid_amount + historical_evidence_recorded_amount)::numeric(14,2)
                            AS total_paid_amount,
-                       (total_remaining_amount - historical_payment_evidence_amount)::numeric(14,2)
+                       (total_remaining_amount - historical_evidence_recorded_amount)::numeric(14,2)
                            AS total_remaining_amount,
                        total_pending_payout_amount, total_scheduled_payout_amount,
-                       total_paid_payout_amount, historical_bookings_with_invoice_count,
-                       historical_invoiced_amount, historical_invoice_linked_paid_amount,
-                       historical_remaining_amount, ordinary_orphan_payment_count,
-                       ordinary_orphan_payment_amount,
-                       historical_booking_ordinary_orphan_payment_count,
-                       historical_booking_ordinary_orphan_payment_amount,
-                       historical_payment_evidence_count, historical_payment_evidence_amount,
-                       historical_agreed_amount
+                       total_paid_payout_amount, historical_bookings_count,
+                       historical_agreed_amount, historical_bookings_with_invoice_count,
+                       historical_invoiced_amount, ordinary_unlinked_paid_count,
+                       ordinary_unlinked_paid_amount, historical_evidence_recorded_count,
+                       historical_evidence_recorded_amount
                 FROM reporting_finance_daily_summary_base;
                 """,
             "entry-lag-below-minus-one" =>
@@ -434,7 +481,7 @@ public sealed class HistoricalReportingPostgreSqlTests
                WHERE booking_id = @cancelled_booking
                  AND invoice_status NOT IN ('cancelled', 'superseded')),
               (SELECT sum(bookings_created_count) FROM reporting_booking_daily_summary),
-              (SELECT sum(bookings_count) FROM reporting_booking_stay_daily_summary),
+              (SELECT sum(stay_bookings_count) FROM reporting_booking_stay_daily_summary),
               (SELECT sum(historical_bookings_count) FROM reporting_booking_daily_summary),
               (SELECT sum(historical_bookings_count) FROM reporting_booking_stay_daily_summary),
               (SELECT sum(historical_agreed_amount) FROM reporting_booking_daily_summary),
@@ -472,7 +519,7 @@ public sealed class HistoricalReportingPostgreSqlTests
         var project = new Project { Id = Guid.NewGuid(), Name = $"HB08A2 {suffix}", IsActive = true, CreatedAt = RecordedAt, UpdatedAt = RecordedAt };
         var client = new Client { Id = Guid.NewGuid(), Name = "HB08A2 client", Phone = TestPhone("22"), PasswordHash = "test", IsActive = true, CreatedAt = RecordedAt, UpdatedAt = RecordedAt };
         var admin = new AdminUser { Id = Guid.NewGuid(), Name = "HB08A2 admin", Email = $"hb08a2-{suffix}@example.test", PasswordHash = "test", RoleTemplateId = Guid.Parse("10000000-0000-0000-0000-000000000001"), IsActive = true, CreatedAt = RecordedAt, UpdatedAt = RecordedAt };
-        var units = Enumerable.Range(1, 7).Select(index => new Unit
+        var units = Enumerable.Range(1, 8).Select(index => new Unit
         {
             Id = Guid.NewGuid(), OwnerId = owner.Id, ProjectId = project.Id,
             Name = $"HB08A2 unit {index} {suffix}", UnitType = "apartment", Bedrooms = 2,
@@ -494,7 +541,10 @@ public sealed class HistoricalReportingPostgreSqlTests
         var historicalOther = Booking(units[5], client, owner, 400m, true, "other");
         var boundaryHistorical = Booking(units[6], client, owner, 300m, true, "channel_manager");
         boundaryHistorical.ActualBookedAt = new DateOnly(2026, 8, 10);
-        var bookings = new[] { ordinaryInvoiced, ordinaryNoInvoice, historicalActive, historicalNoInvoice, historicalCancelledInvoice, historicalOther, boundaryHistorical };
+        var ordinaryZeroNoInvoice = Booking(units[7], client, owner, 0m, false, null);
+        ordinaryZeroNoInvoice.CheckInDate = MixedStayDate.AddDays(10);
+        ordinaryZeroNoInvoice.CheckOutDate = MixedStayDate.AddDays(12);
+        var bookings = new[] { ordinaryInvoiced, ordinaryNoInvoice, historicalActive, historicalNoInvoice, historicalCancelledInvoice, historicalOther, boundaryHistorical, ordinaryZeroNoInvoice };
 
         var ordinaryInvoice = Invoice(ordinaryInvoiced, 1_000m, "ORD", "issued");
         var historicalInvoiceOne = Invoice(historicalActive, 700m, "H1", "issued");
