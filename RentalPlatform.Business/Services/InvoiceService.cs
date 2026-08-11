@@ -271,40 +271,75 @@ public class InvoiceService : IInvoiceService
 
     public async Task<Invoice> CancelAsync(Guid id, string? notes, CancellationToken cancellationToken = default)
     {
-        var invoice = await _unitOfWork.Invoices.Query()
-            .Include(i => i.InvoiceItems)
-            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
-
-        if (invoice == null)
+        var invoiceIdentity = await _unitOfWork.Invoices.Query()
+            .AsNoTracking()
+            .Where(invoice => invoice.Id == id)
+            .Select(invoice => new { invoice.BookingId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (invoiceIdentity == null)
             throw new NotFoundException($"Invoice with ID {id} not found");
 
-        if (invoice.InvoiceStatus == "cancelled")
-            throw new ConflictException($"Invoice {id} is already cancelled.");
+        IDbContextTransaction? ownedTransaction = null;
+        if (!_unitOfWork.HasActiveTransaction)
+            ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        if (invoice.InvoiceStatus == "paid")
-            throw new ConflictException($"Invoice {id} cannot be cancelled: invoice is already paid.");
+        try
+        {
+            // Cancellation changes the active-invoice capacity used by ordinary payments.
+            // Share their per-booking lock so capacity and settlement cannot cross in flight.
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                $"payment-booking:{invoiceIdentity.BookingId:N}",
+                cancellationToken);
 
-        // Check for linked paid payments
-        var hasPaidPayment = await _unitOfWork.Payments.ExistsAsync(
-            p => p.InvoiceId == id
-                && p.PaymentStatus == "paid"
-                && !p.IsHistoricalRecord,
-            cancellationToken);
-        if (hasPaidPayment)
-            throw new ConflictException(
-                $"Invoice {id} cannot be cancelled: there are paid payments linked to this invoice.");
+            var invoice = await _unitOfWork.Invoices.Query()
+                .Include(i => i.InvoiceItems)
+                .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+            if (invoice == null)
+                throw new NotFoundException($"Invoice with ID {id} not found");
 
-        invoice.InvoiceStatus = "cancelled";
+            await _unitOfWork.ReloadAsync(invoice, cancellationToken);
+            if (invoice.InvoiceStatus == "cancelled")
+                throw new ConflictException($"Invoice {id} is already cancelled.");
 
-        if (notes != null)
-            invoice.Notes = notes.Trim();
+            if (invoice.InvoiceStatus == "paid")
+                throw new ConflictException($"Invoice {id} cannot be cancelled: invoice is already paid.");
 
-        invoice.UpdatedAt = DateTime.UtcNow;
+            // Check for linked paid payments
+            var hasPaidPayment = await _unitOfWork.Payments.ExistsAsync(
+                p => p.InvoiceId == id
+                    && p.PaymentStatus == "paid"
+                    && !p.IsHistoricalRecord,
+                cancellationToken);
+            if (hasPaidPayment)
+                throw new ConflictException(
+                    $"Invoice {id} cannot be cancelled: there are paid payments linked to this invoice.");
 
-        _unitOfWork.Invoices.Update(invoice);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+            invoice.InvoiceStatus = "cancelled";
 
-        return invoice;
+            if (notes != null)
+                invoice.Notes = notes.Trim();
+
+            invoice.UpdatedAt = DateTime.UtcNow;
+
+            _unitOfWork.Invoices.Update(invoice);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+
+            return invoice;
+        }
+        catch
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
+        }
     }
 
     public async Task<int> LinkOrphanedPaymentsAsync(CancellationToken cancellationToken = default)

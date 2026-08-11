@@ -282,6 +282,24 @@ reporting defect correction.
   existing conflict contract, and invoice, finance, immutability and payout boundaries remain unchanged.
 - PAY-HIST-01 changes no migration, schema, endpoint, permission or reporting-view contract.
 
+### 15.5 PAY-OPS-01 settlement serialization evidence
+
+- Ordinary payment creation and `MarkPaidAsync` share the transaction-scoped
+  `payment-booking:{bookingId:N}` advisory lock. `MarkPaidAsync` re-reads the payment after acquiring
+  the lock, then performs status, capacity, overpayment and invoice-synchronization work in the same
+  transaction. A caller-owned transaction is joined but never committed by the service.
+- Invoice cancellation participates in the same booking lock because it can remove the active-invoice
+  capacity while a pending ordinary payment is settling. Invoice reissue retains its existing lock and
+  does not join this boundary because it preserves the invoice amount; both concurrency orderings are
+  covered by PostgreSQL tests.
+- Focused supported-flow coverage raises invoice capacity, records pending reservations, cancels the
+  invoice to restore booking fallback capacity, and proves concurrent settlement cannot make ordinary
+  paid exceed that capacity. Exact-capacity settlement, same-payment concurrency, creation concurrency,
+  different-booking parallelism and PAY-HIST-01 boundaries remain covered.
+- PAY-OPS-01 changes no schema, endpoint, permission, Historical Payment command or reporting contract.
+  `INV-OPS-01` (manual-adjustment invoice-total divergence) and `INV-OPS-02` (invoice capacity shrink can
+  leave paid plus pending reservations above the new capacity) remain separate release-hardening work.
+
 ## 16. Migration and rollout plan
 
 ### 16.1 Ordering
