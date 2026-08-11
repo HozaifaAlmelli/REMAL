@@ -190,6 +190,7 @@ public class PaymentService : IPaymentService
 
         var committedTotal = await _unitOfWork.Payments.Query()
             .Where(p => p.BookingId == bookingId
+                && !p.IsHistoricalRecord
                 && (p.PaymentStatus == "paid" || p.PaymentStatus == "pending"))
             .SumAsync(p => p.Amount, cancellationToken);
 
@@ -250,6 +251,7 @@ public class PaymentService : IPaymentService
         // IMPORTANT: Exclude the current payment to avoid double-counting if this is a retry
         var currentPaidTotal = await _unitOfWork.Payments.Query()
             .Where(p => p.BookingId == payment.BookingId 
+                && !p.IsHistoricalRecord
                 && p.PaymentStatus == "paid" 
                 && p.Id != id)
             .SumAsync(p => p.Amount, cancellationToken);

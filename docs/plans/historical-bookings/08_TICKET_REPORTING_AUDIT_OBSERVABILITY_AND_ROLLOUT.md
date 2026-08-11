@@ -271,6 +271,17 @@ reporting defect correction.
   `rental-platform/lib/historical-reporting/`. The pilot procedure is
   [`docs/operations/historical-booking-pilot.md`](../../operations/historical-booking-pilot.md).
 
+### 15.4 PAY-HIST-01 release-hardening evidence
+
+- The ordinary `PaymentService` overpayment guards previously summed Historical Payment Evidence by booking,
+  allowing external receipt evidence to consume ordinary settlement capacity.
+- Creation and mark-paid validation now count only non-Historical paid or otherwise already-reserved ordinary
+  payments under their existing status rules. Ordinary unlinked payments remain settlement-eligible; the fix
+  does not substitute invoice linkage for the canonical `is_historical_record` distinction.
+- Focused PostgreSQL coverage proves Evidence does not consume capacity, genuine ordinary overpayment keeps its
+  existing conflict contract, and invoice, finance, immutability and payout boundaries remain unchanged.
+- PAY-HIST-01 changes no migration, schema, endpoint, permission or reporting-view contract.
+
 ## 16. Migration and rollout plan
 
 ### 16.1 Ordering
