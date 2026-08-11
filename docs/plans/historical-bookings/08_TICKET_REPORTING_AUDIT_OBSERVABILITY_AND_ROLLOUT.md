@@ -7,7 +7,7 @@
 | Field | Value |
 |---|---|
 | Ticket | HB-08 |
-| Status | **OWNER APPROVED — HB-08A2 IMPLEMENTED, PENDING REVIEW** |
+| Status | **OWNER APPROVED — HB-08A3 IMPLEMENTED, PENDING REVIEW** |
 | Delivery | HB-08A reporting/rollout first; HB-08B normal-flow hardening only after pilot evidence |
 | Depends on | HB-02 through HB-05 for complete domain truth; PRE-00 is closed; production rollout remains separately gated by §9 |
 | Migration ownership | Reporting views and append-only report columns listed in §15; implemented by migration `0063` |
@@ -254,6 +254,23 @@ reporting defect correction.
   `HistoricalReportingContractTests`, `HistoricalReportingHttpContractTests` and
   `HistoricalReportingPostgreSqlTests`.
 
+### 15.3 HB-08A3 presentation evidence
+
+- Admin booking lists use the persisted `isHistorical` flag for the `All / Ordinary / Historical` filter and
+  render an accessible Historical label. Booking detail keeps Recorded date, actual booked date and original
+  source distinct.
+- Analytics consumes the recorded, stay and per-booking reconciliation contracts without adding Recorded and
+  Stay axes together. Historical records are shown as subset markers and are excluded from the operational
+  acquisition funnel with an explicit explanation.
+- Finance labels platform paid, ordinary unlinked payments, Historical agreed value and Historical Payment
+  Evidence as separate concepts. Stay Finance shows contracted and invoiced value only; occupancy formula
+  correction remains a separate release-hardening concern.
+- Owner booking reads expose only the Historical classification needed for a visible label. They do not expose
+  internal reconciliation data or reinterpret Historical Payment Evidence as payout truth.
+- Browser and component coverage lives in `rental-platform/tests/historical-reporting/` and
+  `rental-platform/lib/historical-reporting/`. The pilot procedure is
+  [`docs/operations/historical-booking-pilot.md`](../../operations/historical-booking-pilot.md).
+
 ## 16. Migration and rollout plan
 
 ### 16.1 Ordering
@@ -266,6 +283,13 @@ Only after pilot exit may HB-08B be implemented and activated.
 
 The pilot is least-privilege, low-volume, reversible, and reconciled daily across recorded/stay axes,
 historical evidence, invoices and payouts. It is not production-wide enablement.
+
+### 16.3 Pilot permissions
+
+SuperAdmin retains the bootstrap baseline. Grant `bookings:record_historical` explicitly to one existing
+operational role for the pilot. Grant `payments:record_historical` only when that role is expected to capture
+payment evidence. Owner-attribution correction remains SuperAdmin-exclusive, and reporting access remains
+independent under the existing reporting permission. No permission bundle or role-name bypass is introduced.
 
 ## 17. Detailed implementation tasks
 
@@ -281,6 +305,8 @@ approval. Do not alter the historical endpoint. The hardening commit/PR must be 
 
 HB-08A rollback restores prior view definitions and backend/UI reporting code without deleting booking,
 payment, invoice or audit data. Deployment remains gated by verified backup and isolated rehearsal.
+Removing pilot access may stop new Historical recording, but it never implies rollback or deletion of already
+recorded Historical bookings, payment evidence, owner-review history or correction evidence.
 
 ### 18.1 The REQ-16 hardening rollback — independently revertible
 
@@ -289,6 +315,7 @@ normal past-date behavior only; it does not touch stored historical records.
 
 ## 19. Readiness
 
-The contract and PRE-00 are closed. HB-08A2 is implemented by migration `0063` and the three canonical API
-routes and is pending independent review; this does not mark pilot or production rollout complete. Rollout
-remains blocked by the release gates in §9. HB-08B remains blocked by successful pilot evidence.
+The contract and PRE-00 are closed. HB-08A1 settlement isolation, HB-08A2 migration `0063` and report APIs,
+and HB-08A3 presentation/runbook behavior are implemented and pending independent review. This does not mark
+the pilot or production rollout complete. Rollout remains blocked by the release gates in §9. HB-08B remains
+blocked by successful pilot evidence.

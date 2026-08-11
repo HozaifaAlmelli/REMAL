@@ -114,6 +114,11 @@ function bookingFromRequest(
     internalNotes: request.internalNotes ?? null,
     createdAt: now,
     updatedAt: now,
+    isHistorical: false,
+    actualBookedAt: null,
+    originalSource: null,
+    historicalEntryReason: null,
+    agreedAmount: null,
     isAgedSoftHold: false,
     softHoldAgeDays: 0,
   };
@@ -502,6 +507,7 @@ test("Admin A remains the creator when Admin B views and updates the booking", a
   page,
 }) => {
   const state = createState();
+  await page.clock.setFixedTime(new Date("2026-08-01T00:00:00Z"));
   await installFixtureApi(page, state);
 
   await page.goto("/admin/bookings");

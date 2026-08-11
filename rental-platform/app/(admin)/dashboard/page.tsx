@@ -118,7 +118,7 @@ export default function AdminDashboardPage() {
 
         {canViewFinance && canViewReports && (
           <StatCard
-            title="Paid revenue"
+            title="Platform paid revenue"
             value={formatCurrency(totalRevenue)}
             icon={DollarSign}
             isLoading={financeLoading}

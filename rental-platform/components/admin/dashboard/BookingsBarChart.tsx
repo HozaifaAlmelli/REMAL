@@ -27,14 +27,15 @@ export function BookingsBarChart({ data, isLoading }: BookingsBarChartProps) {
   const chartData = data.map((d) => ({
     date: formatDate(d.metricDate),
     confirmed: d.confirmedBookingsCount,
-    completed: d.completedBookingsCount,
+    completed: Math.max(0, d.completedBookingsCount - d.historicalBookingsCount),
+    historical: d.historicalBookingsCount,
     cancelled: d.cancelledBookingsCount,
   }));
 
   return (
     <div className="rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white p-5">
       <h3 className="mb-3 text-[13px] font-semibold text-neutral-900">
-        Bookings, last 30 days
+        Bookings entered by recorded date
       </h3>
       <ResponsiveContainer width="100%" height={244}>
         <BarChart data={chartData}>
@@ -75,6 +76,12 @@ export function BookingsBarChart({ data, isLoading }: BookingsBarChartProps) {
             stackId="a"
             fill="var(--color-accent-green)"
             name="Completed"
+          />
+          <Bar
+            dataKey="historical"
+            stackId="a"
+            fill="var(--color-accent-amber)"
+            name="Historical"
           />
           <Bar dataKey="cancelled" fill="var(--color-error)" name="Cancelled" />
         </BarChart>

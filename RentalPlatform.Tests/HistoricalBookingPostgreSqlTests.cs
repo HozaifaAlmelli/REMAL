@@ -529,6 +529,29 @@ public sealed class HistoricalBookingPostgreSqlTests
             .Where(item => item.BookingId == booking.Id)
             .ToListAsync());
         Assert.Equal(BookingHistoryEvents.BookingCreated, history.Notes);
+
+        var historicalResult = await CreateService(context, new DateOnly(2026, 8, 1))
+            .RecordAsync(CreateCommand(data, Guid.NewGuid()) with
+            {
+                ExternalReference = $"sanitized-presentation-{Guid.NewGuid():N}"
+            });
+
+        var all = await service.GetAllAsync(pageSize: 100);
+        var ordinary = await service.GetAllAsync(pageSize: 100, isHistorical: false);
+        var historical = await service.GetAllAsync(pageSize: 100, isHistorical: true);
+
+        Assert.Contains(all.Items, item => item.Id == booking.Id);
+        Assert.Contains(all.Items, item => item.Id == historicalResult.Booking.Id);
+        Assert.Contains(ordinary.Items, item => item.Id == booking.Id);
+        Assert.DoesNotContain(ordinary.Items, item => item.IsHistorical);
+        Assert.Contains(historical.Items, item => item.Id == historicalResult.Booking.Id);
+        Assert.All(historical.Items, item => Assert.True(item.IsHistorical));
+
+        var ownerBookings = await new OwnerPortalBookingService(unitOfWork)
+            .GetAllByOwnerAsync(data.Owner.Id);
+        Assert.False(Assert.Single(ownerBookings, item => item.BookingId == booking.Id).IsHistorical);
+        Assert.True(Assert.Single(ownerBookings,
+            item => item.BookingId == historicalResult.Booking.Id).IsHistorical);
     }
 
     [Fact]

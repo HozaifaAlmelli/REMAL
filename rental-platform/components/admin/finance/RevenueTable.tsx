@@ -38,6 +38,8 @@ export function RevenueTable({ data, isLoading }: RevenueTableProps) {
         acc.totalScheduledPayoutAmount + row.totalScheduledPayoutAmount,
       totalPaidPayoutAmount:
         acc.totalPaidPayoutAmount + row.totalPaidPayoutAmount,
+      historicalEvidenceRecordedAmount:
+        acc.historicalEvidenceRecordedAmount + row.historicalEvidenceRecordedAmount,
     }),
     {
       bookingsWithInvoiceCount: 0,
@@ -47,19 +49,21 @@ export function RevenueTable({ data, isLoading }: RevenueTableProps) {
       totalPendingPayoutAmount: 0,
       totalScheduledPayoutAmount: 0,
       totalPaidPayoutAmount: 0,
+      historicalEvidenceRecordedAmount: 0,
     }
   );
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white">
-      <table className="w-full min-w-[1000px] border-collapse">
+      <table className="w-full min-w-[1120px] border-collapse">
         <thead>
           <tr className="border-b border-neutral-200 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">
-            <th className="px-4 py-3">Date</th>
+            <th className="px-4 py-3">Recorded date</th>
             <th className="px-4 py-3 text-right">Invoices</th>
             <th className="px-4 py-3 text-right">Invoiced</th>
-            <th className="px-4 py-3 text-right">Paid</th>
+            <th className="px-4 py-3 text-right">Platform paid</th>
             <th className="px-4 py-3 text-right">Remaining</th>
+            <th className="px-4 py-3 text-right">Historical Payment Evidence</th>
             <th className="px-4 py-3 text-right">Pending Payout</th>
             <th className="px-4 py-3 text-right">Scheduled Payout</th>
             <th className="px-4 py-3 text-right">Paid Payout</th>
@@ -85,6 +89,9 @@ export function RevenueTable({ data, isLoading }: RevenueTableProps) {
               </td>
               <td className="px-4 py-3 text-right text-sm text-amber-600">
                 {formatCurrency(row.totalRemainingAmount)}
+              </td>
+              <td className="px-4 py-3 text-right text-sm text-amber-800">
+                {formatCurrency(row.historicalEvidenceRecordedAmount)}
               </td>
               <td className="px-4 py-3 text-right text-sm text-neutral-600">
                 {formatCurrency(row.totalPendingPayoutAmount)}
@@ -112,6 +119,9 @@ export function RevenueTable({ data, isLoading }: RevenueTableProps) {
             </td>
             <td className="px-4 py-4 text-right text-sm">
               {formatCurrency(totals.totalRemainingAmount)}
+            </td>
+            <td className="px-4 py-4 text-right text-sm">
+              {formatCurrency(totals.historicalEvidenceRecordedAmount)}
             </td>
             <td className="px-4 py-4 text-right text-sm">
               {formatCurrency(totals.totalPendingPayoutAmount)}

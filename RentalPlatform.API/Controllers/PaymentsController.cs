@@ -140,6 +140,7 @@ public class PaymentsController : ControllerBase
             ReferenceNumber = payment.ReferenceNumber,
             Notes = payment.Notes,
             PaidAt = payment.PaidAt,
+            IsHistoricalRecord = payment.IsHistoricalRecord,
             CreatedAt = payment.CreatedAt,
             UpdatedAt = payment.UpdatedAt
         };

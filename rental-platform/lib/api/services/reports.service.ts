@@ -7,6 +7,12 @@ import type {
   FinanceAnalyticsDailySummaryResponse,
   ReportDateFilters,
   ReportDailyFilters,
+  HistoricalDailyFilters,
+  HistoricalReconciliationFilters,
+  BookingAnalyticsStayDailySummaryResponse,
+  FinanceAnalyticsStayDailySummaryResponse,
+  HistoricalEntryReconciliationResponse,
+  PaginatedReport,
 } from "@/lib/types/report.types";
 
 export const reportsService = {
@@ -39,4 +45,21 @@ export const reportsService = {
   ): Promise<FinanceAnalyticsDailySummaryResponse[]> => {
     return api.get(endpoints.reportsFinance.daily, { params: filters });
   },
+
+  getBookingsStayDaily: async (
+    filters: HistoricalDailyFilters
+  ): Promise<PaginatedReport<BookingAnalyticsStayDailySummaryResponse>> =>
+    api.get(endpoints.reportsBookings.stayDaily, { params: filters }),
+
+  getFinanceStayDaily: async (
+    filters: HistoricalDailyFilters
+  ): Promise<PaginatedReport<FinanceAnalyticsStayDailySummaryResponse>> =>
+    api.get(endpoints.reportsFinance.stayDaily, { params: filters }),
+
+  getHistoricalReconciliation: async (
+    filters: HistoricalReconciliationFilters
+  ): Promise<PaginatedReport<HistoricalEntryReconciliationResponse>> =>
+    api.get(endpoints.reportsBookings.historicalReconciliation, {
+      params: filters,
+    }),
 };

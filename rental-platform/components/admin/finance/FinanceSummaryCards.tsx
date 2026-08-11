@@ -59,7 +59,7 @@ export function FinanceSummaryCards({
 
   const invoicing: SummaryCell[] = [
     { label: "Total invoiced", value: money(data?.totalInvoicedAmount) },
-    { label: "Total paid", value: money(data?.totalPaidAmount) },
+    { label: "Platform paid", value: money(data?.totalPaidAmount) },
     { label: "Outstanding balance", value: money(data?.totalRemainingAmount) },
     {
       label: "Bookings with invoice",
@@ -71,6 +71,25 @@ export function FinanceSummaryCards({
     { label: "Pending", value: money(data?.totalPendingPayoutAmount) },
     { label: "Scheduled", value: money(data?.totalScheduledPayoutAmount) },
     { label: "Paid out", value: money(data?.totalPaidPayoutAmount) },
+  ];
+
+  const historical: SummaryCell[] = [
+    {
+      label: "Historical agreed value",
+      value: money(data?.historicalAgreedAmount),
+    },
+    {
+      label: "Historical Payment Evidence",
+      value: money(data?.historicalPaymentEvidenceAmount),
+    },
+    {
+      label: "Evidence records",
+      value: data ? data.historicalPaymentEvidenceCount.toString() : "—",
+    },
+    {
+      label: "Historical invoiced",
+      value: money(data?.historicalInvoicedAmount),
+    },
   ];
 
   return (
@@ -87,6 +106,15 @@ export function FinanceSummaryCards({
         columns="grid-cols-3"
         isLoading={isLoading}
       />
+      <SummaryGroup
+        title="Historical evidence and value"
+        cells={historical}
+        columns="grid-cols-2 md:grid-cols-4"
+        isLoading={isLoading}
+      />
+      <p className="text-xs text-neutral-600">
+        Historical Payment Evidence records money received outside KAZA. It is not platform paid, invoice settlement, or owner payout.
+      </p>
     </div>
   );
 }

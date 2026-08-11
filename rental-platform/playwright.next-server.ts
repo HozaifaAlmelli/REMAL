@@ -14,6 +14,11 @@ export const playwrightNextSuites = {
     distDir: ".next-playwright-booking-history",
     apiUrl: "http://booking-history-fixture.local",
   },
+  historicalReporting: {
+    port: 3105,
+    distDir: ".next-playwright-historical-reporting",
+    apiUrl: "http://historical-reporting-fixture.local",
+  },
 } as const;
 
 export type PlaywrightNextSuite = keyof typeof playwrightNextSuites;

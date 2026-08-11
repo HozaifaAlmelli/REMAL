@@ -55,7 +55,12 @@ export function BookingPayments({
 
   // Check if there are unlinked paid payments
   const hasUnlinkedPaidPayments =
-    payments?.items.some((p) => p.paymentStatus === "paid" && !p.invoiceId) ??
+    payments?.items.some(
+      (p) =>
+        p.paymentStatus === "paid" &&
+        !p.invoiceId &&
+        !p.isHistoricalRecord
+    ) ??
     false;
 
   if (!canViewFinance) {
@@ -132,6 +137,11 @@ export function BookingPayments({
                     {formatCurrency(payment.amount)}
                   </span>
                   <StatusBadge status={payment.paymentStatus} />
+                  {payment.isHistoricalRecord && (
+                    <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
+                      Historical Payment Evidence
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 text-xs text-neutral-500">
                   <span>
@@ -140,10 +150,15 @@ export function BookingPayments({
                     ] ?? payment.paymentMethod}
                   </span>
                   <span>{formatDate(payment.paidAt ?? payment.createdAt)}</span>
-                  {payment.referenceNumber && (
+                  {payment.referenceNumber && !payment.isHistoricalRecord && (
                     <span>Ref: {payment.referenceNumber}</span>
                   )}
                 </div>
+                {payment.isHistoricalRecord && (
+                  <p className="text-xs text-neutral-600">
+                    Evidence of money received outside KAZA. It does not settle an invoice or change owner payout state.
+                  </p>
+                )}
               </div>
 
               {canRecordPayment &&

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import Link from "next/link";
 import { ColumnDef } from "@tanstack/react-table";
 import type { PaginationMeta } from "@/lib/api/types";
+import { HistoricalBadge } from "@/components/ui/HistoricalBadge";
 
 const maskPhone = (phone: string | undefined | null) => {
   if (!phone) return "-";
@@ -55,6 +56,7 @@ export function BookingTable({
             <div className="max-w-[140px] truncate font-medium text-neutral-900 sm:max-w-full">
               {row.original.clientName ?? row.original.clientId.split("-")[0] + "..."}
             </div>
+            {row.original.isHistorical && <HistoricalBadge className="mt-1" />}
             <div className="mt-0.5 truncate text-xs text-neutral-500">
               {maskPhone(row.original.clientPhone)}
             </div>
@@ -158,7 +160,7 @@ export function BookingTable({
       columns={columns}
       data={bookings}
       isLoading={isLoading}
-      emptyMessage="No bookings match these filters. Adjust the status, date range, or search term."
+      emptyMessage="No bookings match these filters. Adjust the booking type, status, date range, or search term."
       pagination={pagination || undefined}
       onPageChange={onPageChange}
     />

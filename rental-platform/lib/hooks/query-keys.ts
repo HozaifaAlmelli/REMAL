@@ -1,4 +1,9 @@
-import { ReportDateFilters, ReportDailyFilters } from "../types/report.types";
+import {
+  HistoricalDailyFilters,
+  HistoricalReconciliationFilters,
+  ReportDateFilters,
+  ReportDailyFilters,
+} from "../types/report.types";
 
 export const queryKeys = {
   reports: {
@@ -11,6 +16,12 @@ export const queryKeys = {
       ["reports", "bookingsDaily", filters] as const,
     financeDaily: (filters?: ReportDailyFilters) =>
       ["reports", "financeDaily", filters] as const,
+    bookingsStayDaily: (filters: HistoricalDailyFilters) =>
+      ["reports", "bookingsStayDaily", filters] as const,
+    financeStayDaily: (filters: HistoricalDailyFilters) =>
+      ["reports", "financeStayDaily", filters] as const,
+    historicalReconciliation: (filters: HistoricalReconciliationFilters) =>
+      ["reports", "historicalReconciliation", filters] as const,
   },
   units: {
     all: ["units"] as const,
