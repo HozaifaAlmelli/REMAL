@@ -178,6 +178,24 @@ PostgreSQL/pilot reconciliation evidence; it adds no per-request post-commit que
 | APIs | Exact three routes and filters in HB-08; inclusive valid ranges capped at 24 months |
 | Delivery split | HB-08A reporting/rollout first; HB-08B normal-flow hardening in a separate PR after pilot evidence |
 
+#### HB-08A2 physical-contract correction record
+
+On 2026-08-11 the owner froze the final migration `0063` dictionaries at exactly `14 / 14 / 16 / 9 / 25`
+columns before the final implementation correction. Booking Stay uses `(check_in_date, booking_source)` grain;
+Finance Stay uses `check_in_date` grain and contains contracted/invoiced value with no cash. Both finance views
+contain `historical_bookings_with_invoice_count`. Recorded Booking contains the four `original_source`
+provenance counts, and reconciliation is one 25-column PII-free row per Historical booking with `booking_id`
+and explicit `recorded_date`. Reconciliation rejects `includeHistorical` and `historicalOnly`.
+`entry_lag_days = -1` is valid at the Cairo/UTC boundary.
+
+The original PR implementation and first correction used alternative `19 / 15 / 19 / 9 / 24` dictionaries.
+Independent review rejected those implementation-authored alternatives; neither commit self-ratified its
+schema. The final correction removed every extra field and restored the owner-frozen contract before merge.
+
+The owner separately accepts the reporting-only payout fan-out correction in `0063`: one booking payout is
+aggregated once even when the booking has multiple active invoices. This does not alter payout writes or the
+out-of-v1 paid-payout correction decision.
+
 ### HB-09 test and release decisions
 
 PRE-01 and PRE-02 are complete. PostgreSQL tests require explicit `KAZA_TEST_DB`, use Category=PostgreSQL,
@@ -205,9 +223,9 @@ ticket, and their repository footprints do not overlap, so they may proceed in p
 | [PRE-01](#pre-01--database-bootstrap-parity-for-migration-0057) | Restore database bootstrap parity concerning migration `0057` | **`COMPLETE` — merged.** Formerly gated HB-02's merge |
 | [PRE-02](#pre-02--baseline-test-execution-and-postgresql-integration-infrastructure) | Baseline test execution and reusable real-PostgreSQL integration infrastructure | **`COMPLETE` — merged.** Formerly gated HB-03's merge; HB-09 still consumes and extends it |
 
-**Two of the three are now discharged.** `PRE-01` and `PRE-02` are merged. **`PRE-00` is the only
-prerequisite still outstanding**, and it blocks pilot and migration rollout approval rather than any
-ticket's implementation. None of the three was ever an approval gap; all were technical.
+**All three prerequisites are discharged.** `PRE-01` and `PRE-02` are merged. `PRE-00` closed on 2026-08-10
+after repository census and the owner's six negative external-consumer confirmations. None was an approval
+gap. Pilot and production release controls remain independently binding.
 
 **`PRE-02` is not delivered by HB-09.** An earlier revision said it was, which was contradictory: `PRE-02`
 gates HB-03's merge, while HB-09 runs after every feature wave including HB-03. `PRE-02` is now an
@@ -873,8 +891,8 @@ Every ADR has a final status. Decision authority for all twelve is the Sole Proj
 | ADR-11 | Reporting gains a stay-period dimension | Finance · Engineering · Product | **`OWNER APPROVED`** |
 | ADR-12 | Inactive units allowed; soft-deleted units unsupported in v1 | Product · Engineering | **`OWNER APPROVED`** |
 
-**Summary:** 12 of 12 are `OWNER APPROVED`. PRE-01 and PRE-02 are complete; PRE-00 remains an operational
-release gate rather than a contract-approval gap.
+**Summary:** 12 of 12 are `OWNER APPROVED`. PRE-00, PRE-01 and PRE-02 are complete. Production rollout
+remains subject to the separately ratified safety gates.
 
 ---
 
@@ -888,7 +906,23 @@ release gate rather than a contract-approval gap.
 | **Why it is a prerequisite and not a ticket task** | It is evidence-gathering against an existing dataset, not feature work. It was previously the last unfinished execution item inside HB-01, which contradicted HB-01's status as a completed decision-only gate. |
 | **Owner** | An independent prerequisite PR. Not HB-01 — that ticket is complete and ships nothing. |
 | **Review lenses** | Operations · Engineering · Finance |
-| **Status** | **Active technical prerequisite** |
+| **Status** | **`COMPLETE` — owner/Operations confirmation recorded 2026-08-10** |
+
+#### Closure evidence — 2026-08-10
+
+The repository census found no in-repository `SELECT *` or positional reporting-view consumer, export,
+BI/warehouse/ETL path, or operational/CI reporting-view query. The Sole Project Owner confirmed **NO** to:
+
+1. direct BI access to the production PostgreSQL database;
+2. direct or scheduled spreadsheet SQL extracts;
+3. external cron/systemd/operational queries of either reporting daily view;
+4. external `SELECT *` or positional consumers;
+5. a reporting-specific external database identity; and
+6. external recurring reports produced directly from these views.
+
+This closes PRE-00 without production access. It does not waive backup, isolated restore, migration rehearsal,
+before/after integrity comparison, reporting/payout reconciliation, rollback readiness or explicit owner
+approval before production rollout.
 
 #### Data-access safety rules — binding
 
@@ -929,7 +963,8 @@ being used for.
 
 #### When no authorized dataset is available
 
-This is the case the census must not paper over.
+This was the fallback rule before PRE-00 closure. It is retained as historical safety rationale but is no
+longer an active gate after the 2026-08-10 closure evidence above.
 
 - **Absence of an accessible non-production dataset must not produce fabricated findings.** No estimated
   counts, no "likely zero", no numbers inferred from the schema.
@@ -1042,9 +1077,9 @@ prerequisites are implementation work for later, separate PRs.
 | OQ-07 | Paid-payout correction is a manual process in v1 | `OWNER APPROVED — OUT OF V1` | Sole Project Owner | 2026-07-29 |
 | ADR-01 … ADR-09, ADR-11, ADR-12 | As tabulated above | `OWNER APPROVED` | Sole Project Owner | 2026-07-29 |
 | ADR-10 | Historical conflict set incl. `Completed`/`LeftEarly` | `OWNER APPROVED`; PRE-02 gate discharged | Sole Project Owner | 2026-07-29 |
-| PRE-00 | Historical data census — read-only, non-production, sanitized aggregates | Active technical prerequisite. Blocks pilot and migration rollout approval; blocks HB-02 only on existing-row evidence | Sole Project Owner | 2026-07-29 |
+| PRE-00 | Reporting consumer census and external-consumer confirmation | **Complete.** No in-repository unsafe consumer and six owner/Operations answers were NO | Sole Project Owner | 2026-08-10 closure |
 | PRE-01 | Database bootstrap parity for `0057`; Strategy D rollback documentation | `COMPLETE` | Sole Project Owner | 2026-07-29 |
 | PRE-02 | Explicit real-PostgreSQL infrastructure delivered independently before HB-03 | `COMPLETE`; consumed by HB-09 | Sole Project Owner | 2026-07-29 |
 
-**Nothing in this programme is waiting on an owner decision.** PRE-00 is the only outstanding operational
-prerequisite; PRE-01 and PRE-02 are complete.
+**Nothing in this programme is waiting on an owner decision or prerequisite census.** PRE-00, PRE-01 and
+PRE-02 are complete. Release gates and ticket dependencies remain binding.

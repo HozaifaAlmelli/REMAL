@@ -7,10 +7,10 @@
 | Field | Value |
 |---|---|
 | Ticket | HB-08 |
-| Status | **OWNER APPROVED — BLOCKED BY DEPENDENCY** |
+| Status | **OWNER APPROVED — HB-08A2 IMPLEMENTED, PENDING REVIEW** |
 | Delivery | HB-08A reporting/rollout first; HB-08B normal-flow hardening only after pilot evidence |
-| Depends on | HB-02 through HB-05 for complete domain truth; PRE-00 blocks rollout, not documentation or implementation preparation |
-| Migration ownership | Reporting views and append-only report columns listed in §15; no migration number is reserved |
+| Depends on | HB-02 through HB-05 for complete domain truth; PRE-00 is closed; production rollout remains separately gated by §9 |
+| Migration ownership | Reporting views and append-only report columns listed in §15; implemented by migration `0063` |
 
 ## 2. Binding reporting model
 
@@ -65,21 +65,32 @@ Responses expose metric/stay date, booking counts, historical counts, agreed amo
 historical evidence count/amount, original-source breakdown, and entry-lag fields where applicable. They
 contain no client PII, free-text notes, payment reference or owner banking data.
 
+The reconciliation route is intrinsically Historical and does not accept `includeHistorical` or
+`historicalOnly`; supplying either parameter returns `400 VALIDATION_ERROR`. The two Stay routes own those
+filters. Existing recorded routes retain their pre-HB-08A2 query contract.
+
 ## 6. Audit and observability
 
 Durable audit remains in domain tables: booking history for creation/payment linkage and the HB-05 immutable
-correction table for owner changes. Structured logs are supplementary and contain bounded event names,
-stable IDs, result code and timing only. v1 introduces no metrics platform and no unbounded-cardinality labels.
+correction table for owner changes. Structured logs are supplementary and use the stable event concepts
+`reporting.historical.query` and `reporting.historical.range_rejected` with bounded route, filter, count and
+timing fields only. v1 introduces no metrics platform and no unbounded-cardinality labels.
 
 Operational reconciliation is database-derived and pull-only. HB-08 adds no scheduled push, notification,
 webhook or per-request post-commit verification query.
 
-## 7. External consumers
+## 7. External consumers — PRE-00 closed
 
-Rollout is blocked until Operations records whether any BI tool, direct-SQL consumer, spreadsheet or export
-depends on the reporting views. Historical rows remain included by default with additive breakdown columns;
-an opt-out is explicit. Unknown external consumers are a rollout blocker, not permission to silently exclude
-historical data.
+The repository census found no in-repository `SELECT *` or positional reporting-view consumer, export,
+BI/warehouse/ETL integration, or operational/CI query of the reporting views. On 2026-08-10 the Sole Project
+Owner, applying the Operations lens, confirmed **NO** to all six external-consumer questions: no direct BI
+database connection, scheduled spreadsheet extract, out-of-repository reporting query, `SELECT *`/positional
+consumer, reporting database identity, or external daily/weekly/monthly report. PRE-00 is therefore
+**CLOSED**. No production database was accessed to reach this conclusion.
+
+Historical rows remain included by default with additive breakdown columns; an opt-out is explicit. Backup,
+restore rehearsal, integrity comparison, reconciliation, rollback readiness and explicit owner approval remain
+independent production rollout gates under §9.
 
 ## 8. HB-08A/HB-08B split
 
@@ -192,6 +203,57 @@ payments.invoice_id IS NULL`; invoice-linked totals must count only `is_historic
 payments; ordinary orphan totals must exclude historical evidence. Catalog verifier and rollback preserve the
 prior view definitions. No table or write-side schema is owned by HB-08.
 
+### 15.1 Final owner-ratified physical dictionary — migration 0063
+
+The owner froze this physical dictionary on 2026-08-11 before the final implementation correction. Migration
+`0063_add_historical_reporting_read_models.sql` implements it exactly. The first eight columns of each existing
+view remain unchanged in name, type, order and axis meaning. The sole intentional value correction in that
+frozen finance prefix is owner-payout aggregation: payouts are aggregated once per booking before joining
+invoice facts, preventing one payout from being multiplied by multiple active invoices.
+
+| View | Count | Final ordered columns |
+|---|---:|---|
+| `reporting_booking_daily_summary` | 14 | `metric_date`, `booking_source`, `bookings_created_count`, `prospecting_bookings_count`, `confirmed_bookings_count`, `cancelled_bookings_count`, `completed_bookings_count`, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_legacy_system_bookings_count`, `historical_external_platform_bookings_count`, `historical_offline_record_bookings_count`, `historical_other_source_bookings_count` |
+| `reporting_booking_stay_daily_summary` | 14 | `stay_start_date`, `booking_source`, `stay_bookings_count`, `prospecting_bookings_count`, `confirmed_bookings_count`, `cancelled_bookings_count`, `completed_bookings_count`, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_legacy_system_bookings_count`, `historical_external_platform_bookings_count`, `historical_offline_record_bookings_count`, `historical_other_source_bookings_count` |
+| `reporting_finance_daily_summary` | 16 | `metric_date`, `bookings_with_invoice_count`, `total_invoiced_amount`, `total_paid_amount`, `total_remaining_amount`, `total_pending_payout_amount`, `total_scheduled_payout_amount`, `total_paid_payout_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_bookings_with_invoice_count`, `historical_invoiced_amount`, `ordinary_unlinked_paid_count`, `ordinary_unlinked_paid_amount`, `historical_evidence_recorded_count`, `historical_evidence_recorded_amount` |
+| `reporting_finance_stay_daily_summary` | 9 | `stay_start_date`, `stay_bookings_count`, `bookings_with_invoice_count`, `total_invoiced_amount`, `total_final_amount`, `historical_bookings_count`, `historical_agreed_amount`, `historical_bookings_with_invoice_count`, `historical_invoiced_amount` |
+| `reporting_historical_entry_reconciliation` | 25 | `booking_id`, `recorded_date`, `recorded_at`, `actual_booked_at`, `entry_lag_days`, `stay_start_date`, `stay_end_date`, `stay_nights`, `booking_source`, `original_source`, `historical_entry_reason`, `booking_status`, `unit_id`, `owner_id`, `agreed_amount`, `invoiced_amount`, `invoice_linked_paid_amount`, `ordinary_unlinked_paid_count`, `ordinary_unlinked_paid_amount`, `historical_payment_evidence_count`, `historical_payment_evidence_amount`, `first_evidence_paid_date`, `last_evidence_paid_date`, `owner_attribution_correction_count`, `last_owner_attribution_corrected_at` |
+
+Booking Stay uses `(check_in_date, booking_source)` grain. Finance Stay uses `check_in_date` grain without a
+source split. Historical contribution is projected from additive measures, so mixed buckets remain
+decomposable without adding `is_historical` to either physical grain. Stay Finance contains contracted and
+invoiced value only: no cash, paid, remaining, unlinked-payment or evidence amount is attributed to a stay date.
+
+Recorded Booking provenance uses `original_source`. The `other` measure is the remainder for canonical
+`other`, structurally possible nulls, and future source codes, so the four provenance measures always sum to
+`historical_bookings_count`. Recorded Finance rows originate only from `DATE(bookings.created_at)`; evidence
+is associated through the booking's recorded bucket and cannot create a `paid_at`-only row.
+
+Reconciliation is per booking and PII-free. `entry_lag_days` is
+`DATE(bookings.created_at) - actual_booked_at`; `-1` is valid at the Cairo/UTC boundary, while values below
+`-1` violate the verification contract. Evidence first/last dates use `payments.paid_at`.
+
+#### Correction history
+
+The original PR #57 implementation and its first correction produced alternative `19 / 15 / 19 / 9 / 24`
+physical dictionaries. Independent review rejected those implementation-authored alternatives. They did not
+ratify themselves and are not retained as approved fields. The final correction normalized all five views to
+the owner-frozen `14 / 14 / 16 / 9 / 25` contract before merge. The finance invoice-count amendment is included
+in both finance views. The payout fan-out correction is separately and explicitly accepted as an intentional
+reporting defect correction.
+
+### 15.2 HB-08A2 implementation evidence
+
+- Migration, verifier and guarded rollback: `db/migrations/0063_add_historical_reporting_read_models*.sql`.
+- Production registration: `infra/db/init.prod.sql`; development bootstrap: `db/init.sql`.
+- Keyless read models and explicit mappings: `RentalPlatform.Data/ReadModels/Reporting*` and
+  `RentalPlatform.Data/Configurations/Reporting*`.
+- Authorized APIs and bounded query logs: `ReportingBookingAnalyticsController`,
+  `ReportingFinanceAnalyticsController` and their reporting services.
+- Contract, HTTP, persisted-data, verifier and rollback coverage:
+  `HistoricalReportingContractTests`, `HistoricalReportingHttpContractTests` and
+  `HistoricalReportingPostgreSqlTests`.
+
 ## 16. Migration and rollout plan
 
 ### 16.1 Ordering
@@ -227,5 +289,6 @@ normal past-date behavior only; it does not touch stored historical records.
 
 ## 19. Readiness
 
-The contract is closed. HB-08 overall is **BLOCKED BY DEPENDENCY** until HB-05 is implemented; rollout is
-additionally blocked by PRE-00 and the release gates. HB-08B remains blocked by successful pilot evidence.
+The contract and PRE-00 are closed. HB-08A2 is implemented by migration `0063` and the three canonical API
+routes and is pending independent review; this does not mark pilot or production rollout complete. Rollout
+remains blocked by the release gates in §9. HB-08B remains blocked by successful pilot evidence.

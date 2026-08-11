@@ -35,4 +35,16 @@ public interface IReportingBookingAnalyticsService
         DateOnly? dateTo = null,
         string? bookingSource = null,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ReportingBookingStayDailySummary>> GetStayDailySummaryAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        bool includeHistorical = true,
+        bool historicalOnly = false,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ReportingHistoricalEntryReconciliation>> GetHistoricalReconciliationAsync(
+        DateOnly stayMonthFrom,
+        DateOnly stayMonthTo,
+        CancellationToken cancellationToken = default);
 }

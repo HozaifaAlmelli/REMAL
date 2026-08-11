@@ -22,4 +22,10 @@ public record FinanceAnalyticsSummaryResult
     public decimal TotalPendingPayoutAmount { get; init; }
     public decimal TotalScheduledPayoutAmount { get; init; }
     public decimal TotalPaidPayoutAmount { get; init; }
+    public int HistoricalBookingsCount { get; init; }
+    public decimal HistoricalAgreedAmount { get; init; }
+    public int HistoricalBookingsWithInvoiceCount { get; init; }
+    public decimal HistoricalInvoicedAmount { get; init; }
+    public int OrdinaryUnlinkedPaidCount { get; init; }
+    public decimal OrdinaryUnlinkedPaidAmount { get; init; }
 }

@@ -42,12 +42,14 @@ public sealed class HistoricalPaymentReportingContractTests
     }
 
     [Fact]
-    public void DailyResponseRemainsOwnedByTheLaterReportingViewTicket()
+    public void RecordedDailyResponseNamesEvidenceByItsRecordedAxisContext()
     {
+        Assert.NotNull(typeof(FinanceAnalyticsDailySummaryResponse)
+            .GetProperty("HistoricalEvidenceRecordedCount"));
+        Assert.NotNull(typeof(FinanceAnalyticsDailySummaryResponse)
+            .GetProperty("HistoricalEvidenceRecordedAmount"));
         Assert.Null(typeof(FinanceAnalyticsDailySummaryResponse)
             .GetProperty("HistoricalPaymentEvidenceCount"));
-        Assert.Null(typeof(FinanceAnalyticsDailySummaryResponse)
-            .GetProperty("HistoricalPaymentEvidenceAmount"));
     }
 
     [Fact]
@@ -120,6 +122,14 @@ public sealed class HistoricalPaymentReportingContractTests
             DateOnly? dateFrom = null,
             DateOnly? dateTo = null,
             CancellationToken cancellationToken = default) => Task.FromResult(summary);
+
+        public Task<IReadOnlyList<ReportingFinanceStayDailySummary>> GetStayDailySummaryAsync(
+            DateOnly dateFrom,
+            DateOnly dateTo,
+            bool includeHistorical = true,
+            bool historicalOnly = false,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ReportingFinanceStayDailySummary>>([]);
     }
 
     private sealed class FinanceStub(

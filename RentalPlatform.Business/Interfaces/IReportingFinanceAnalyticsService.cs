@@ -33,4 +33,11 @@ public interface IReportingFinanceAnalyticsService
         DateOnly? dateFrom = null,
         DateOnly? dateTo = null,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ReportingFinanceStayDailySummary>> GetStayDailySummaryAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        bool includeHistorical = true,
+        bool historicalOnly = false,
+        CancellationToken cancellationToken = default);
 }

@@ -189,4 +189,7 @@
 \echo '=== Running migration 0062: add historical owner attribution corrections ==='
 \i /docker-entrypoint-initdb.d/migrations/0062_add_historical_owner_attribution_corrections.sql
 
+\echo '=== Running migration 0063: add historical reporting read models ==='
+\i /docker-entrypoint-initdb.d/migrations/0063_add_historical_reporting_read_models.sql
+
 \echo '=== All migrations completed successfully ==='
