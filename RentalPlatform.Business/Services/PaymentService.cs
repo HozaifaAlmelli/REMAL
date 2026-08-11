@@ -211,117 +211,166 @@ public class PaymentService : IPaymentService
         string? notes,
         CancellationToken cancellationToken = default)
     {
-        var payment = await GetPaymentOrThrowAsync(id, cancellationToken);
+        var paymentIdentity = await _unitOfWork.Payments.Query()
+            .AsNoTracking()
+            .Where(payment => payment.Id == id)
+            .Select(payment => new { payment.BookingId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (paymentIdentity == null)
+            throw new NotFoundException($"Payment with ID {id} not found");
 
-        if (payment.PaymentStatus != "pending")
-            throw new ConflictException(
-                $"Payment {id} cannot be marked as paid: current status is '{payment.PaymentStatus}'. Only pending payments can be marked as paid.");
+        IDbContextTransaction? ownedTransaction = null;
+        if (!_unitOfWork.HasActiveTransaction)
+            ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        // Auto-link to booking's active invoice if not already linked
-        if (!payment.InvoiceId.HasValue)
+        try
         {
-            var activeInvoice = await _unitOfWork.Invoices.Query()
-                .Where(i => i.BookingId == payment.BookingId 
-                    && i.InvoiceStatus != "cancelled" 
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                $"payment-booking:{paymentIdentity.BookingId:N}",
+                cancellationToken);
+
+            var payment = await _unitOfWork.Payments.GetByIdAsync(id, cancellationToken);
+            if (payment == null)
+                throw new NotFoundException($"Payment with ID {id} not found");
+
+            // The identity lookup occurs before a potentially blocking lock acquisition.
+            // Reload after the lock so every validation and mutation uses committed state.
+            await _unitOfWork.ReloadAsync(payment, cancellationToken);
+            if (payment.IsHistoricalRecord)
+            {
+                throw new ConflictException(
+                    "Historical payment evidence is immutable.",
+                    HistoricalErrorCodes.HistoricalPaymentImmutable);
+            }
+
+            if (payment.PaymentStatus != "pending")
+                throw new ConflictException(
+                    $"Payment {id} cannot be marked as paid: current status is '{payment.PaymentStatus}'. Only pending payments can be marked as paid.");
+
+            // Auto-link to booking's active invoice if not already linked
+            if (!payment.InvoiceId.HasValue)
+            {
+                var activeInvoice = await _unitOfWork.Invoices.Query()
+                    .AsNoTracking()
+                    .Where(i => i.BookingId == payment.BookingId
+                        && i.InvoiceStatus != "cancelled"
+                        && i.InvoiceStatus != "superseded")
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (activeInvoice != null)
+                    payment.InvoiceId = activeInvoice.Id;
+            }
+
+            Invoice? linkedInvoice = null;
+            if (payment.InvoiceId.HasValue)
+            {
+                linkedInvoice = await _unitOfWork.Invoices.GetByIdAsync(payment.InvoiceId.Value, cancellationToken);
+                if (linkedInvoice == null)
+                    throw new NotFoundException($"Linked invoice {payment.InvoiceId.Value} not found");
+
+                await _unitOfWork.ReloadAsync(linkedInvoice, cancellationToken);
+                if (linkedInvoice.InvoiceStatus is "cancelled" or "superseded")
+                    throw new ConflictException(
+                        $"Payment {id} cannot be marked as paid: linked invoice {linkedInvoice.Id} is {linkedInvoice.InvoiceStatus}.");
+
+                // Allow payments to be marked as paid even if invoice is in draft status
+                // This supports the workflow where payments are received before invoice is issued
+            }
+
+            // Check for overpayment - calculate total paid amount for this booking
+            // IMPORTANT: Exclude the current payment to avoid double-counting if this is a retry
+            var currentPaidTotal = await _unitOfWork.Payments.Query()
+                .Where(p => p.BookingId == payment.BookingId
+                    && !p.IsHistoricalRecord
+                    && p.PaymentStatus == "paid"
+                    && p.Id != id)
+                .SumAsync(p => p.Amount, cancellationToken);
+
+            var projectedPaidTotal = currentPaidTotal + payment.Amount;
+
+            // Get the active invoice total for this booking. When no active invoice exists
+            // yet (e.g. a deposit recorded before confirmation), fall back to the booking's
+            // final amount so the overpayment guard still applies.
+            var bookingInvoice = await _unitOfWork.Invoices.Query()
+                .AsNoTracking()
+                .Where(i => i.BookingId == payment.BookingId
+                    && i.InvoiceStatus != "cancelled"
                     && i.InvoiceStatus != "superseded")
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (activeInvoice != null)
+            decimal amountOwed;
+            if (bookingInvoice != null)
             {
-                payment.InvoiceId = activeInvoice.Id;
+                amountOwed = bookingInvoice.TotalAmount;
             }
-        }
+            else
+            {
+                amountOwed = await _unitOfWork.Bookings.Query()
+                    .AsNoTracking()
+                    .Where(booking => booking.Id == payment.BookingId)
+                    .Select(booking => (decimal?)booking.FinalAmount)
+                    .FirstOrDefaultAsync(cancellationToken) ?? 0m;
+            }
 
-        Invoice? linkedInvoice = null;
-        if (payment.InvoiceId.HasValue)
-        {
-            linkedInvoice = await _unitOfWork.Invoices.GetByIdAsync(payment.InvoiceId.Value, cancellationToken);
-            if (linkedInvoice == null)
-                throw new NotFoundException($"Linked invoice {payment.InvoiceId.Value} not found");
-
-            if (linkedInvoice.InvoiceStatus is "cancelled" or "superseded")
+            if (projectedPaidTotal > amountOwed)
+            {
+                var overpaymentAmount = projectedPaidTotal - amountOwed;
                 throw new ConflictException(
-                    $"Payment {id} cannot be marked as paid: linked invoice {linkedInvoice.Id} is {linkedInvoice.InvoiceStatus}.");
-
-            // Allow payments to be marked as paid even if invoice is in draft status
-            // This supports the workflow where payments are received before invoice is issued
-        }
-
-        // Check for overpayment - calculate total paid amount for this booking
-        // IMPORTANT: Exclude the current payment to avoid double-counting if this is a retry
-        var currentPaidTotal = await _unitOfWork.Payments.Query()
-            .Where(p => p.BookingId == payment.BookingId 
-                && !p.IsHistoricalRecord
-                && p.PaymentStatus == "paid" 
-                && p.Id != id)
-            .SumAsync(p => p.Amount, cancellationToken);
-
-        var projectedPaidTotal = currentPaidTotal + payment.Amount;
-
-        // Get the active invoice total for this booking. When no active invoice exists
-        // yet (e.g. a deposit recorded before confirmation), fall back to the booking's
-        // final amount so the overpayment guard still applies.
-        var bookingInvoice = await _unitOfWork.Invoices.Query()
-            .Where(i => i.BookingId == payment.BookingId
-                && i.InvoiceStatus != "cancelled"
-                && i.InvoiceStatus != "superseded")
-            .FirstOrDefaultAsync(cancellationToken);
-
-        decimal amountOwed;
-        if (bookingInvoice != null)
-        {
-            amountOwed = bookingInvoice.TotalAmount;
-        }
-        else
-        {
-            var booking = await _unitOfWork.Bookings.GetByIdAsync(payment.BookingId, cancellationToken);
-            amountOwed = booking?.FinalAmount ?? 0m;
-        }
-
-        if (projectedPaidTotal > amountOwed)
-        {
-            var overpaymentAmount = projectedPaidTotal - amountOwed;
-            throw new ConflictException(
-                $"Payment {id} cannot be marked as paid: this would result in an overpayment of {overpaymentAmount:F2}. " +
-                $"Amount owed: {amountOwed:F2}, Current paid: {currentPaidTotal:F2}, This payment: {payment.Amount:F2}. " +
-                $"Overpayments are not allowed.");
-        }
-
-        payment.PaymentStatus = "paid";
-        payment.PaidAt = DateTime.UtcNow;
-
-        if (referenceNumber != null)
-            payment.ReferenceNumber = referenceNumber.Trim();
-
-        if (notes != null)
-            payment.Notes = notes.Trim();
-
-        payment.UpdatedAt = DateTime.UtcNow;
-
-        _unitOfWork.Payments.Update(payment);
-
-        // Sync invoice status when fully covered or overpaid
-        if (linkedInvoice != null)
-        {
-            var invoicePaidTotal = await _unitOfWork.Payments.Query()
-                .Where(p => p.InvoiceId == linkedInvoice.Id
-                         && p.PaymentStatus == "paid"
-                         && p.Id != id)
-                .SumAsync(p => p.Amount, cancellationToken);
-            invoicePaidTotal += payment.Amount;
-
-            // Mark invoice as paid when total paid amount >= invoice total
-            if (invoicePaidTotal >= linkedInvoice.TotalAmount && linkedInvoice.InvoiceStatus != "paid")
-            {
-                linkedInvoice.InvoiceStatus = "paid";
-                linkedInvoice.UpdatedAt = DateTime.UtcNow;
-                _unitOfWork.Invoices.Update(linkedInvoice);
+                    $"Payment {id} cannot be marked as paid: this would result in an overpayment of {overpaymentAmount:F2}. " +
+                    $"Amount owed: {amountOwed:F2}, Current paid: {currentPaidTotal:F2}, This payment: {payment.Amount:F2}. " +
+                    $"Overpayments are not allowed.");
             }
+
+            payment.PaymentStatus = "paid";
+            payment.PaidAt = DateTime.UtcNow;
+
+            if (referenceNumber != null)
+                payment.ReferenceNumber = referenceNumber.Trim();
+
+            if (notes != null)
+                payment.Notes = notes.Trim();
+
+            payment.UpdatedAt = DateTime.UtcNow;
+
+            _unitOfWork.Payments.Update(payment);
+
+            // Sync invoice status when fully covered or overpaid
+            if (linkedInvoice != null)
+            {
+                var invoicePaidTotal = await _unitOfWork.Payments.Query()
+                    .Where(p => p.InvoiceId == linkedInvoice.Id
+                             && p.PaymentStatus == "paid"
+                             && p.Id != id)
+                    .SumAsync(p => p.Amount, cancellationToken);
+                invoicePaidTotal += payment.Amount;
+
+                // Mark invoice as paid when total paid amount >= invoice total
+                if (invoicePaidTotal >= linkedInvoice.TotalAmount && linkedInvoice.InvoiceStatus != "paid")
+                {
+                    linkedInvoice.InvoiceStatus = "paid";
+                    linkedInvoice.UpdatedAt = DateTime.UtcNow;
+                    _unitOfWork.Invoices.Update(linkedInvoice);
+                }
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+
+            return payment;
         }
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return payment;
+        catch
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
+        }
     }
 
     public async Task<Payment> MarkFailedAsync(
