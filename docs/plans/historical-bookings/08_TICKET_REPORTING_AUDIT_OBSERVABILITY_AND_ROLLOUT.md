@@ -302,6 +302,9 @@ reporting defect correction.
 
 ### 15.6 INV-OPS-01 invoice-total invariant evidence
 
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** PR #61's focused arithmetic and
+same-invoice manual-adjustment serialization correction was independently approved and Owner-merged.
+
 - Manual adjustment persistence previously counted the newly tracked invoice item twice after EF relationship
   fixup, so a 2,000 adjustment on a 10,000 invoice persisted 12,000 of items but a 14,000 invoice total.
 - The canonical manual-adjustment calculation now uses the persisted item sum plus the new line exactly once.
@@ -356,9 +359,9 @@ Owner-merged before INV-OPS-02 implementation. Reliability/UAT remains gated by 
 
 ### 15.8 INV-OPS-02 invoice capacity/reservation invariant
 
-**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** The Owner ratified the fail-closed policy after repository
-and PostgreSQL evidence proved that the previous contract did not specify how a capacity shrink should treat
-existing settlement commitments.
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** PR #63 received independent approval and was
+Owner-merged after the Owner ratified the fail-closed capacity policy from the repository and PostgreSQL
+evidence packet.
 
 - A supported capacity-reducing mutation is rejected when booking-scoped ordinary paid plus pending commitments
   exceed the proposed effective settlement capacity. Equality is valid. Rejection uses the existing uncoded
@@ -382,18 +385,33 @@ existing settlement commitments.
 - INV-OPS-02 changes no schema, migration, endpoint, permission, payment lifecycle, payout policy or reporting
   contract. INV-OPS-01 and owner-merged INV-OPS-03 remain canonical; INV-OPS-02 does not repair legacy rows.
 
-### 15.9 Pre-release invoice aggregate consistency risk
+### 15.9 INV-AUDIT-01 read-only invoice aggregate consistency gate
+
+**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** This gate was implemented after the Owner-merged
+INV-OPS-01, INV-OPS-02 and INV-OPS-03 write-side integrity corrections. It must pass after invoice-integrity
+write fixes and before #99 Reliability/UAT; execution against a release environment remains a later explicit
+Owner/operator step.
 
 - The defective manual-adjustment calculation existed before PR #61, so an environment that previously exercised
   that path may contain an invoice whose stored subtotal or total does not equal its persisted invoice-item sum.
   No production database was inspected, and this risk is not evidence that any production row is inconsistent.
-- After invoice-integrity write fixes and before #99 Reliability/UAT, operations need a read-only consistency
-  check that identifies invoice rows where
-  `subtotal_amount` or `total_amount` does not reconcile with the canonical sum of persisted invoice-item
-  `line_total` values. Repair, automatic correction and production access remain outside this gate.
+- `RentalPlatform.InvoiceAggregateAudit` scans every persisted invoice, including draft, issued, paid, cancelled
+  and superseded rows. It independently checks exact PostgreSQL `numeric` truth for
+  `subtotal_amount = SUM(invoice_items.line_total)`, `total_amount = subtotal_amount`, and the required presence
+  of at least one persisted item. Subtotal and total/subtotal failures remain separately diagnosable.
+- The audit uses one set-based aggregate query in a repeatable-read, database-enforced read-only transaction. Its
+  approved least-privilege identity needs only database/schema access and `SELECT` on `invoices` and
+  `invoice_items`; it does not need mutation privileges. Exit `0` means consistent, exit `2` means inconsistent,
+  and verification/configuration failures are nonzero and never treated as a pass.
+- Diagnostics are bounded to invoice/booking identifiers, invoice number and status, item count, exact aggregate
+  values/deltas, mismatch flags and invoice timestamps. Client/owner PII, payment references, notes, banking
+  fields and external references are not queried or emitted.
 - `ReissueAsync` copies the stored source totals and source items. A pre-existing inconsistent source invoice may
   therefore propagate its inconsistency to the replacement. Reissue behavior is unchanged in PR #61; this belongs
-  to the future aggregate-consistency and invoice-integrity release-hardening work, not INV-OPS-02.
+  to the consistency gate and any separately authorized remediation work, not INV-OPS-02.
+- Detection does not authorize repair. Any inconsistency blocks release readiness pending Owner assessment; no
+  invoice, item, status or payment is automatically changed, and remediation requires a separate evidence-driven
+  decision and task.
 
 ## 16. Migration and rollout plan
 
