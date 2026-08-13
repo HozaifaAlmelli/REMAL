@@ -315,12 +315,12 @@ reporting defect correction.
   adjustment versus issue, cancellation or reissue; that cross-writer boundary belongs to INV-OPS-03.
 - INV-OPS-01 changes no schema, endpoint or payment contract. Negative unit amounts remain unsupported by the
   existing request validator. `INV-OPS-02`, covering capacity shrink against existing paid and pending
-  reservations, remains open and is not changed by this arithmetic correction.
+  reservations, remains separately owned and is not changed by this arithmetic correction.
 
 ### 15.7 INV-OPS-03 invoice cross-writer lost-update serialization
 
-**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** This release blocker remains subject to independent
-review before Reliability/UAT and final release approval.
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** PR #62 received independent approval and was
+Owner-merged before INV-OPS-02 implementation. Reliability/UAT remains gated by the other open release blockers.
 
 - INV-OPS-03 was discovered by the expanded independent review after PR #61 implemented INV-OPS-01. The review
   confirmed the defect existed on the PR #61 base, was not introduced or worsened by PR #61, and is separate
@@ -338,9 +338,9 @@ review before Reliability/UAT and final release approval.
   `invoice-mutation:{invoiceId:N}` advisory lock. Each existing-invoice writer acquires it before its authoritative
   read and status validation, keeps it through `SaveChanges` and commit, and re-reads tracked state after waiting.
   Whole-entity EF updates remain, but no participating writer can persist a pre-lock invoice snapshot.
-- Lock ordering is acyclic: payment settlement and invoice cancellation acquire
-  `payment-booking:{bookingId:N}` before the invoice lock; generated reissue numbers acquire
-  `invoice-number-generation` before the invoice lock; adjustment and issue acquire only the invoice lock.
+- At PR #62 merge, lock ordering was acyclic: payment settlement and invoice cancellation acquired
+  `payment-booking:{bookingId:N}` before the invoice lock; generated reissue numbers acquired
+  `invoice-number-generation` before the invoice lock; adjustment and issue acquired only the invoice lock.
   Booking confirmation retains `booking-unit` then `invoice-booking` then invoice-number generation before issuing
   its newly created invoice. No protected path acquires one of those outer locks after an invoice lock.
 - Deterministic PostgreSQL coverage proves both adjustment/issue and adjustment/cancellation serial orders,
@@ -351,17 +351,46 @@ review before Reliability/UAT and final release approval.
 - The correction changes no schema, migration, endpoint, permission or public error contract. INV-OPS-01 remains
   canonical, and legacy inconsistent rows are not repaired or normalized by this concurrency boundary.
 - INV-OPS-03 is not INV-OPS-02. INV-OPS-03 concerns stale writes and lost updates between invoice writers;
-  INV-OPS-02 remains the capacity/reservation invariant when a valid invoice capacity shrinks after ordinary paid
-  or pending reservations already exist.
+  INV-OPS-02 owns the capacity/reservation invariant when a valid invoice capacity shrinks after ordinary paid or
+  pending reservations already exist.
 
-### 15.8 Pre-release invoice aggregate consistency risk
+### 15.8 INV-OPS-02 invoice capacity/reservation invariant
+
+**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** The Owner ratified the fail-closed policy after repository
+and PostgreSQL evidence proved that the previous contract did not specify how a capacity shrink should treat
+existing settlement commitments.
+
+- A supported capacity-reducing mutation is rejected when booking-scoped ordinary paid plus pending commitments
+  exceed the proposed effective settlement capacity. Equality is valid. Rejection uses the existing uncoded
+  `ConflictException` / HTTP 409 contract and does not cancel, release, reclassify or compensate any payment.
+- The commitment population is `BookingId = target booking`, `IsHistoricalRecord = false`, and
+  `PaymentStatus IN ('paid', 'pending')`. Invoice linkage is not a classification boundary: ordinary linked and
+  unlinked commitments participate, while failed, cancelled and Historical Payment Evidence rows do not.
+- `CancelAsync` validates the authoritative ordinary commitment total before removing an active invoice whose
+  cancellation would reduce capacity to `Booking.FinalAmount`. A rejection leaves invoice and payment state
+  unchanged. Existing linked-paid and invoice-status cancellation conflicts remain earlier, unchanged guards.
+- Non-negative manual adjustments normally increase capacity, but canonical recomputation can normalize a legacy
+  INV-OPS-01-inconsistent stored total downward. `AddManualAdjustmentAsync` therefore protects that path with
+  `payment-booking:{bookingId:N}` followed by `invoice-mutation:{invoiceId:N}`, recomputes item truth after both
+  locks, and rejects an unsafe normalization before staging an item or aggregate update.
+- The resulting lock graph remains acyclic: every path needing both locks uses payment-booking then
+  invoice-mutation. Commitment reads occur inside the transaction after the booking lock, and transaction-scoped
+  locks remain held through `SaveChanges` and the owning commit. Different booking IDs remain independent.
+- Deterministic PostgreSQL coverage proves pending-only, paid-plus-pending, paid-only, exact-boundary, one-cent,
+  Historical Evidence, ordinary-unlinked, cancellation atomicity, legacy normalization and both payment/shrink
+  serial orderings. Mutation checks protect rejection, payment populations, read placement and lock ordering.
+- INV-OPS-02 changes no schema, migration, endpoint, permission, payment lifecycle, payout policy or reporting
+  contract. INV-OPS-01 and owner-merged INV-OPS-03 remain canonical; INV-OPS-02 does not repair legacy rows.
+
+### 15.9 Pre-release invoice aggregate consistency risk
 
 - The defective manual-adjustment calculation existed before PR #61, so an environment that previously exercised
   that path may contain an invoice whose stored subtotal or total does not equal its persisted invoice-item sum.
   No production database was inspected, and this risk is not evidence that any production row is inconsistent.
-- Before release approval, operations need a read-only consistency check that identifies invoice rows where
+- After invoice-integrity write fixes and before #99 Reliability/UAT, operations need a read-only consistency
+  check that identifies invoice rows where
   `subtotal_amount` or `total_amount` does not reconcile with the canonical sum of persisted invoice-item
-  `line_total` values. Repair, automatic correction and production access are outside PR #61.
+  `line_total` values. Repair, automatic correction and production access remain outside this gate.
 - `ReissueAsync` copies the stored source totals and source items. A pre-existing inconsistent source invoice may
   therefore propagate its inconsistency to the replacement. Reissue behavior is unchanged in PR #61; this belongs
   to the future aggregate-consistency and invoice-integrity release-hardening work, not INV-OPS-02.
