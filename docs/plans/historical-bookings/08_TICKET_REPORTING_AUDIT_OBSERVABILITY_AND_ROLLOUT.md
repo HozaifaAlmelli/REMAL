@@ -300,6 +300,54 @@ reporting defect correction.
   `INV-OPS-01` (manual-adjustment invoice-total divergence) and `INV-OPS-02` (invoice capacity shrink can
   leave paid plus pending reservations above the new capacity) remain separate release-hardening work.
 
+### 15.6 INV-OPS-01 invoice-total invariant evidence
+
+- Manual adjustment persistence previously counted the newly tracked invoice item twice after EF relationship
+  fixup, so a 2,000 adjustment on a 10,000 invoice persisted 12,000 of items but a 14,000 invoice total.
+- The canonical manual-adjustment calculation now uses the persisted item sum plus the new line exactly once.
+  Concurrent manual adjustments on the same invoice are transactionally serialized so they cannot lose an item
+  contribution. Caller-owned transactions remain caller-owned.
+- Focused PostgreSQL coverage compares the stored total with an independent persisted-item sum after positive,
+  sequential, zero-value, tracked, fresh-context, concurrent and reissue flows. It also proves rejected and
+  failed adjustments leave both sides unchanged and that ordinary settlement capacity uses the corrected total.
+- Independent review confirmed the INV-OPS-01 arithmetic, atomic persistence and manual-adjustment concurrency
+  correction is sound. INV-OPS-01 does not serialize different invoice writers and does not claim to protect
+  adjustment versus issue, cancellation or reissue; that cross-writer boundary belongs to INV-OPS-03.
+- INV-OPS-01 changes no schema, endpoint or payment contract. Negative unit amounts remain unsupported by the
+  existing request validator. `INV-OPS-02`, covering capacity shrink against existing paid and pending
+  reservations, remains open and is not changed by this arithmetic correction.
+
+### 15.7 INV-OPS-03 invoice cross-writer lost-update serialization
+
+**Status: OPEN — RELEASE BLOCKER.** This blocker must close before Reliability/UAT and final release approval.
+
+- INV-OPS-03 was discovered by the expanded independent review after PR #61 implemented INV-OPS-01. The review
+  confirmed the defect existed on the PR #61 base, was not introduced or worsened by PR #61, and is separate
+  from the corrected manual-adjustment arithmetic. The post-lock reload in PR #61 closes one stale adjustment
+  ordering but cannot coordinate writers that do not share a same-invoice concurrency boundary.
+- The proven cross-writer case is `AddManualAdjustmentAsync` versus `IssueAsync`. One ordering can persist a
+  12,000 item sum with a stale 10,000 subtotal and total while both operations report success. Another can let a
+  stale adjustment persist the invoice status back to draft after issue reported success.
+- INV-OPS-03 owns cross-writer concurrency correctness for supported mutations of the same invoice. Its
+  implementation must census and test adjustment versus issue, cancellation, reissue and any other state-changing
+  invoice writer before selecting a common mechanism. No advisory-lock namespace, optimistic-concurrency model,
+  row lock or conditional-update design is ratified yet.
+- INV-OPS-03 is not INV-OPS-02. INV-OPS-03 concerns stale writes and lost updates between invoice writers;
+  INV-OPS-02 remains the capacity/reservation invariant when a valid invoice capacity shrinks after ordinary paid
+  or pending reservations already exist.
+
+### 15.8 Pre-release invoice aggregate consistency risk
+
+- The defective manual-adjustment calculation existed before PR #61, so an environment that previously exercised
+  that path may contain an invoice whose stored subtotal or total does not equal its persisted invoice-item sum.
+  No production database was inspected, and this risk is not evidence that any production row is inconsistent.
+- Before release approval, operations need a read-only consistency check that identifies invoice rows where
+  `subtotal_amount` or `total_amount` does not reconcile with the canonical sum of persisted invoice-item
+  `line_total` values. Repair, automatic correction and production access are outside PR #61.
+- `ReissueAsync` copies the stored source totals and source items. A pre-existing inconsistent source invoice may
+  therefore propagate its inconsistency to the replacement. Reissue behavior is unchanged in PR #61; this belongs
+  to the future aggregate-consistency and invoice-integrity release-hardening work, not INV-OPS-02.
+
 ## 16. Migration and rollout plan
 
 ### 16.1 Ordering

@@ -172,48 +172,70 @@ public class InvoiceService : IInvoiceService
         decimal unitAmount,
         CancellationToken cancellationToken = default)
     {
-        var invoice = await _unitOfWork.Invoices.Query()
-            .Include(i => i.InvoiceItems)
-            .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken);
+        IDbContextTransaction? ownedTransaction = null;
+        if (!_unitOfWork.HasActiveTransaction)
+            ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        if (invoice == null)
-            throw new NotFoundException($"Invoice with ID {invoiceId} not found");
-
-        if (invoice.InvoiceStatus != "draft")
-            throw new ConflictException(
-                $"Cannot add items to invoice {invoiceId}: current status is '{invoice.InvoiceStatus}'. Only draft invoices can be modified.");
-
-        var lineTotal = quantity * unitAmount;
-
-        var item = new InvoiceItem
+        try
         {
-            Id = Guid.NewGuid(),
-            InvoiceId = invoiceId,
-            LineType = "manual_adjustment",
-            Description = description.Trim(),
-            Quantity = quantity,
-            UnitAmount = unitAmount,
-            LineTotal = lineTotal,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                $"invoice-adjustment:{invoiceId:N}",
+                cancellationToken);
 
-        await _unitOfWork.InvoiceItems.AddAsync(item, cancellationToken);
+            var invoice = await _unitOfWork.Invoices.GetByIdAsync(invoiceId, cancellationToken);
+            if (invoice == null)
+                throw new NotFoundException($"Invoice with ID {invoiceId} not found");
 
-        // Recalculate totals including new item
-        var allItems = invoice.InvoiceItems.ToList();
-        allItems.Add(item);
-        invoice.SubtotalAmount = allItems.Sum(ii => ii.LineTotal);
-        invoice.TotalAmount = invoice.SubtotalAmount;
-        invoice.UpdatedAt = DateTime.UtcNow;
+            await _unitOfWork.ReloadAsync(invoice, cancellationToken);
+            if (invoice.InvoiceStatus != "draft")
+                throw new ConflictException(
+                    $"Cannot add items to invoice {invoiceId}: current status is '{invoice.InvoiceStatus}'. Only draft invoices can be modified.");
 
-        _unitOfWork.Invoices.Update(invoice);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+            var lineTotal = quantity * unitAmount;
+            var persistedItemTotal = await _unitOfWork.InvoiceItems.Query()
+                .Where(item => item.InvoiceId == invoiceId)
+                .SumAsync(item => item.LineTotal, cancellationToken);
+            var now = DateTime.UtcNow;
+            var item = new InvoiceItem
+            {
+                Id = Guid.NewGuid(),
+                InvoiceId = invoiceId,
+                LineType = "manual_adjustment",
+                Description = description.Trim(),
+                Quantity = quantity,
+                UnitAmount = unitAmount,
+                LineTotal = lineTotal,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
 
-        // Reload with persisted items
-        return await _unitOfWork.Invoices.Query()
-            .Include(i => i.InvoiceItems)
-            .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken) ?? invoice;
+            await _unitOfWork.InvoiceItems.AddAsync(item, cancellationToken);
+
+            invoice.SubtotalAmount = persistedItemTotal + lineTotal;
+            invoice.TotalAmount = invoice.SubtotalAmount;
+            invoice.UpdatedAt = now;
+
+            _unitOfWork.Invoices.Update(invoice);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+
+            return await _unitOfWork.Invoices.Query()
+                .Include(i => i.InvoiceItems)
+                .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken) ?? invoice;
+        }
+        catch
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
+        }
     }
 
     public async Task<Invoice> IssueAsync(Guid id, CancellationToken cancellationToken = default)
