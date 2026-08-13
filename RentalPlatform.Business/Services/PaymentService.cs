@@ -247,19 +247,43 @@ public class PaymentService : IPaymentService
                 throw new ConflictException(
                     $"Payment {id} cannot be marked as paid: current status is '{payment.PaymentStatus}'. Only pending payments can be marked as paid.");
 
-            // Auto-link to booking's active invoice if not already linked
-            if (!payment.InvoiceId.HasValue)
+            // Protect whichever invoice is authoritative after waiting. Reissue can move an
+            // ordinary payment to its replacement while this transaction is waiting.
+            var protectedInvoiceId = payment.InvoiceId;
+            if (!protectedInvoiceId.HasValue)
             {
-                var activeInvoice = await _unitOfWork.Invoices.Query()
+                protectedInvoiceId = await _unitOfWork.Invoices.Query()
                     .AsNoTracking()
                     .Where(i => i.BookingId == payment.BookingId
                         && i.InvoiceStatus != "cancelled"
                         && i.InvoiceStatus != "superseded")
+                    .Select(i => (Guid?)i.Id)
                     .FirstOrDefaultAsync(cancellationToken);
-
-                if (activeInvoice != null)
-                    payment.InvoiceId = activeInvoice.Id;
             }
+
+            Guid? lockedInvoiceId = null;
+            while (protectedInvoiceId.HasValue && protectedInvoiceId != lockedInvoiceId)
+            {
+                await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                    InvoiceMutationLocks.ForInvoice(protectedInvoiceId.Value),
+                    cancellationToken);
+                lockedInvoiceId = protectedInvoiceId;
+
+                await _unitOfWork.ReloadAsync(payment, cancellationToken);
+                protectedInvoiceId = payment.InvoiceId;
+                if (!protectedInvoiceId.HasValue)
+                {
+                    protectedInvoiceId = await _unitOfWork.Invoices.Query()
+                        .AsNoTracking()
+                        .Where(i => i.BookingId == payment.BookingId
+                            && i.InvoiceStatus != "cancelled"
+                            && i.InvoiceStatus != "superseded")
+                        .Select(i => (Guid?)i.Id)
+                        .FirstOrDefaultAsync(cancellationToken);
+                }
+            }
+
+            payment.InvoiceId = protectedInvoiceId;
 
             Invoice? linkedInvoice = null;
             if (payment.InvoiceId.HasValue)

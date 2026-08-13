@@ -285,17 +285,20 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
         await using var database = await _fixture.CreateTestDatabaseAsync();
         var state = await CreateActiveCapacityStateAsync(
             database, [12_000m], linkPaymentsToInvoice: false);
-        await using var gate = await HoldAdvisoryLockAsync(database, InvoiceReissueLockKey(state.InvoiceId));
+        await using var gate = await HoldAdvisoryLockAsync(
+            database, InvoiceMutationLocks.ForInvoice(state.InvoiceId));
 
         var reissue = CaptureReissueAsync(database, state.InvoiceId);
         await WaitForAdvisoryWaitersAsync(database, 1);
-        var markPaid = await CompleteWithinAsync(
-            CaptureMarkPaidAsync(database, state.PaymentIds[0]),
-            TimeSpan.FromSeconds(10),
-            "MarkPaid should not deadlock behind a capacity-preserving reissue lock.");
-        Assert.NotNull(markPaid.Payment);
+        var markPaid = CaptureMarkPaidAsync(database, state.PaymentIds[0]);
+        await WaitForAdvisoryWaitersAsync(database, 2);
         await gate.CommitAsync();
-        var replacement = await reissue;
+        var replacement = await CompleteWithinAsync(
+            reissue,
+            TimeSpan.FromSeconds(10),
+            "Reissue and MarkPaid must complete without an invoice-lock deadlock.");
+        var markPaidOutcome = await markPaid;
+        Assert.NotNull(markPaidOutcome.Payment);
 
         await using var verify = database.CreateDbContext();
         var payment = await verify.Payments.SingleAsync(row => row.Id == state.PaymentIds[0]);
@@ -648,8 +651,6 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
     }
 
     private static string PaymentLockKey(Guid bookingId) => $"payment-booking:{bookingId:N}";
-
-    private static string InvoiceReissueLockKey(Guid invoiceId) => $"invoice-reissue:{invoiceId:N}";
 
     private static string TestPhone(string prefix)
     {

@@ -319,7 +319,8 @@ reporting defect correction.
 
 ### 15.7 INV-OPS-03 invoice cross-writer lost-update serialization
 
-**Status: OPEN — RELEASE BLOCKER.** This blocker must close before Reliability/UAT and final release approval.
+**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** This release blocker remains subject to independent
+review before Reliability/UAT and final release approval.
 
 - INV-OPS-03 was discovered by the expanded independent review after PR #61 implemented INV-OPS-01. The review
   confirmed the defect existed on the PR #61 base, was not introduced or worsened by PR #61, and is separate
@@ -328,10 +329,27 @@ reporting defect correction.
 - The proven cross-writer case is `AddManualAdjustmentAsync` versus `IssueAsync`. One ordering can persist a
   12,000 item sum with a stale 10,000 subtotal and total while both operations report success. Another can let a
   stale adjustment persist the invoice status back to draft after issue reported success.
-- INV-OPS-03 owns cross-writer concurrency correctness for supported mutations of the same invoice. Its
-  implementation must census and test adjustment versus issue, cancellation, reissue and any other state-changing
-  invoice writer before selecting a common mechanism. No advisory-lock namespace, optimistic-concurrency model,
-  row lock or conditional-update design is ratified yet.
+- The production writer census found existing-invoice writers in `AddManualAdjustmentAsync`, `IssueAsync`,
+  `CancelAsync`, `ReissueAsync` and payment-driven invoice-status synchronization in `MarkPaidAsync`.
+  `CreateDraftFromBookingAsync` creates a new, not-yet-visible invoice under its existing booking lock;
+  orphan-payment linking and payment failure/cancellation do not write invoice fields. No raw-SQL, bulk-update,
+  item-removal or invoice-deletion writer exists in the application path.
+- The selected mechanism is the transaction-scoped, identity-specific
+  `invoice-mutation:{invoiceId:N}` advisory lock. Each existing-invoice writer acquires it before its authoritative
+  read and status validation, keeps it through `SaveChanges` and commit, and re-reads tracked state after waiting.
+  Whole-entity EF updates remain, but no participating writer can persist a pre-lock invoice snapshot.
+- Lock ordering is acyclic: payment settlement and invoice cancellation acquire
+  `payment-booking:{bookingId:N}` before the invoice lock; generated reissue numbers acquire
+  `invoice-number-generation` before the invoice lock; adjustment and issue acquire only the invoice lock.
+  Booking confirmation retains `booking-unit` then `invoice-booking` then invoice-number generation before issuing
+  its newly created invoice. No protected path acquires one of those outer locks after an invoice lock.
+- Deterministic PostgreSQL coverage proves both adjustment/issue and adjustment/cancellation serial orders,
+  stale tracked-context protection, payment-driven status synchronization, cancellation/reissue outcomes,
+  different-invoice parallelism, caller-owned reissue transactions and payment-to-invoice deadlock ordering.
+  Adjustment and reissue cannot share a valid initial status under the existing state machine, but reissue still
+  participates because it supersedes invoice state and can overlap cancellation or payment synchronization.
+- The correction changes no schema, migration, endpoint, permission or public error contract. INV-OPS-01 remains
+  canonical, and legacy inconsistent rows are not repaired or normalized by this concurrency boundary.
 - INV-OPS-03 is not INV-OPS-02. INV-OPS-03 concerns stale writes and lost updates between invoice writers;
   INV-OPS-02 remains the capacity/reservation invariant when a valid invoice capacity shrinks after ordinary paid
   or pending reservations already exist.

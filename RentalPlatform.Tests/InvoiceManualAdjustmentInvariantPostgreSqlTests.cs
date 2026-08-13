@@ -170,7 +170,8 @@ public sealed class InvoiceManualAdjustmentInvariantPostgreSqlTests
             invoiceId = (await CreateDraftAsync(setup)).InvoiceId;
         }
 
-        await using var gate = await HoldAdvisoryLockAsync(database, AdjustmentLockKey(invoiceId));
+        await using var gate = await HoldAdvisoryLockAsync(
+            database, InvoiceMutationLocks.ForInvoice(invoiceId));
         var first = AddInFreshContextAsync(database, invoiceId, 2_000m);
         var second = AddInFreshContextAsync(database, invoiceId, 3_000m);
         await WaitForAdvisoryWaitersAsync(database, 2);
@@ -382,9 +383,6 @@ public sealed class InvoiceManualAdjustmentInvariantPostgreSqlTests
         await context.SaveChangesAsync();
         return booking;
     }
-
-    private static string AdjustmentLockKey(Guid invoiceId) =>
-        $"invoice-adjustment:{invoiceId:N}";
 
     private static string TestPhone(string prefix)
     {
