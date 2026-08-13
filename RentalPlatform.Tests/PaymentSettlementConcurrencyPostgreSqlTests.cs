@@ -28,7 +28,7 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
     }
 
     [Fact]
-    public async Task ConcurrentMarkPaidAfterSupportedCapacityShrinkCannotOverpay()
+    public async Task ConcurrentMarkPaidFromLegacyOverReservedStateCannotOverpay()
     {
         await using var database = await _fixture.CreateTestDatabaseAsync();
         var state = await CreateShrunkCapacityStateAsync(database, 6_000m, 6_000m);
@@ -355,7 +355,7 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
     }
 
     [Fact]
-    public async Task NaturalConcurrentMarkPaidNeverExceedsCapacityAcrossTwelveFreshDatabases()
+    public async Task NaturalConcurrentMarkPaidNeverExceedsLegacyCapacityAcrossTwelveFreshDatabases()
     {
         var violations = 0;
         for (var attempt = 0; attempt < 12; attempt++)
@@ -389,7 +389,19 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
         await using var context = database.CreateDbContext();
         var unitOfWork = new UnitOfWork(context);
         var invoices = new InvoiceService(unitOfWork);
-        await invoices.CancelAsync(active.InvoiceId, "Supported capacity shrink");
+        if (firstAmount + secondAmount <= FallbackCapacity)
+        {
+            await invoices.CancelAsync(active.InvoiceId, "Valid capacity shrink");
+        }
+        else
+        {
+            // INV-OPS-02 now rejects this supported mutation. Keep PAY-OPS-01 accountable
+            // for legacy rows that may already predate the capacity-shrink invariant.
+            var invoice = await context.Invoices.SingleAsync(row => row.Id == active.InvoiceId);
+            invoice.InvoiceStatus = "cancelled";
+            invoice.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+        }
 
         context.ChangeTracker.Clear();
         Assert.Equal(FallbackCapacity, await CurrentCapacityAsync(context, active.BookingId));

@@ -172,12 +172,25 @@ public class InvoiceService : IInvoiceService
         decimal unitAmount,
         CancellationToken cancellationToken = default)
     {
+        var invoiceIdentity = await _unitOfWork.Invoices.Query()
+            .AsNoTracking()
+            .Where(invoice => invoice.Id == invoiceId)
+            .Select(invoice => new { invoice.BookingId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (invoiceIdentity == null)
+            throw new NotFoundException($"Invoice with ID {invoiceId} not found");
+
         IDbContextTransaction? ownedTransaction = null;
         if (!_unitOfWork.HasActiveTransaction)
             ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
         try
         {
+            // Canonical recomputation can lower a legacy inconsistent total. Serialize that
+            // possibility with ordinary payment reservations before taking the invoice lock.
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                $"payment-booking:{invoiceIdentity.BookingId:N}",
+                cancellationToken);
             await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
                 InvoiceMutationLocks.ForInvoice(invoiceId),
                 cancellationToken);
@@ -195,6 +208,15 @@ public class InvoiceService : IInvoiceService
             var persistedItemTotal = await _unitOfWork.InvoiceItems.Query()
                 .Where(item => item.InvoiceId == invoiceId)
                 .SumAsync(item => item.LineTotal, cancellationToken);
+            var proposedTotal = persistedItemTotal + lineTotal;
+            if (proposedTotal < invoice.TotalAmount)
+            {
+                await EnsureOrdinaryCommitmentsFitCapacityAsync(
+                    invoice.BookingId,
+                    proposedTotal,
+                    cancellationToken);
+            }
+
             var now = DateTime.UtcNow;
             var item = new InvoiceItem
             {
@@ -211,7 +233,7 @@ public class InvoiceService : IInvoiceService
 
             await _unitOfWork.InvoiceItems.AddAsync(item, cancellationToken);
 
-            invoice.SubtotalAmount = persistedItemTotal + lineTotal;
+            invoice.SubtotalAmount = proposedTotal;
             invoice.TotalAmount = invoice.SubtotalAmount;
             invoice.UpdatedAt = now;
 
@@ -364,6 +386,25 @@ public class InvoiceService : IInvoiceService
             if (hasPaidPayment)
                 throw new ConflictException(
                     $"Invoice {id} cannot be cancelled: there are paid payments linked to this invoice.");
+
+            if (invoice.InvoiceStatus != "superseded")
+            {
+                var fallbackCapacity = await _unitOfWork.Bookings.Query()
+                    .AsNoTracking()
+                    .Where(booking => booking.Id == invoice.BookingId)
+                    .Select(booking => (decimal?)booking.FinalAmount)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (!fallbackCapacity.HasValue)
+                    throw new NotFoundException($"Booking with ID {invoice.BookingId} not found");
+
+                if (fallbackCapacity.Value < invoice.TotalAmount)
+                {
+                    await EnsureOrdinaryCommitmentsFitCapacityAsync(
+                        invoice.BookingId,
+                        fallbackCapacity.Value,
+                        cancellationToken);
+                }
+            }
 
             invoice.InvoiceStatus = "cancelled";
 
@@ -614,6 +655,45 @@ public class InvoiceService : IInvoiceService
         }
 
         throw new ConflictException("Could not generate a unique invoice number. Try again.");
+    }
+
+    private async Task EnsureOrdinaryCommitmentsFitCapacityAsync(
+        Guid bookingId,
+        decimal proposedCapacity,
+        CancellationToken cancellationToken)
+    {
+        var commitments = await _unitOfWork.Payments.Query()
+            .Where(payment => payment.BookingId == bookingId
+                && !payment.IsHistoricalRecord
+                && (payment.PaymentStatus == "paid" || payment.PaymentStatus == "pending"))
+            .GroupBy(_ => 1)
+            .Select(group => new
+            {
+                Paid = group.Sum(payment =>
+                    payment.PaymentStatus == "paid" ? payment.Amount : 0m),
+                Pending = group.Sum(payment =>
+                    payment.PaymentStatus == "pending" ? payment.Amount : 0m)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var paid = commitments?.Paid ?? 0m;
+        var pending = commitments?.Pending ?? 0m;
+        var total = paid + pending;
+        if (total <= proposedCapacity)
+            return;
+
+        if (paid > proposedCapacity)
+        {
+            throw new ConflictException(
+                $"Cannot reduce settlement capacity to {proposedCapacity:F2} for booking {bookingId}: " +
+                $"already-paid ordinary payments total {paid:F2}, and total ordinary paid and pending " +
+                $"commitments are {total:F2}. Manual review is required.");
+        }
+
+        throw new ConflictException(
+            $"Cannot reduce settlement capacity to {proposedCapacity:F2} for booking {bookingId} " +
+            $"while {total:F2} of ordinary paid and pending payment commitments remain " +
+            $"(paid: {paid:F2}, pending: {pending:F2}).");
     }
 
     private static bool IsUniqueViolation(DbUpdateException exception)
