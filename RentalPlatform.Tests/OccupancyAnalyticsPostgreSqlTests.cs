@@ -283,6 +283,31 @@ public sealed class OccupancyAnalyticsPostgreSqlTests
     }
 
     [Fact]
+    public async Task IntegrityConflictIsPairSpecificWhenAggregateCapacityExceedsOccupancy()
+    {
+        await using var scope = await TestScope.CreateAsync(_fixture);
+        var rentableUnit = await scope.AddUnitAsync(Epoch);
+        var nonRentableUnit = await scope.AddUnitAsync(Epoch, isActive: false);
+        await scope.AddPeriodAsync(rentableUnit.Id, Epoch, null, true);
+        await scope.AddPeriodAsync(nonRentableUnit.Id, Epoch, null, false);
+        await scope.AddBookingAsync(
+            nonRentableUnit.Id,
+            BookingStatus.Completed,
+            Epoch,
+            Epoch.AddDays(1));
+        await scope.PublishAsync();
+
+        var result = await scope.QueryAsync(Epoch, Epoch.AddDays(10));
+
+        Assert.True(result.AvailabilityCoverageComplete);
+        Assert.Equal(1, result.OccupiedUnitNights);
+        Assert.Equal(10, result.AvailableUnitNights);
+        Assert.True(result.OccupiedUnitNights <= result.AvailableUnitNights);
+        Assert.Null(result.OccupancyRate);
+        Assert.Equal(OccupancyUnavailableReasons.IntegrityConflict, result.UnavailableReason);
+    }
+
+    [Fact]
     public async Task FutureNightIsRejectedButCairoTodayNightIsSupported()
     {
         await using var scope = await TestScope.CreateAsync(_fixture);
