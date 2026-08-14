@@ -415,7 +415,7 @@ Owner/operator step.
 
 ### 15.10 PAY-OPS-F01 mark-paid/cancel test reliability follow-up
 
-**Status: TEST-ONLY CORRECTION — PENDING INDEPENDENT REVIEW.** During the independent read-only review of
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** During the independent read-only review of
 PR #64, the pre-existing `ConcurrentMarkPaidAndInvoiceCancelCannotCommitPaidAboveFinalCapacity` test failed
 intermittently under statement logging and concurrent database lifecycle load. The investigation reproduced the
 failure without changing production services and classified it as a test-contract defect, not a durable financial
@@ -438,6 +438,62 @@ failure.
 - Scratch mutations proved the coverage fails if cancellation leaves the booking serialization boundary or if
   paid/link/capacity guards are bypassed. `PaymentService`, `InvoiceService`, lock helpers, financial semantics,
   schema and API contracts are unchanged by this follow-up.
+
+### 15.11 AN-OPS-01A historical rentable-capacity contract and persistence design
+
+**Status: OWNER RATIFIED.** Occupancy is a stay-date physical-capacity metric whose denominator requires
+historically effective operational rentability. The ratified inputs are `Unit.IsActive`, `Unit.DeletedAt` and
+non-deleted pending/approved DateBlocks. Project activity, portfolio visibility, guest capacity, pricing and
+owner attribution are not physical-capacity inputs. Pre-ledger availability is unknown and must remain N/A;
+current inventory state and legacy timestamps are not historical evidence.
+
+The Owner selected versioned resolved half-open rentability intervals per unit. Ordinary changes become
+effective on the current Cairo date and cannot alter closed prior nights. Resolved state is always recomputed
+from all authoritative inputs so overlapping causes compose correctly. Event sourcing, nightly snapshots,
+retroactive guessing and privileged historical correction are outside the approved design.
+
+### 15.12 AN-OPS-01B1 rentable-capacity history persistence and writer atomicity
+
+**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** Migration `0064` adds an explicitly unpublished global
+ledger and versioned `unit_rentability_periods`; it does not seed or claim a production epoch. PostgreSQL
+`btree_gist` enforces non-overlap of active half-open intervals, with a separate partial uniqueness rule for
+the single current open interval. The rollback refuses to discard seeded or published history and retains the
+extension because later objects may share it.
+
+- The one-time operational initializer accepts only the current Cairo date, acquires exclusive
+  `rentable-capacity:publication`, seeds existing units from authoritative current state, resolves surviving
+  pending/approved DateBlocks at and after the epoch, verifies the complete projection, and publishes in the
+  same transaction. Replay fails closed. No production initialization occurs in this PR.
+- Ordinary capacity writers acquire shared `rentable-capacity:publication`, then
+  `booking-unit:{unitId:N}`, then reload authoritative state. Source mutation and resolved interval changes
+  commit atomically. Caller-owned transactions remain caller-owned. Different units retain parallelism because
+  the publication lock is shared and the unit lock is identity-scoped.
+- Integrated writers are `UnitService.CreateAsync`, `UpdateAsync`, `SetActiveAsync`, `SoftDeleteAsync`,
+  `DateBlockService.CreateAsync`, `UpdateAsync`, `DeleteAsync`, and
+  `DateBlockApprovalService.RequestOwnerBlockAsync`, `ResolveAsync`, and `WithdrawOwnerBlockAsync`.
+  `SetPortfolioVisibilityAsync` remains a targeted non-capacity update. Project and portfolio writers do not
+  write capacity history.
+- DateBlocks are operationally inclusive and project to ledger intervals as `[StartDate, EndDate + 1)`.
+  Pending and approved non-deleted blocks both remove capacity. Rejection, withdrawal and deletion release only
+  current/future capacity. Deleting one overlapping cause cannot reopen nights still covered by another.
+- The booking/rentability census found supported firm allocation through CRM conversion, Historical Booking,
+  `Relevant -> Booked`, and confirmation. CRM conversion, Historical Booking and confirmation already used the
+  canonical unit lock. B1 adds authoritative locked validation to `Relevant -> Booked`; prospecting/relevant
+  date edits remain soft holds and are revalidated when entering Booked. Check-in/completion/early departure do
+  not allocate a new unit-night. Historical Booking remains intentionally authoritative for past truth; any B2
+  occupied-pair conflict with known capacity makes the future occupancy rate unavailable rather than changing
+  B1 history.
+- The read-only verifier runs in a repeatable-read database-enforced read-only transaction and fails closed on
+  an unpublished ledger, overlap, gaps, missing opening/current periods, invalid bounds, pre-epoch claims or
+  malformed supersession truth. It never repairs data.
+- Focused PostgreSQL evidence covers opening active/inactive/blocked units, post-epoch entry, unit lifecycle,
+  DateBlock composition and approval lifecycle, closed-history preservation, source/ledger rollback, caller
+  transactions, same-unit and different-unit concurrency, database overlap rejection, seed publication failure,
+  and the Blocked/Booked race. Scratch mutations killed each load-bearing guard.
+
+AN-OPS-01B2 remains responsible for the occupancy backend/API, coverage completeness, physical occupied-pair
+integrity conflicts and N/A behavior. AN-OPS-01B3 remains responsible for the widget correction. Neither is
+implemented by B1, and no revenue allocation semantics change.
 
 ## 16. Migration and rollout plan
 

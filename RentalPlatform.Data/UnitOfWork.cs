@@ -40,6 +40,8 @@ public class UnitOfWork : IUnitOfWork
     public IRepository<Invoice> Invoices { get; }
     public IRepository<InvoiceItem> InvoiceItems { get; }
     public IRepository<OwnerPayout> OwnerPayouts { get; }
+    public IRepository<RentableCapacityLedger> RentableCapacityLedgers { get; }
+    public IRepository<UnitRentabilityPeriod> UnitRentabilityPeriods { get; }
 
     // Reviews & Ratings
     public IRepository<Review> Reviews { get; }
@@ -107,6 +109,8 @@ public class UnitOfWork : IUnitOfWork
         Invoices = new Repository<Invoice>(_context);
         InvoiceItems = new Repository<InvoiceItem>(_context);
         OwnerPayouts = new Repository<OwnerPayout>(_context);
+        RentableCapacityLedgers = new Repository<RentableCapacityLedger>(_context);
+        UnitRentabilityPeriods = new Repository<UnitRentabilityPeriod>(_context);
         Reviews = new Repository<Review>(_context);
         ReviewStatusHistories = new Repository<ReviewStatusHistory>(_context);
         UnitReviewSummaries = new Repository<UnitReviewSummary>(_context);
@@ -153,6 +157,16 @@ public class UnitOfWork : IUnitOfWork
             .SqlQuery<bool>(
                 $"SELECT pg_try_advisory_xact_lock(hashtextextended({resourceKey}, 0)) AS \"Value\"")
             .SingleAsync(cancellationToken);
+    }
+
+    public async Task AcquireSharedTransactionAdvisoryLockAsync(
+        string resourceKey,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureActiveTransaction();
+        await _context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock_shared(hashtextextended({resourceKey}, 0))",
+            cancellationToken);
     }
 
     public Task ReloadAsync<TEntity>(TEntity entity, CancellationToken cancellationToken = default)

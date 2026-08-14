@@ -37,6 +37,8 @@ public interface IUnitOfWork
     IRepository<Invoice> Invoices { get; }
     IRepository<InvoiceItem> InvoiceItems { get; }
     IRepository<OwnerPayout> OwnerPayouts { get; }
+    IRepository<RentableCapacityLedger> RentableCapacityLedgers { get; }
+    IRepository<UnitRentabilityPeriod> UnitRentabilityPeriods { get; }
 
     // Reviews & Ratings
     IRepository<Review> Reviews { get; }
@@ -77,6 +79,10 @@ public interface IUnitOfWork
     bool HasActiveTransaction { get; }
 
     Task AcquireTransactionAdvisoryLockAsync(
+        string resourceKey,
+        CancellationToken cancellationToken = default);
+
+    Task AcquireSharedTransactionAdvisoryLockAsync(
         string resourceKey,
         CancellationToken cancellationToken = default);
 

@@ -280,6 +280,7 @@ builder.Services.AddScoped<IHistoricalPaymentService, HistoricalPaymentService>(
 builder.Services.AddScoped<IHistoricalOwnerAttributionService, HistoricalOwnerAttributionService>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<IBusinessClock, CairoBusinessClock>();
+builder.Services.AddScoped<IRentableCapacityLedgerService, RentableCapacityLedgerService>();
 builder.Services.AddScoped<IGuestBookingService, GuestBookingService>();
 builder.Services.AddScoped<IBookingLifecycleService, BookingLifecycleService>();
 builder.Services.AddScoped<ICrmLeadService, CrmLeadService>();

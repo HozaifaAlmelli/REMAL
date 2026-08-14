@@ -20,5 +20,6 @@
     <ProjectReference Include="..\RentalPlatform.Business\RentalPlatform.Business.csproj" />
     <ProjectReference Include="..\RentalPlatform.Data\RentalPlatform.Data.csproj" />
     <ProjectReference Include="..\RentalPlatform.InvoiceAggregateAudit\RentalPlatform.InvoiceAggregateAudit.csproj" />
+    <ProjectReference Include="..\RentalPlatform.RentableCapacityLedger\RentalPlatform.RentableCapacityLedger.csproj" />
   </ItemGroup>
 </Project>

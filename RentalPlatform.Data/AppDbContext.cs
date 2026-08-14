@@ -42,6 +42,8 @@ public class AppDbContext : DbContext
     public DbSet<Invoice> Invoices { get; set; } = null!;
     public DbSet<InvoiceItem> InvoiceItems { get; set; } = null!;
     public DbSet<OwnerPayout> OwnerPayouts { get; set; } = null!;
+    public DbSet<RentableCapacityLedger> RentableCapacityLedgers { get; set; } = null!;
+    public DbSet<UnitRentabilityPeriod> UnitRentabilityPeriods { get; set; } = null!;
 
     // Reviews & Ratings
     public DbSet<Review> Reviews { get; set; } = null!;

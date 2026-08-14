@@ -192,4 +192,7 @@
 \echo '=== Running migration 0063: add historical reporting read models ==='
 \i /docker-entrypoint-initdb.d/migrations/0063_add_historical_reporting_read_models.sql
 
+\echo '=== Running migration 0064: add rentable capacity history ==='
+\i /docker-entrypoint-initdb.d/migrations/0064_add_rentable_capacity_history.sql
+
 \echo '=== All migrations completed successfully ==='

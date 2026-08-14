@@ -144,6 +144,8 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 \i /docker-entrypoint-initdb.d/migrations/0062_add_historical_owner_attribution_corrections.sql
 \echo '=== [prod] 0063: add historical reporting read models ==='
 \i /docker-entrypoint-initdb.d/migrations/0063_add_historical_reporting_read_models.sql
+\echo '=== [prod] 0064: add rentable capacity history ==='
+\i /docker-entrypoint-initdb.d/migrations/0064_add_rentable_capacity_history.sql
 
 -- ── Record the applied baseline (everything run above) ──
 -- scripts/apply-migrations.sh resumes from the highest recorded number.
@@ -155,7 +157,7 @@ FROM unnest(ARRAY[
   '0021','0022','0023','0024','0025','0026','0027','0028','0029','0030',
   '0031','0032','0033','0034','0035','0036','0037','0038','0039','0040',
   '0041','0042','0043','0044','0045','0048','0049','0050','0051','0052',
-  '0053','0054','0055','0056','0057','0058','0059','0060','0061','0062','0063'
+  '0053','0054','0055','0056','0057','0058','0059','0060','0061','0062','0063','0064'
 ]) AS n
 ON CONFLICT (migration_number) DO NOTHING;
 
