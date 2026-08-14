@@ -222,36 +222,119 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
     [Fact]
     public async Task ConcurrentMarkPaidAndInvoiceCancelCannotCommitPaidAboveFinalCapacity()
     {
+        var runId = Guid.NewGuid().ToString("N");
         await using var database = await _fixture.CreateTestDatabaseAsync();
         var state = await CreateActiveCapacityStateAsync(
             database, [12_000m], linkPaymentsToInvoice: false);
         await using var gate = await HoldAdvisoryLockAsync(database, PaymentLockKey(state.BookingId));
 
+        _output.WriteLine(
+            "PAY-OPS-F01 run={0} markPaidStart={1:O} booking={2} invoice={3} payment={4}",
+            runId,
+            DateTime.UtcNow,
+            state.BookingId,
+            state.InvoiceId,
+            state.PaymentIds[0]);
         var markPaid = CaptureMarkPaidAsync(database, state.PaymentIds[0]);
+        _output.WriteLine("PAY-OPS-F01 run={0} cancelStart={1:O}", runId, DateTime.UtcNow);
         var cancel = CaptureInvoiceCancelAsync(database, state.InvoiceId);
-        await WaitForAdvisoryWaitersAsync(database, 2);
+        var waiters = await WaitForAdvisoryWaitersOnKeyAsync(
+            database,
+            PaymentLockKey(state.BookingId),
+            2);
+        _output.WriteLine(
+            "PAY-OPS-F01 run={0} paymentLockWaiters={1} waiterPids={2}",
+            runId,
+            waiters.Count,
+            string.Join(',', waiters));
         await gate.CommitAsync();
 
         var paymentOutcome = await markPaid;
         var cancelOutcome = await cancel;
-        Assert.NotEqual(paymentOutcome.Payment is not null, cancelOutcome.Invoice is not null);
+        var truth = await ReadMarkPaidCancelTruthAsync(database, state);
+        _output.WriteLine(
+            "PAY-OPS-F01 run={0} markPaidResult={1} cancelResult={2} " +
+            "invoiceStatus={3} activeInvoice={4} finalAmount={5} capacity={6} " +
+            "paymentStatus={7} paymentInvoice={8} ordinaryPaid={9} ordinaryPending={10} " +
+            "ordinaryCommitment={11} paidWithinCapacity={12} commitmentWithinCapacity={13}",
+            runId,
+            paymentOutcome.Payment is not null ? "success" : paymentOutcome.Error?.Message,
+            cancelOutcome.Invoice is not null ? "success" : cancelOutcome.Error?.Message,
+            truth.InvoiceStatus,
+            truth.ActiveInvoiceId,
+            truth.BookingFinalAmount,
+            truth.EffectiveCapacity,
+            truth.PaymentStatus,
+            truth.PaymentInvoiceId,
+            truth.OrdinaryPaid,
+            truth.OrdinaryPending,
+            truth.OrdinaryCommitment,
+            truth.PaidWithinCapacity,
+            truth.CommitmentWithinCapacity);
+        Assert.NotNull(paymentOutcome.Payment);
+        Assert.Null(paymentOutcome.Error);
+        Assert.Null(cancelOutcome.Invoice);
+        AssertTruthfulCancelConflict(cancelOutcome.Error!, state.InvoiceId);
+        AssertCanonicalMarkPaidCancelTruth(truth, state);
+    }
 
-        await using var verify = database.CreateDbContext();
-        var ordinaryPaid = await OrdinaryPaidAsync(verify, state.BookingId);
-        var capacity = await CurrentCapacityAsync(verify, state.BookingId);
-        Assert.True(ordinaryPaid <= capacity, $"Paid {ordinaryPaid} exceeded capacity {capacity}.");
-        if (cancelOutcome.Invoice is not null)
-        {
-            Assert.Equal(0m, ordinaryPaid);
-            Assert.Equal(FallbackCapacity, capacity);
-            Assert.Contains("overpayment", paymentOutcome.Error!.Message);
-        }
-        else
-        {
-            Assert.Equal(12_000m, ordinaryPaid);
-            Assert.True(capacity >= 12_000m);
-            Assert.Contains("already paid", cancelOutcome.Error!.Message);
-        }
+    [Fact]
+    public async Task MarkPaidFirstMakesWaitingInvoiceCancelObservePaidInvoice()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        var state = await CreateActiveCapacityStateAsync(
+            database, [12_000m], linkPaymentsToInvoice: false);
+        await using var paymentContext = database.CreateDbContext();
+        await using var paymentTransaction = await paymentContext.Database.BeginTransactionAsync();
+
+        var payment = await new PaymentService(new UnitOfWork(paymentContext))
+            .MarkPaidAsync(state.PaymentIds[0], null, "PAY-OPS-F01 mark-paid-first");
+        Assert.Equal("paid", payment.PaymentStatus);
+
+        var cancel = CaptureInvoiceCancelAsync(database, state.InvoiceId);
+        await WaitForAdvisoryWaitersOnKeyAsync(
+            database,
+            PaymentLockKey(state.BookingId),
+            1);
+        await paymentTransaction.CommitAsync();
+
+        var cancelOutcome = await cancel;
+        Assert.Null(cancelOutcome.Invoice);
+        Assert.Equal("mark-paid-first", AssertTruthfulCancelConflict(
+            cancelOutcome.Error!, state.InvoiceId));
+        AssertCanonicalMarkPaidCancelTruth(
+            await ReadMarkPaidCancelTruthAsync(database, state),
+            state);
+    }
+
+    [Fact]
+    public async Task CancelValidationFirstReportsReservationConflictThenMarkPaidSucceeds()
+    {
+        await using var database = await _fixture.CreateTestDatabaseAsync();
+        var state = await CreateActiveCapacityStateAsync(
+            database, [12_000m], linkPaymentsToInvoice: false);
+        await using var cancelContext = database.CreateDbContext();
+        await using var cancelTransaction = await cancelContext.Database.BeginTransactionAsync();
+
+        var cancelConflict = await Assert.ThrowsAsync<ConflictException>(() =>
+            new InvoiceService(new UnitOfWork(cancelContext))
+                .CancelAsync(state.InvoiceId, "PAY-OPS-F01 cancel-validation-first"));
+        Assert.Equal("cancel-validation-first", AssertTruthfulCancelConflict(
+            cancelConflict, state.InvoiceId));
+
+        var markPaid = CaptureMarkPaidAsync(database, state.PaymentIds[0]);
+        await WaitForAdvisoryWaitersOnKeyAsync(
+            database,
+            PaymentLockKey(state.BookingId),
+            1);
+        await cancelTransaction.RollbackAsync();
+
+        var paymentOutcome = await markPaid;
+        Assert.NotNull(paymentOutcome.Payment);
+        Assert.Null(paymentOutcome.Error);
+        AssertCanonicalMarkPaidCancelTruth(
+            await ReadMarkPaidCancelTruthAsync(database, state),
+            state);
     }
 
     [Fact]
@@ -624,6 +707,160 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
         Assert.Fail($"Expected at least {expectedCount} advisory-lock waiter(s).");
     }
 
+    private static async Task<IReadOnlyList<int>> WaitForAdvisoryWaitersOnKeyAsync(
+        PostgreSqlTestDatabase database,
+        string resourceKey,
+        int expectedCount)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            await using var connection = await database.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT activity.pid
+                FROM pg_locks AS locks
+                JOIN pg_stat_activity AS activity ON activity.pid = locks.pid
+                WHERE activity.datname = @database_name
+                  AND locks.locktype = 'advisory'
+                  AND NOT locks.granted
+                  AND locks.classid = (
+                      (hashtextextended(@resource_key, 0) >> 32) & 4294967295)::OID
+                  AND locks.objid = (
+                      hashtextextended(@resource_key, 0) & 4294967295)::OID
+                ORDER BY activity.pid
+                """,
+                connection);
+            command.Parameters.AddWithValue("database_name", database.DatabaseName);
+            command.Parameters.AddWithValue("resource_key", resourceKey);
+            var pids = new List<int>();
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                pids.Add(reader.GetInt32(0));
+            if (pids.Count >= expectedCount)
+                return pids;
+            await Task.Delay(25);
+        }
+
+        Assert.Fail(
+            $"Expected at least {expectedCount} waiter(s) on advisory key '{resourceKey}'.");
+        return [];
+    }
+
+    private static string AssertTruthfulCancelConflict(
+        ConflictException conflict,
+        Guid invoiceId)
+    {
+        Assert.Null(conflict.Code);
+        if (conflict.Message ==
+            $"Invoice {invoiceId} cannot be cancelled: invoice is already paid.")
+        {
+            return "mark-paid-first";
+        }
+
+        Assert.Contains("Cannot reduce settlement capacity to 10000.00", conflict.Message);
+        Assert.Contains("12000.00 of ordinary paid and pending payment commitments remain", conflict.Message);
+        Assert.Contains("(paid: 0.00, pending: 12000.00)", conflict.Message);
+        return "cancel-validation-first";
+    }
+
+    private static void AssertCanonicalMarkPaidCancelTruth(
+        MarkPaidCancelTruth truth,
+        ActiveCapacityState state)
+    {
+        Assert.Equal(FallbackCapacity, truth.BookingFinalAmount);
+        Assert.Equal(12_000m, truth.EffectiveCapacity);
+        Assert.Equal(state.InvoiceId, truth.ActiveInvoiceId);
+        Assert.Equal("paid", truth.ActiveInvoiceStatus);
+        Assert.Equal("paid", truth.InvoiceStatus);
+        Assert.Equal(12_000m, truth.InvoiceTotal);
+        Assert.Equal("paid", truth.PaymentStatus);
+        Assert.Equal(state.InvoiceId, truth.PaymentInvoiceId);
+        Assert.Equal(12_000m, truth.PaymentAmount);
+        Assert.Equal(12_000m, truth.OrdinaryPaid);
+        Assert.Equal(0m, truth.OrdinaryPending);
+        Assert.Equal(12_000m, truth.OrdinaryCommitment);
+        Assert.True(truth.PaidWithinCapacity);
+        Assert.True(truth.CommitmentWithinCapacity);
+        Assert.Equal(1, truth.OrdinaryPaymentCount);
+        Assert.Equal(0, truth.PayoutCount);
+    }
+
+    private static async Task<MarkPaidCancelTruth> ReadMarkPaidCancelTruthAsync(
+        PostgreSqlTestDatabase database,
+        ActiveCapacityState state)
+    {
+        await using var connection = await database.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand(
+            """
+            WITH active_invoice AS (
+                SELECT id, invoice_status, total_amount
+                FROM invoices
+                WHERE booking_id = @booking_id
+                  AND invoice_status NOT IN ('cancelled', 'superseded')
+                ORDER BY created_at, id
+                LIMIT 1
+            ),
+            commitments AS (
+                SELECT
+                    COALESCE(SUM(amount) FILTER (WHERE payment_status = 'paid'), 0) AS paid,
+                    COALESCE(SUM(amount) FILTER (WHERE payment_status = 'pending'), 0) AS pending,
+                    COUNT(*) AS payment_count
+                FROM payments
+                WHERE booking_id = @booking_id
+                  AND NOT is_historical_record
+                  AND payment_status IN ('paid', 'pending')
+            )
+            SELECT
+                booking.final_amount,
+                COALESCE(active_invoice.total_amount, booking.final_amount) AS effective_capacity,
+                active_invoice.id,
+                active_invoice.invoice_status,
+                target_invoice.invoice_status,
+                target_invoice.total_amount,
+                payment.payment_status,
+                payment.invoice_id,
+                payment.amount,
+                commitments.paid,
+                commitments.pending,
+                commitments.paid + commitments.pending AS commitment,
+                commitments.paid <= COALESCE(active_invoice.total_amount, booking.final_amount),
+                commitments.paid + commitments.pending
+                    <= COALESCE(active_invoice.total_amount, booking.final_amount),
+                commitments.payment_count,
+                (SELECT COUNT(*) FROM owner_payouts WHERE booking_id = @booking_id)
+            FROM bookings AS booking
+            JOIN invoices AS target_invoice ON target_invoice.id = @invoice_id
+            JOIN payments AS payment ON payment.id = @payment_id
+            LEFT JOIN active_invoice ON TRUE
+            CROSS JOIN commitments
+            WHERE booking.id = @booking_id
+            """,
+            connection);
+        command.Parameters.AddWithValue("booking_id", state.BookingId);
+        command.Parameters.AddWithValue("invoice_id", state.InvoiceId);
+        command.Parameters.AddWithValue("payment_id", state.PaymentIds[0]);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        return new MarkPaidCancelTruth(
+            reader.GetDecimal(0),
+            reader.GetDecimal(1),
+            reader.IsDBNull(2) ? null : reader.GetGuid(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.GetString(4),
+            reader.GetDecimal(5),
+            reader.GetString(6),
+            reader.IsDBNull(7) ? null : reader.GetGuid(7),
+            reader.GetDecimal(8),
+            reader.GetDecimal(9),
+            reader.GetDecimal(10),
+            reader.GetDecimal(11),
+            reader.GetBoolean(12),
+            reader.GetBoolean(13),
+            reader.GetInt64(14),
+            reader.GetInt64(15));
+    }
+
     private static async Task<T> CompleteWithinAsync<T>(
         Task<T> operation,
         TimeSpan timeout,
@@ -684,6 +921,24 @@ public sealed class PaymentSettlementConcurrencyPostgreSqlTests
         Guid BookingId,
         Guid InvoiceId,
         IReadOnlyList<Guid> PaymentIds);
+
+    private sealed record MarkPaidCancelTruth(
+        decimal BookingFinalAmount,
+        decimal EffectiveCapacity,
+        Guid? ActiveInvoiceId,
+        string? ActiveInvoiceStatus,
+        string InvoiceStatus,
+        decimal InvoiceTotal,
+        string PaymentStatus,
+        Guid? PaymentInvoiceId,
+        decimal PaymentAmount,
+        decimal OrdinaryPaid,
+        decimal OrdinaryPending,
+        decimal OrdinaryCommitment,
+        bool PaidWithinCapacity,
+        bool CommitmentWithinCapacity,
+        long OrdinaryPaymentCount,
+        long PayoutCount);
 
     private sealed record PendingState(Guid BookingId, Guid PaymentId);
 

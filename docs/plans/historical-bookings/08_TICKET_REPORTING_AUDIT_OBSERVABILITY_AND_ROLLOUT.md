@@ -413,6 +413,32 @@ Owner/operator step.
   invoice, item, status or payment is automatically changed, and remediation requires a separate evidence-driven
   decision and task.
 
+### 15.10 PAY-OPS-F01 mark-paid/cancel test reliability follow-up
+
+**Status: TEST-ONLY CORRECTION — PENDING INDEPENDENT REVIEW.** During the independent read-only review of
+PR #64, the pre-existing `ConcurrentMarkPaidAndInvoiceCancelCannotCommitPaidAboveFinalCapacity` test failed
+intermittently under statement logging and concurrent database lifecycle load. The investigation reproduced the
+failure without changing production services and classified it as a test-contract defect, not a durable financial
+failure.
+
+- The test fixture has a 10,000 booking fallback, an active 12,000 invoice and one 12,000 ordinary pending
+  payment. If MarkPaid commits first, cancellation observes the paid invoice and rejects it. If cancellation
+  validates first, INV-OPS-02 rejects the fallback-capacity reduction because 12,000 of pending commitment exceeds
+  10,000; MarkPaid then settles against the still-active 12,000 invoice. Both are valid serial outcomes.
+- The old test accepted both command winners in principle but required the cancellation loser to report only
+  `already paid`. Under review-style load, the reproduced failure instead carried the truthful INV-OPS-02
+  commitment conflict. The test's preceding exactly-one-success and paid-within-capacity assertions had passed.
+- The corrected coverage waits on the exact `payment-booking:{bookingId:N}` advisory key, forces both serial
+  orderings in separate tests and reads final invoice, payment, commitment, capacity and payout truth directly
+  from PostgreSQL through an independent connection. It accepts only the two stable cancellation conflicts and
+  retains exact paid/pending/capacity and no-partial-mutation assertions.
+- Clean unmodified repetition passed 50/50; review-style loaded unmodified repetition reproduced the stale
+  assertion once in 50 runs. Corrected repetition passed 50/50 clean and 50/50 with statement logging plus three
+  concurrent database create/remove workers, with no hangs or timeouts.
+- Scratch mutations proved the coverage fails if cancellation leaves the booking serialization boundary or if
+  paid/link/capacity guards are bypassed. `PaymentService`, `InvoiceService`, lock helpers, financial semantics,
+  schema and API contracts are unchanged by this follow-up.
+
 ## 16. Migration and rollout plan
 
 ### 16.1 Ordering
