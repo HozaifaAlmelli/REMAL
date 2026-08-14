@@ -308,6 +308,7 @@ builder.Services.AddScoped<IReportingBookingAnalyticsService, ReportingBookingAn
 builder.Services.AddScoped<IReportingFinanceAnalyticsService, ReportingFinanceAnalyticsService>();
 builder.Services.AddScoped<IReportingReviewsAnalyticsService, ReportingReviewsAnalyticsService>();
 builder.Services.AddScoped<IReportingNotificationsAnalyticsService, ReportingNotificationsAnalyticsService>();
+builder.Services.AddScoped<IOccupancyAnalyticsService, OccupancyAnalyticsService>();
 builder.Services.AddHostedService<AutoCompleteBookingsJob>();
 
 var app = builder.Build();

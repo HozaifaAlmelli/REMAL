@@ -454,8 +454,10 @@ retroactive guessing and privileged historical correction are outside the approv
 
 ### 15.12 AN-OPS-01B1 rentable-capacity history persistence and writer atomicity
 
-**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** Migration `0064` adds an explicitly unpublished global
-ledger and versioned `unit_rentability_periods`; it does not seed or claim a production epoch. PostgreSQL
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** PR #66 independently passed its schema,
+writer-atomicity, interval-integrity, seed-publication, verifier and concurrency gates before Owner merge.
+Migration `0064` adds an explicitly unpublished global ledger and versioned `unit_rentability_periods`; it
+does not seed or claim a production epoch. PostgreSQL
 `btree_gist` enforces non-overlap of active half-open intervals, with a separate partial uniqueness rule for
 the single current open interval. The rollback refuses to discard seeded or published history and retains the
 extension because later objects may share it.
@@ -491,9 +493,34 @@ extension because later objects may share it.
   transactions, same-unit and different-unit concurrency, database overlap rejection, seed publication failure,
   and the Blocked/Booked race. Scratch mutations killed each load-bearing guard.
 
-AN-OPS-01B2 remains responsible for the occupancy backend/API, coverage completeness, physical occupied-pair
-integrity conflicts and N/A behavior. AN-OPS-01B3 remains responsible for the widget correction. Neither is
-implemented by B1, and no revenue allocation semantics change.
+### 15.13 AN-OPS-01B2 unit-night occupancy backend and API
+
+**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** B2 adds the dedicated aggregate-only
+`GET /api/internal/reports/occupancy` route under `analytics:read`. Its half-open request range is
+`[from, toExclusive)`, is bounded to 24 months using the existing reporting convention, and rejects any
+night after the current Cairo date with `OCCUPANCY_FUTURE_RANGE_NOT_SUPPORTED`. The route exposes no unit,
+booking, client or owner detail.
+
+- `occupiedUnitNights` counts distinct `(unit_id, night)` pairs generated from clipped booking stays in
+  Booked, Confirmed, CheckIn, Completed or LeftEarly status. Checkout is excluded. Prospecting, Relevant,
+  NoAnswer, NotRelevant and Cancelled contribute zero. Historical and ordinary bookings use identical stay
+  dates; neither `created_at` nor `actual_booked_at` allocates occupancy.
+- `availableUnitNights` is the arithmetic clipped length of non-superseded B1 intervals whose resolved state
+  is rentable. The query does not re-evaluate current unit activity, deletion or DateBlocks. Unit creation and
+  ledger publication timestamps are used only to verify expected timeline continuity under B1 entry rules.
+- An unpublished ledger, a range beginning before the global epoch, or missing relevant interval coverage
+  returns the requested-range occupied count with a null denominator/rate and `coverage_incomplete`; the
+  requested range is never shortened. Known zero capacity returns a null rate with `zero_capacity`. Any
+  occupied pair outside covered rentable truth returns a null rate with `integrity_conflict`; no value is
+  dropped, repaired, increased or clamped.
+- One bounded PostgreSQL statement expands only occupied booking nights with `generate_series`, deduplicates
+  physical pairs, and computes denominator and coverage lengths arithmetically. There is no N+1 query and no
+  denominator unit-night expansion. The percentage uses decimal arithmetic without numerator/denominator
+  rounding.
+- The pre-existing widget remains intentionally unchanged in B2. Its client-side booking-count numerator and
+  current-unit-list denominator are dimensionally invalid; its requested page size is 1000 but the unit API
+  clamps the response to 100. AN-OPS-01B3 remains responsible for replacing that consumer with the B2 route.
+  No revenue allocation semantics change.
 
 ## 16. Migration and rollout plan
 
