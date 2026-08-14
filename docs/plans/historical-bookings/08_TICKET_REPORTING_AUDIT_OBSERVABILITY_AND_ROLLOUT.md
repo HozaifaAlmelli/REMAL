@@ -495,7 +495,8 @@ extension because later objects may share it.
 
 ### 15.13 AN-OPS-01B2 unit-night occupancy backend and API
 
-**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** B2 adds the dedicated aggregate-only
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** PR #67 independently approved and the
+Owner merged the dedicated aggregate-only
 `GET /api/internal/reports/occupancy` route under `analytics:read`. Its half-open request range is
 `[from, toExclusive)`, is bounded to 24 months using the existing reporting convention, and rejects any
 night after the current Cairo date with `OCCUPANCY_FUTURE_RANGE_NOT_SUPPORTED`. The route exposes no unit,
@@ -517,10 +518,30 @@ booking, client or owner detail.
   physical pairs, and computes denominator and coverage lengths arithmetically. There is no N+1 query and no
   denominator unit-night expansion. The percentage uses decimal arithmetic without numerator/denominator
   rounding.
-- The pre-existing widget remains intentionally unchanged in B2. Its client-side booking-count numerator and
+- B2 intentionally left the pre-existing widget unchanged. Its client-side booking-count numerator and
   current-unit-list denominator are dimensionally invalid; its requested page size is 1000 but the unit API
-  clamps the response to 100. AN-OPS-01B3 remains responsible for replacing that consumer with the B2 route.
-  No revenue allocation semantics change.
+  clamps the response to 100. AN-OPS-01B3 subsequently replaces that consumer with the B2 route. No revenue
+  allocation semantics change.
+
+### 15.14 AN-OPS-01B3 occupancy dashboard binding and unavailable semantics
+
+**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** B3 removes the dashboard's booking-count/current-unit
+formula and binds `OccupancyWidget` directly to `GET /api/internal/reports/occupancy`. The widget performs no
+occupancy, capacity or percentage calculation and does not clamp the backend rate. It no longer requests the
+unit list or booking summary for occupancy.
+
+- The dashboard requests the current Cairo month to date as `[month start, Cairo today + 1 day)`, preserving
+  checkout-exclusive B2 range semantics without requesting unsupported future nights.
+- A non-null backend `occupancyRate` is formatted only for presentation. `coverage_incomplete`, `zero_capacity`
+  and `integrity_conflict` all render `N/A` with bounded operator-facing text; none is represented as `0%` or a
+  fabricated percentage. Loading, valid unavailable results and request failures remain distinct states.
+- Occupancy visibility and data access now require `analytics:read` only. The obsolete technical dependency on
+  `units:read` is removed; other dashboard widgets retain their independent permission requirements.
+- Focused presentation tests cover half-open Cairo date mapping, direct 10%/50% rendering, no clamping and all
+  unavailable reasons. Isolated Playwright verification covers seven dashboard scenarios in desktop Chrome and
+  Pixel 7 viewports (14 executions), including responsive fit, no console errors and absence of obsolete unit or
+  booking-summary requests. The normal and isolated production portal builds pass. B1/B2 backend production
+  code, migration `0064`, booking writers and the widget's surrounding dashboard design remain unchanged.
 
 ## 16. Migration and rollout plan
 

@@ -7,6 +7,7 @@ import clientConfig from "../../playwright.client.config";
 import crmConfig from "../../playwright.crm.config";
 import historicalBookingConfig from "../../playwright.historical-booking.config";
 import historicalReportingConfig from "../../playwright.historical-reporting.config";
+import occupancyConfig from "../../playwright.occupancy.config";
 import ownerConfig from "../../playwright.owner.config";
 import {
   playwrightNextSuites,
@@ -18,6 +19,7 @@ const selfHostedConfigs = {
   historicalBooking: historicalBookingConfig,
   bookingHistory: bookingHistoryConfig,
   historicalReporting: historicalReportingConfig,
+  occupancy: occupancyConfig,
 } satisfies Record<PlaywrightNextSuite, typeof crmConfig>;
 
 const allConfigs = [
@@ -27,6 +29,7 @@ const allConfigs = [
   crmConfig,
   historicalBookingConfig,
   historicalReportingConfig,
+  occupancyConfig,
   ownerConfig,
 ];
 

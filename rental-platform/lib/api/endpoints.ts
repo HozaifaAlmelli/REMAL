@@ -249,6 +249,10 @@ export const endpoints = {
     stayDaily: "/api/internal/reports/finance/stay-daily",
   },
 
+  reportsOccupancy: {
+    summary: "/api/internal/reports/occupancy",
+  },
+
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ OWNERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   owners: {
     list: "/api/owners",
