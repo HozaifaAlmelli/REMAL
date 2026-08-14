@@ -19,5 +19,6 @@
     <ProjectReference Include="..\RentalPlatform.API\RentalPlatform.API.csproj" />
     <ProjectReference Include="..\RentalPlatform.Business\RentalPlatform.Business.csproj" />
     <ProjectReference Include="..\RentalPlatform.Data\RentalPlatform.Data.csproj" />
+    <ProjectReference Include="..\RentalPlatform.InvoiceAggregateAudit\RentalPlatform.InvoiceAggregateAudit.csproj" />
   </ItemGroup>
 </Project>
