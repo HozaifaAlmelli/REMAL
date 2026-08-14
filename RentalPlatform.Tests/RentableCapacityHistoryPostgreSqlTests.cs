@@ -47,7 +47,7 @@ public sealed class RentableCapacityHistoryPostgreSqlTests
     {
         await using var database = await _fixture.CreateTestDatabaseAsync();
         await using var connection = await database.OpenConnectionAsync();
-        var root = Environment.GetEnvironmentVariable("KAZA_REPOSITORY_ROOT")!;
+        var root = RepositoryRoot();
         var migration = await File.ReadAllTextAsync(Path.Combine(
             root, "db", "migrations", "0064_add_rentable_capacity_history.sql"));
         var verifier = await File.ReadAllTextAsync(Path.Combine(
@@ -64,6 +64,24 @@ public sealed class RentableCapacityHistoryPostgreSqlTests
         await PostgreSqlFixture.ExecuteMigrationSqlAsync(connection, verifier);
         Assert.Equal("uninitialized", await ScalarAsync<string>(connection,
             "SELECT publication_status FROM rentable_capacity_ledger WHERE scope = 'global'"));
+    }
+
+    private static string RepositoryRoot()
+    {
+        foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "RentalPlatform.slnx"))
+                    && File.Exists(Path.Combine(directory.FullName, "db", "init.sql")))
+                {
+                    return directory.FullName;
+                }
+            }
+        }
+
+        throw new DirectoryNotFoundException(
+            "Could not locate the repository root containing RentalPlatform.slnx and db/init.sql.");
     }
 
     [Fact]
