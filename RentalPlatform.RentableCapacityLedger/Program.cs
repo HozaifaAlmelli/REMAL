@@ -77,19 +77,32 @@ public static class RentableCapacityLedgerGate
     public const string IntegritySql =
         """
         WITH ledger AS (
-            SELECT coverage_start_date, published_at, publication_status
+            SELECT coverage_start_date, publication_status
             FROM rentable_capacity_ledger
             WHERE scope = 'global'
+        ),
+        unit_entry_facts AS (
+            SELECT
+                period.unit_id,
+                MIN(period.effective_from_date) FILTER (
+                    WHERE period.change_source_type = 'opening_seed'
+                ) AS opening_seed_date,
+                MIN(period.effective_from_date) FILTER (
+                    WHERE period.change_source_type = 'unit_create'
+                ) AS unit_create_date
+            FROM unit_rentability_periods AS period
+            GROUP BY period.unit_id
         ),
         expected_units AS (
             SELECT
                 unit.id AS unit_id,
                 CASE
-                    WHEN unit.created_at <= ledger.published_at THEN ledger.coverage_start_date
-                    ELSE (unit.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Cairo')::DATE
+                    WHEN entry.opening_seed_date IS NOT NULL THEN ledger.coverage_start_date
+                    ELSE entry.unit_create_date
                 END AS entry_date
             FROM units AS unit
             CROSS JOIN ledger
+            LEFT JOIN unit_entry_facts AS entry ON entry.unit_id = unit.id
             WHERE ledger.publication_status = 'published'
         ),
         current_periods AS (
