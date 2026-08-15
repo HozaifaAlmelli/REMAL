@@ -158,6 +158,54 @@ public sealed class RentableCapacityHistoryPostgreSqlTests
         Assert.Equal(0, await scope.VerifyAsync());
     }
 
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 0)]
+    public async Task VerifierUsesPersistedUnitEntryDateAcrossCairoMidnightClockSkew(
+        int applicationDayOffset,
+        int timestampDerivedDayOffset)
+    {
+        await using var scope = await TestScope.CreatePublishedAsync(_fixture, Epoch);
+        await using var connection = await scope.Database.OpenConnectionAsync();
+        await using var publicationDateCommand = new NpgsqlCommand(
+            "SELECT (published_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Cairo')::DATE FROM rentable_capacity_ledger WHERE scope = 'global'",
+            connection);
+        var publicationDate = (DateOnly)(await publicationDateCommand.ExecuteScalarAsync())!;
+        var baselineDate = publicationDate.AddDays(2) > Epoch.AddDays(4)
+            ? publicationDate.AddDays(2)
+            : Epoch.AddDays(4);
+
+        var applicationDate = baselineDate.AddDays(applicationDayOffset);
+        var timestampDerivedDate = baselineDate.AddDays(timestampDerivedDayOffset);
+        scope.Clock.Today = applicationDate;
+        var unit = await scope.CreateUnitAsync(true, "Midnight skew unit");
+        await scope.ExecuteAsync(
+            "UPDATE units SET created_at = @created_at WHERE id = @unit_id",
+            new NpgsqlParameter("created_at", timestampDerivedDate.ToDateTime(new TimeOnly(12, 0))),
+            new NpgsqlParameter("unit_id", unit.Id));
+
+        await using var context = scope.Database.CreateDbContext();
+        Assert.Collection(
+            await CurrentPeriods(context, unit.Id),
+            period => AssertPeriod(period, applicationDate, null, true, "rentable"));
+
+        await using var derivedDateCommand = new NpgsqlCommand(
+            "SELECT (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Cairo')::DATE FROM units WHERE id = @unit_id",
+            connection);
+        derivedDateCommand.Parameters.AddWithValue("unit_id", unit.Id);
+        Assert.Equal(timestampDerivedDate, await derivedDateCommand.ExecuteScalarAsync());
+
+        var output = new StringWriter();
+        var exit = await RentableCapacityLedgerGate.RunAsync(
+            scope.Database.ConnectionString,
+            output,
+            TextWriter.Null);
+
+        Assert.True(
+            exit == RentableCapacityLedgerGate.PassExitCode,
+            $"Verifier rejected persisted entry date {applicationDate:yyyy-MM-dd} when the audit timestamp derived {timestampDerivedDate:yyyy-MM-dd}:{Environment.NewLine}{output}");
+    }
+
     [Fact]
     public async Task RemovingOneOfTwoOverlappingBlocksDoesNotReopenNightsBlockedByTheOther()
     {
@@ -306,6 +354,44 @@ public sealed class RentableCapacityHistoryPostgreSqlTests
         Assert.Equal(RentableCapacityLedgerGate.InconsistencyExitCode, exit);
         Assert.Contains("missing_opening_period", output.ToString());
         Assert.Contains("missing_open_period", output.ToString());
+    }
+
+    [Fact]
+    public async Task VerifierFailsClosedForInternalTimelineGap()
+    {
+        await using var scope = await TestScope.CreatePublishedAsync(_fixture, Epoch);
+        var unit = scope.Units.Single();
+        await scope.ExecuteAsync(
+            """
+            UPDATE unit_rentability_periods
+            SET effective_to_date = @gap_start
+            WHERE unit_id = @unit_id
+              AND superseded_at IS NULL
+              AND effective_from_date = @epoch;
+
+            INSERT INTO unit_rentability_periods (
+                id, unit_id, effective_from_date, effective_to_date, is_rentable,
+                resolved_reason, revision_id, change_source_type, recorded_at,
+                superseded_at, superseded_by_revision_id
+            ) VALUES (
+                gen_random_uuid(), @unit_id, @gap_end, NULL, TRUE,
+                'rentable', gen_random_uuid(), 'unit_status', NOW() AT TIME ZONE 'UTC',
+                NULL, NULL
+            );
+            """,
+            new NpgsqlParameter("unit_id", unit.Id),
+            new NpgsqlParameter("epoch", Epoch),
+            new NpgsqlParameter("gap_start", Epoch.AddDays(1)),
+            new NpgsqlParameter("gap_end", Epoch.AddDays(2)));
+
+        var output = new StringWriter();
+        var exit = await RentableCapacityLedgerGate.RunAsync(
+            scope.Database.ConnectionString,
+            output,
+            TextWriter.Null);
+
+        Assert.Equal(RentableCapacityLedgerGate.InconsistencyExitCode, exit);
+        Assert.Contains("timeline_gap", output.ToString());
     }
 
     [Fact]

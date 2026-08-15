@@ -550,8 +550,9 @@ rentable-capacity coverage initialization; those remain explicit release operati
 
 ### 15.15 RELEASE-HARDENING-01 production migration safety
 
-**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** This focused hardening combines MIG-OPS-01,
-MIG-OPS-02 and MIG-OPS-03 without changing product behavior, migration SQL, schema or production data.
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** PR #69 independently approved and the
+Owner merged this focused hardening of MIG-OPS-01, MIG-OPS-02 and MIG-OPS-03 without changing product
+behavior, migration SQL, schema or production data.
 
 - **MIG-OPS-01:** `apply-migrations.sh` owns a dedicated two-key PostgreSQL session advisory lock whose fixed
   namespace is separate from application locks and whose second key is the target database OID. The lock is
@@ -574,6 +575,21 @@ MIG-OPS-02 and MIG-OPS-03 without changing product behavior, migration SQL, sche
   and collision cases, inconsistent ledgers, scratch restore, full production bootstrap, controlled 0063/0064
   rollback-verifier failure and hardened upgrade to the current registry head. No production migration,
   production backup, coverage initialization or deployment occurred.
+
+### 15.16 AN-OPS-01B1-F01 Cairo business-date verification consistency
+
+**Status: IMPLEMENTED — PENDING FOCUSED INDEPENDENT REVIEW.** B1 capacity writers resolve each ordinary
+mutation's effective date once through `IBusinessClock.CairoToday` and persist that decision in the opening
+`unit_create` ledger revision. The pre-F01 verifier instead reconstructed a post-publication unit's entry date
+from its UTC `created_at` audit timestamp converted to Cairo time. If those clock sources straddled Cairo
+midnight, valid continuous history could false-fail as `missing_opening_period`.
+
+F01 makes persisted ledger facts authoritative for verification: an `opening_seed` revision anchors an existing
+unit to the persisted global epoch, while a `unit_create` revision anchors a later unit to the writer-selected
+business date. The verifier no longer reinterprets a completed operation from mutable wall-clock/audit time.
+Overlap, continuity, bounds, supersession, opening/current-period and pre-epoch checks remain fail-closed.
+Migration `0064`, schema, B2 occupancy behavior, B3 presentation and all B1 writers are unchanged. No production
+rentable-capacity epoch has been published or initialized.
 
 ## 16. Migration and rollout plan
 
