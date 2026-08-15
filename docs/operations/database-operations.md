@@ -14,8 +14,8 @@ playbook: [database-migration-production-safety](../ai-deployment-skills/databas
 ## Scheduled backups (cron on the VPS)
 
 ```cron
-15 3 * * *  /opt/apps/kaza-booking/scripts/backup-postgres.sh >> /opt/kaza/logs/backup-postgres.log 2>&1
-30 3 * * *  /opt/apps/kaza-booking/scripts/backup-uploads.sh  >> /opt/kaza/logs/backup-uploads.log  2>&1
+15 3 * * *  bash /opt/apps/kaza-booking/scripts/backup-postgres.sh >> /opt/kaza/logs/backup-postgres.log 2>&1
+30 3 * * *  bash /opt/apps/kaza-booking/scripts/backup-uploads.sh  >> /opt/kaza/logs/backup-uploads.log  2>&1
 ```
 
 > ⚠️ The live repo path is `/opt/apps/kaza-booking`. If the actual VPS crontab still
@@ -23,8 +23,11 @@ playbook: [database-migration-production-safety](../ai-deployment-skills/databas
 > stale scripts — verify `crontab -l` on the box and fix deliberately (a VPS change,
 > outside this doc).
 
-- **Postgres:** `scripts/backup-postgres.sh` → `pg_dump | gzip` →
-  `/opt/kaza/backups/postgres/kaza_postgres_YYYY-MM-DD_HH-mm.sql.gz`. Verifies non-empty + valid gzip.
+- **Postgres:** `scripts/backup-postgres.sh` → `pg_dump | gzip` → a collision-safe
+  `/opt/kaza/backups/postgres/kaza_postgres_YYYY-MM-DD_HH-mm-ss_<random>.sql.gz` artifact. The script
+  rejects a failed dump, missing/empty output, invalid gzip and incomplete PostgreSQL plain-dump metadata.
+  It writes to a unique partial file and publishes with an atomic no-clobber operation, so rapid or concurrent
+  invocations cannot overwrite a valid backup.
 - **Uploads:** `scripts/backup-uploads.sh` → tars the VPS-local uploads path
   (`UPLOADS_HOST_PATH`, default `/opt/kaza/uploads`) →
   `/opt/kaza/backups/uploads/kaza_uploads_YYYY-MM-DD_HH-mm.tar.gz`.
@@ -54,37 +57,51 @@ docker run --rm -v /opt/kaza/uploads:/data -v /opt/kaza/backups/uploads:/backup 
 
 ## Before any production migration or release
 
-1. Run `scripts/backup-postgres.sh` (the migration runner also does this itself).
+1. Run `scripts/backup-postgres.sh` (the migration runner also does this itself after its ledger preflight).
 2. Run `scripts/backup-uploads.sh`.
 3. Confirm both artifacts are non-empty.
 
 ## Migrations (tracked, gated — never during deploy)
 
-Schema changes go through `scripts/apply-migrations.sh`, which backs up first, applies
-only un-recorded migrations explicitly included by the canonical production bootstrap
-`infra/db/init.prod.sql`, runs each `*_verify.sql`, records success in the
-`schema_migrations` table, refuses an empty/missing ledger, refuses duplicate or
-out-of-order production entries, and **refuses destructive changes** unless
-`APPROVE_DESTRUCTIVE=1`.
+Schema changes go through `scripts/apply-migrations.sh`. The runner:
+
+1. Validates the ordered production manifest and LF-normalized SHA-256 identities in
+   `infra/db/production-migrations.sha256` before connecting.
+2. Acquires the dedicated, database-scoped PostgreSQL migration-runner advisory lock. A concurrent runner for
+   the same database fails immediately with a clear refusal; other databases remain independent.
+3. Validates `schema_migrations` as a non-empty, ordered registry prefix. Missing, malformed, duplicate,
+   unknown, out-of-order, gapped or conflicting-name state fails before backup or migration SQL. The runner
+   never creates or rewrites ledger truth and never blesses changed historical migration content.
+4. Creates and validates a unique pre-migration backup. Any backup failure stops execution.
+5. Applies only the pending suffix, runs each `*_verify.sql`, records each success strictly, then validates the
+   resulting ledger at the registry head before releasing the session lock.
+
+The runner still **refuses destructive changes** unless `APPROVE_DESTRUCTIVE=1`. The session lock is held from
+the first database inspection through backup, apply, verification and final ledger validation. Connection loss
+releases the PostgreSQL advisory lock automatically.
 
 This eligibility rule prevents development-only seeds from becoming production-pending
 merely because their files exist under `db/migrations`. Future development-only seed
 migrations must contain `_seed_dev_` in the filename, be included only by `db/init.sql`,
 and never be added to `infra/db/init.prod.sql`. Every legitimate production migration
 must be registered in `infra/db/init.prod.sql`; an unregistered file is intentionally
-ineligible. The production runner materializes the validated bootstrap list before
-querying the ledger, so database commands cannot consume or truncate migration discovery
-input.
+ineligible, and its canonical checksum must be added to `infra/db/production-migrations.sha256`. Never update
+that checksum to legitimize edits to an already-applied migration; create a new migration instead. The production
+runner materializes and verifies the registry before querying the ledger, so database commands cannot consume or
+truncate migration discovery input.
 
 ```bash
 cd /opt/apps/kaza-booking
-./scripts/apply-migrations.sh                        # safe, additive only
-APPROVE_DESTRUCTIVE=1 ./scripts/apply-migrations.sh  # only after explicit human approval
+bash ./scripts/apply-migrations.sh                        # safe, additive only
+APPROVE_DESTRUCTIVE=1 bash ./scripts/apply-migrations.sh  # only after explicit human approval
 ```
 
 Prefer additive, nullable migrations with unique numbers. (Incident history: a duplicated
 migration number broke owner login — see
 [incidents](../incidents/2026-07-kaza-production-stabilization.md).)
 
-No production migration was executed while introducing this eligibility rule; validation
-used repository-local shell tests and isolated disposable PostgreSQL only.
+No production migration was executed while introducing these safeguards; validation uses repository-local shell
+tests and official disposable PostgreSQL 16. Automated artifact validation proves a complete gzip/plain-dump
+stream; disposable integration coverage also restores a validated artifact into a scratch database. A
+production/pre-release restore rehearsal remains a separate deliberate operator gate and is not implied by
+artifact validation alone.

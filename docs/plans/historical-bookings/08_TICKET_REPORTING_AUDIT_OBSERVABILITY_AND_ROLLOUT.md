@@ -525,8 +525,9 @@ booking, client or owner detail.
 
 ### 15.14 AN-OPS-01B3 occupancy dashboard binding and unavailable semantics
 
-**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** B3 removes the dashboard's booking-count/current-unit
-formula and binds `OccupancyWidget` directly to `GET /api/internal/reports/occupancy`. The widget performs no
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** PR #68 independently approved and the Owner
+merged the final dashboard binding. B3 removes the dashboard's booking-count/current-unit formula and binds
+`OccupancyWidget` directly to `GET /api/internal/reports/occupancy`. The widget performs no
 occupancy, capacity or percentage calculation and does not clamp the backend rate. It no longer requests the
 unit list or booking summary for occupancy.
 
@@ -542,6 +543,37 @@ unit list or booking summary for occupancy.
   Pixel 7 viewports (14 executions), including responsive fit, no console errors and absence of obsolete unit or
   booking-summary requests. The normal and isolated production portal builds pass. B1/B2 backend production
   code, migration `0064`, booking writers and the widget's surrounding dashboard design remain unchanged.
+
+AN-OPS-01 is complete across the Owner-ratified design (A), rentable-capacity persistence (B1), unit-night
+backend/API (B2), and dashboard binding (B3). Completion does not authorize production migration `0064` or
+rentable-capacity coverage initialization; those remain explicit release operations.
+
+### 15.15 RELEASE-HARDENING-01 production migration safety
+
+**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** This focused hardening combines MIG-OPS-01,
+MIG-OPS-02 and MIG-OPS-03 without changing product behavior, migration SQL, schema or production data.
+
+- **MIG-OPS-01:** `apply-migrations.sh` owns a dedicated two-key PostgreSQL session advisory lock whose fixed
+  namespace is separate from application locks and whose second key is the target database OID. The lock is
+  acquired before ledger inspection and held through backup, migration execution, verification and final ledger
+  validation. Same-database contenders fail immediately; different databases remain independent; session loss
+  releases the lock.
+- **MIG-OPS-02:** PostgreSQL backups use second-resolution plus random collision-safe names, write to a partial
+  artifact, validate command success, file presence/size, gzip integrity and complete plain-dump metadata, then
+  publish atomically without overwrite. A failed or partial backup blocks migration execution. Disposable PG16
+  coverage also restores a validated artifact; this does not replace a deliberate environment restore rehearsal.
+- **MIG-OPS-03:** the checked-in production manifest has an ordered LF-normalized SHA-256 registry. Before any
+  database action the runner verifies every registered file. Under the migration lock it requires the durable
+  ledger, read in insertion order, to be a strict non-empty prefix with recognized numbers and exact migration
+  names or the explicit production-bootstrap baseline marker. Missing, malformed, duplicate, unknown,
+  out-of-order, gapped or conflicting state fails closed; checksums are never rewritten automatically.
+- The enforced sequence is local registry verification, connection, migration lock, ledger validation, unique
+  validated backup, pending-suffix apply and verifier, strict ledger insert, final ledger validation, then lock
+  release. Destructive-token approval remains unchanged.
+- Official disposable PostgreSQL 16 evidence covers lock contention/release/database isolation, backup failure
+  and collision cases, inconsistent ledgers, scratch restore, full production bootstrap, controlled 0063/0064
+  rollback-verifier failure and hardened upgrade to the current registry head. No production migration,
+  production backup, coverage initialization or deployment occurred.
 
 ## 16. Migration and rollout plan
 
