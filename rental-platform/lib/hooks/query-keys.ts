@@ -1,6 +1,7 @@
 import {
   HistoricalDailyFilters,
   HistoricalReconciliationFilters,
+  OccupancyAnalyticsFilters,
   ReportDateFilters,
   ReportDailyFilters,
 } from "../types/report.types";
@@ -22,6 +23,8 @@ export const queryKeys = {
       ["reports", "financeStayDaily", filters] as const,
     historicalReconciliation: (filters: HistoricalReconciliationFilters) =>
       ["reports", "historicalReconciliation", filters] as const,
+    occupancy: (filters: OccupancyAnalyticsFilters) =>
+      ["reports", "occupancy", filters] as const,
   },
   units: {
     all: ["units"] as const,

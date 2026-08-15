@@ -9,6 +9,8 @@ import type {
   ReportDailyFilters,
   HistoricalDailyFilters,
   HistoricalReconciliationFilters,
+  OccupancyAnalyticsFilters,
+  OccupancyAnalyticsResponse,
   BookingAnalyticsStayDailySummaryResponse,
   FinanceAnalyticsStayDailySummaryResponse,
   HistoricalEntryReconciliationResponse,
@@ -62,4 +64,9 @@ export const reportsService = {
     api.get(endpoints.reportsBookings.historicalReconciliation, {
       params: filters,
     }),
+
+  getOccupancy: async (
+    filters: OccupancyAnalyticsFilters
+  ): Promise<OccupancyAnalyticsResponse> =>
+    api.get(endpoints.reportsOccupancy.summary, { params: filters }),
 };

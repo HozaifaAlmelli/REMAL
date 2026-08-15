@@ -5,6 +5,7 @@ import { queryKeys } from "./query-keys";
 import {
   HistoricalDailyFilters,
   HistoricalReconciliationFilters,
+  OccupancyAnalyticsFilters,
   ReportDateFilters,
   ReportDailyFilters,
 } from "../types/report.types";
@@ -105,6 +106,17 @@ export const useReports = () => {
       useQuery({
         queryKey: queryKeys.reports.historicalReconciliation(filters),
         queryFn: () => reportsService.getHistoricalReconciliation(filters),
+        enabled: options?.enabled !== false,
+        staleTime: 1000 * 60 * 10,
+      }),
+
+    useOccupancy: (
+      filters: OccupancyAnalyticsFilters,
+      options?: ReportQueryOptions
+    ) =>
+      useQuery({
+        queryKey: queryKeys.reports.occupancy(filters),
+        queryFn: () => reportsService.getOccupancy(filters),
         enabled: options?.enabled !== false,
         staleTime: 1000 * 60 * 10,
       }),

@@ -34,6 +34,27 @@ export interface HistoricalReconciliationFilters {
   pageSize?: number;
 }
 
+export interface OccupancyAnalyticsFilters {
+  from: string;
+  toExclusive: string;
+}
+
+export type OccupancyUnavailableReason =
+  | "coverage_incomplete"
+  | "zero_capacity"
+  | "integrity_conflict";
+
+export interface OccupancyAnalyticsResponse {
+  from: string;
+  toExclusive: string;
+  occupiedUnitNights: number;
+  availableUnitNights: number | null;
+  occupancyRate: number | null;
+  availabilityCoverageComplete: boolean;
+  coverageStartDate: string | null;
+  unavailableReason: OccupancyUnavailableReason | null;
+}
+
 export interface BookingAnalyticsStayDailySummaryResponse {
   stayStartDate: string;
   bookingSource: string;

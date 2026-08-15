@@ -21,7 +21,9 @@
     "test:hb06:e2e": "playwright test --config=playwright.historical-booking.config.ts",
     "test:rbac": "tsx --test lib/rbac/*.test.ts",
     "test:hb08a3": "tsx --test lib/historical-reporting/*.test.ts",
-    "test:hb08a3:e2e": "playwright test --config=playwright.historical-reporting.config.ts"
+    "test:hb08a3:e2e": "playwright test --config=playwright.historical-reporting.config.ts",
+    "test:occupancy": "tsx --test lib/occupancy/*.test.ts",
+    "test:occupancy:e2e": "playwright test --config=playwright.occupancy.config.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.1",
