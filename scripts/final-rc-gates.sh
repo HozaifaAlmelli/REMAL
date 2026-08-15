@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 lane="full"
+mode="final"
 expected_sha=""
 run_id=""
 args=("$@")
@@ -10,6 +11,8 @@ args=("$@")
 for ((index = 0; index < ${#args[@]}; index++)); do
   if [[ "${args[$index]}" == "--lane" && $((index + 1)) -lt ${#args[@]} ]]; then
     lane="${args[$((index + 1))]}"
+  elif [[ "${args[$index]}" == "--mode" && $((index + 1)) -lt ${#args[@]} ]]; then
+    mode="${args[$((index + 1))]}"
   elif [[ "${args[$index]}" == "--expected-sha" && $((index + 1)) -lt ${#args[@]} ]]; then
     expected_sha="${args[$((index + 1))]}"
   elif [[ "${args[$index]}" == "--run-id" && $((index + 1)) -lt ${#args[@]} ]]; then
@@ -80,7 +83,7 @@ acquire_lock() {
 
 acquire_lock
 
-if [[ "$lane" == "full" ]]; then
+if [[ "$lane" == "full" && "$mode" != "owner-decision" ]]; then
   command -v docker >/dev/null 2>&1 || {
     echo "FINAL-RC configuration error: Docker is required to provision isolated PostgreSQL 16." >&2
     exit 64

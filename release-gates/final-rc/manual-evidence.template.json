@@ -188,17 +188,6 @@
       "evidenceRef": null,
       "evidenceSha256": null,
       "metadata": {}
-    },
-    {
-      "id": "owner_go_no_go",
-      "result": "MANUAL_EVIDENCE_REQUIRED",
-      "rcSha": "REPLACE_WITH_EXACT_40_CHARACTER_RC_SHA",
-      "executor": null,
-      "executedAtUtc": null,
-      "evidenceType": null,
-      "evidenceRef": null,
-      "evidenceSha256": null,
-      "metadata": {}
     }
   ]
 }

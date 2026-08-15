@@ -5,7 +5,11 @@
     "scenarios": "docs/plans/historical-bookings/99_RELIABILITY_TEST_SCENARIOS.md",
     "ticketDirectory": "docs/plans/historical-bookings"
   },
-  "identityEvidenceManualGateId": "reliability_99_completion",
+  "identityEvidenceIndexRequired": true,
+  "ownerDecision": {
+    "id": "owner_go_no_go",
+    "description": "Distinct HB-09 owner GO/NO-GO transition after readiness."
+  },
   "automatedGates": [
     {
       "id": "rc_gate_self_tests",
@@ -281,7 +285,7 @@
     },
     "release_critical_uat": {
       "automatedGateIds": ["playwright_historical_booking", "playwright_historical_reporting", "playwright_occupancy", "playwright_booking_history_rbac"],
-      "manualGateIds": ["uat_p0", "uat_p1", "uat_security", "uat_finance_reconciliation", "reliability_99_completion", "owner_go_no_go"]
+      "manualGateIds": ["uat_p0", "uat_p1", "uat_security", "uat_finance_reconciliation", "reliability_99_completion"]
     }
   },
   "manualGates": [
@@ -301,7 +305,6 @@
     {"id": "uat_finance_reconciliation", "sequence": 11, "description": "Accounting and finance-lens reconciliation."},
     {"id": "release_db_post_uat_invoice_audit", "sequence": 12, "description": "Post-UAT INV-AUDIT-01."},
     {"id": "release_db_reporting_finance_rentability_rbac_reconciliation", "sequence": 13, "description": "Reporting, finance, rentability and RBAC reconciliation."},
-    {"id": "reliability_99_completion", "sequence": 14, "description": "#99 completion evidence."},
-    {"id": "owner_go_no_go", "sequence": 15, "description": "HB-09 sole-owner GO/NO-GO decision."}
+    {"id": "reliability_99_completion", "sequence": 14, "description": "#99 category completion evidence; it does not replace identity-level HB-09 evidence."}
   ]
 }

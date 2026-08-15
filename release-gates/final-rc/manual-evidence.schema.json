@@ -22,16 +22,40 @@
           "executedAtUtc": {"type": ["string", "null"], "format": "date-time"},
           "evidenceType": {
             "type": ["string", "null"],
-            "enum": [null, "database_verification", "deployment_record", "external_artifact", "operator_attestation", "owner_decision", "release_snapshot_record", "uat_record"]
+            "enum": [null, "database_verification", "deployment_record", "external_artifact", "operator_attestation", "release_snapshot_record", "uat_record"]
           },
           "evidenceRef": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
           "evidenceSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-          "metadata": {"type": "object"}
+          "metadata": {"type": "object", "additionalProperties": true}
         },
         "allOf": [
           {
             "if": {"properties": {"result": {"const": "MANUAL_PASS"}}},
-            "then": {"required": ["executor", "executedAtUtc", "evidenceType", "evidenceRef", "evidenceSha256"]}
+            "then": {"required": ["executor", "executedAtUtc", "evidenceType", "evidenceRef", "evidenceSha256", "metadata"]}
+          },
+          {
+            "if": {"properties": {"evidenceType": {"const": "database_verification"}}},
+            "then": {"properties": {"metadata": {"required": ["databaseScope", "verificationTool", "verificationResult"]}}}
+          },
+          {
+            "if": {"properties": {"evidenceType": {"const": "deployment_record"}}},
+            "then": {"properties": {"metadata": {"required": ["environment", "deploymentId", "deployedSha"]}}}
+          },
+          {
+            "if": {"properties": {"evidenceType": {"const": "external_artifact"}}},
+            "then": {"properties": {"metadata": {"required": ["provider", "immutableArtifactId", "verificationMethod", "verifiedBy"]}}}
+          },
+          {
+            "if": {"properties": {"evidenceType": {"const": "operator_attestation"}}},
+            "then": {"properties": {"metadata": {"required": ["operatorRole", "attestedAction"]}}}
+          },
+          {
+            "if": {"properties": {"evidenceType": {"const": "release_snapshot_record"}}},
+            "then": {"properties": {"metadata": {"required": ["snapshotId", "sourceEnvironment", "provenanceRecordId"]}}}
+          },
+          {
+            "if": {"properties": {"evidenceType": {"const": "uat_record"}}},
+            "then": {"properties": {"metadata": {"required": ["uatScope", "approver", "result"]}}}
           }
         ]
       }

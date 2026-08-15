@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kaza-booking.invalid/schemas/final-rc-manual-evidence-receipt.schema.json",
+  "title": "Final RC structured manual evidence receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "rcSha",
+    "itemId",
+    "evidenceType",
+    "executor",
+    "executedAtUtc",
+    "provenance",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "rcSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "itemId": {"type": "string", "minLength": 1},
+    "evidenceType": {
+      "enum": [
+        "database_verification",
+        "deployment_record",
+        "external_artifact",
+        "operator_attestation",
+        "release_snapshot_record",
+        "uat_record"
+      ]
+    },
+    "executor": {"type": "string", "minLength": 1, "maxLength": 200},
+    "executedAtUtc": {"type": "string", "format": "date-time"},
+    "provenance": {"type": "object", "minProperties": 1},
+    "evidence": {"type": "object", "minProperties": 1}
+  }
+}

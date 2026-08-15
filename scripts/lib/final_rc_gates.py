@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import pathlib
@@ -46,10 +47,18 @@ MANUAL_EVIDENCE_TYPES = {
     "deployment_record",
     "external_artifact",
     "operator_attestation",
-    "owner_decision",
     "release_snapshot_record",
     "uat_record",
 }
+EVIDENCE_METADATA_RULES = {
+    "database_verification": {"databaseScope", "verificationTool", "verificationResult"},
+    "deployment_record": {"environment", "deploymentId", "deployedSha"},
+    "external_artifact": {"provider", "immutableArtifactId", "verificationMethod", "verifiedBy"},
+    "operator_attestation": {"operatorRole", "attestedAction"},
+    "release_snapshot_record": {"snapshotId", "sourceEnvironment", "provenanceRecordId"},
+    "uat_record": {"uatScope", "approver", "result"},
+}
+FINAL_STATUSES = {"NOT_READY", "READY_FOR_OWNER_GO_NO_GO", "GO", "NO_GO"}
 SENSITIVE_KEY_RE = re.compile(
     r"(?:password|passwd|pwd|token|secret|jwt|authorization|database_url|"
     r"kaza_invoice_audit_db|kaza_rentable_capacity_db|kaza_test_db|connection_string|api_key|(?:^|_)db$)",
@@ -259,8 +268,13 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
             raise GateError(f"test gate {gate['id']} lacks a supported structured completion contract")
     automated_set = set(automated_ids)
     manual_set = set(manual_ids)
-    if manifest.get("identityEvidenceManualGateId") not in manual_set:
-        raise GateError("ratified identity evidence manual gate is missing")
+    if manifest.get("identityEvidenceIndexRequired") is not True:
+        raise GateError("ratified identity evidence must require an exact identity index")
+    owner_definition = manifest.get("ownerDecision")
+    if not isinstance(owner_definition, dict) or owner_definition.get("id") != "owner_go_no_go":
+        raise GateError("the distinct owner GO/NO-GO transition is missing")
+    if "owner_go_no_go" in manual_set:
+        raise GateError("owner GO/NO-GO must not be a pre-readiness manual gate")
     if set(manifest.get("reliabilityCategories", {})) != REQUIRED_RELIABILITY_CATEGORIES:
         raise GateError("#99 evidence categories must exactly match the ratified category set")
     for category, mapping in manifest["reliabilityCategories"].items():
@@ -313,13 +327,29 @@ def complete_counts(total: int, passed: int, failed: int, skipped: int, source: 
 
 
 def parse_node_tap(output: str) -> dict[str, Any]:
+    lines = output.replace("\r\n", "\n").rstrip("\n").split("\n")
+    starts = [
+        index
+        for index, line in enumerate(lines)
+        if re.fullmatch(r"(?:#|ℹ)\s*tests\s+\d+\s*", line)
+    ]
+    if not starts:
+        return incomplete_counts("node-tap")
+    summary_lines = lines[starts[-1]:]
     values: dict[str, int] = {}
-    for name in ("tests", "pass", "fail", "cancelled", "skipped", "todo"):
-        match = re.search(rf"^(?:#|ℹ)\s*{name}\s+(\d+)\s*$", output, re.MULTILINE)
-        if not match:
+    for line in summary_lines:
+        match = re.fullmatch(
+            r"(?:#|ℹ)\s*(tests|suites|pass|fail|cancelled|skipped|todo|duration_ms)\s+(\d+(?:\.\d+)?)\s*",
+            line,
+        )
+        if not match or match.group(1) in values:
             return incomplete_counts("node-tap")
-        values[name] = int(match.group(1))
-    if not re.search(r"^(?:#|ℹ)\s*duration_ms\s+\d+(?:\.\d+)?\s*$", output, re.MULTILINE):
+        name, raw_value = match.groups()
+        if name != "duration_ms" and "." in raw_value:
+            return incomplete_counts("node-tap")
+        values[name] = int(float(raw_value))
+    required = {"tests", "pass", "fail", "cancelled", "skipped", "todo", "duration_ms"}
+    if not required <= set(values):
         return incomplete_counts("node-tap")
     failed = values["fail"] + values["cancelled"]
     skipped = values["skipped"] + values["todo"]
@@ -327,20 +357,16 @@ def parse_node_tap(output: str) -> dict[str, Any]:
 
 
 def parse_python_unittest(output: str) -> dict[str, Any]:
-    total_matches = list(re.finditer(r"^Ran\s+(\d+)\s+tests?\s+in\s+[^\n]+$", output, re.MULTILINE))
-    result_matches = list(re.finditer(r"^(OK|FAILED)(?:\s+\(([^\n]*)\))?\s*$", output, re.MULTILINE))
-    if not total_matches or not result_matches:
+    match = re.search(
+        r"(?:^|\n)FINAL_RC_PYTHON_TEST_RESULT "
+        r"total=(\d+) passed=(\d+) failures=(\d+) errors=(\d+) skipped=(\d+) "
+        r"completion=complete\s*\Z",
+        output.replace("\r\n", "\n"),
+    )
+    if not match:
         return incomplete_counts("python-unittest")
-    total_match = total_matches[-1]
-    result_match = result_matches[-1]
-    total = int(total_match.group(1))
-    details = result_match.group(2) or ""
-    detail_values = {key: int(value) for key, value in re.findall(r"(failures|errors|skipped)=(\d+)", details)}
-    failed = detail_values.get("failures", 0) + detail_values.get("errors", 0)
-    skipped = detail_values.get("skipped", 0)
-    if result_match.group(1) == "FAILED" and failed == 0:
-        return incomplete_counts("python-unittest")
-    return complete_counts(total, total - failed - skipped, failed, skipped, "python-unittest")
+    total, passed, failures, errors, skipped = (int(value) for value in match.groups())
+    return complete_counts(total, passed, failures + errors, skipped, "python-unittest")
 
 
 def parse_dotnet_trx(report_dir: pathlib.Path) -> dict[str, Any]:
@@ -479,19 +505,109 @@ def run_gate(
     }
 
 
-def build_inventory_evidence(
-    inventory: dict[str, Any],
-    manifest: dict[str, Any],
-    manual_evidence: list[dict[str, Any]],
-) -> dict[str, list[dict[str, Any]]]:
-    manual = {item["id"]: item for item in manual_evidence}[manifest["identityEvidenceManualGateId"]]
+def sha256_file(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
+
+def resolve_approved_artifact(repo: pathlib.Path, rc_sha: str, evidence_ref: Any) -> pathlib.Path:
+    if not isinstance(evidence_ref, str) or not evidence_ref or "\\" in evidence_ref:
+        raise GateError("evidence reference must be a non-empty repository-relative POSIX path")
+    reference = pathlib.PurePosixPath(evidence_ref)
+    expected_prefix = ("artifacts", "final-rc", rc_sha)
+    if reference.is_absolute() or ".." in reference.parts or reference.parts[:3] != expected_prefix:
+        raise GateError("evidence reference escapes the approved RC SHA evidence boundary")
+    candidate = repo.joinpath(*reference.parts)
+    boundary = repo / "artifacts" / "final-rc" / rc_sha
+    for current in (repo / "artifacts", repo / "artifacts" / "final-rc", boundary):
+        if current.exists() and current.is_symlink():
+            raise GateError("evidence reference traverses a symlink")
+    current = boundary
+    for part in reference.parts[3:]:
+        current = current / part
+        if current.exists() and current.is_symlink():
+            raise GateError("evidence reference traverses a symlink")
+    try:
+        candidate.resolve(strict=True).relative_to(boundary.resolve(strict=True))
+    except (FileNotFoundError, ValueError) as error:
+        raise GateError("evidence artifact does not exist inside the approved RC SHA boundary") from error
+    if not candidate.is_file() or candidate.is_symlink():
+        raise GateError("evidence artifact must be a real regular file")
+    return candidate
+
+
+def verify_artifact(
+    repo: pathlib.Path,
+    rc_sha: str,
+    evidence_ref: Any,
+    expected_digest: Any,
+    identifier: str,
+) -> tuple[str, str]:
+    if not isinstance(expected_digest, str) or not SHA256_RE.fullmatch(expected_digest):
+        raise GateError(f"{identifier} requires a lowercase SHA-256 artifact digest")
+    path = resolve_approved_artifact(repo, rc_sha, evidence_ref)
+    actual_digest = sha256_file(path)
+    if actual_digest != expected_digest:
+        raise GateError(f"{identifier} artifact digest does not match the referenced file bytes")
+    return str(evidence_ref), actual_digest
+
+
+def validate_manual_evidence_receipt(
+    repo: pathlib.Path,
+    rc_sha: str,
+    item: dict[str, Any],
+    evidence_ref: str,
+    normalized_timestamp: str,
+    metadata: dict[str, Any],
+) -> None:
+    artifact = resolve_approved_artifact(repo, rc_sha, evidence_ref)
+    try:
+        receipt = load_json(artifact)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise GateError(
+            f"manual evidence {item['id']} artifact must be a structured evidence receipt"
+        ) from error
+    expected_fields = {
+        "schemaVersion",
+        "rcSha",
+        "itemId",
+        "evidenceType",
+        "executor",
+        "executedAtUtc",
+        "provenance",
+        "evidence",
+    }
+    if set(receipt) != expected_fields or receipt.get("schemaVersion") != 1:
+        raise GateError(f"manual evidence {item['id']} receipt has missing or unknown fields")
+    receipt_timestamp = parse_attestation_timestamp(
+        receipt.get("executedAtUtc"), f"{item['id']} receipt"
+    )
+    expected = {
+        "rcSha": rc_sha,
+        "itemId": item["id"],
+        "evidenceType": item["evidenceType"],
+        "executor": item["executor"].strip(),
+        "executedAtUtc": normalized_timestamp,
+        "provenance": metadata,
+    }
+    observed = {key: receipt.get(key) for key in expected}
+    observed["executedAtUtc"] = receipt_timestamp
+    if observed != expected:
+        raise GateError(f"manual evidence {item['id']} receipt does not match its attestation")
+    if not isinstance(receipt.get("evidence"), dict) or not receipt["evidence"]:
+        raise GateError(f"manual evidence {item['id']} receipt requires structured supporting evidence")
+
+
+def empty_inventory_evidence(inventory: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     def row(identifier: str) -> dict[str, Any]:
         return {
             "id": identifier,
             "classification": "manual",
-            "result": manual["result"],
-            "evidenceRefs": manual["evidenceRefs"],
+            "result": "MANUAL_EVIDENCE_REQUIRED",
+            "evidenceRefs": [],
         }
 
     return {
@@ -499,6 +615,68 @@ def build_inventory_evidence(
         "criteria": [row(identifier) for identifier in inventory["criteria"]],
         "publicErrors": [row(identifier) for identifier in inventory["publicErrors"]],
     }
+
+
+def load_identity_evidence(
+    path: pathlib.Path | None,
+    repo: pathlib.Path,
+    rc_sha: str,
+    inventory: dict[str, Any],
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any] | None]:
+    if path is None:
+        return empty_inventory_evidence(inventory), None
+    try:
+        index_ref = path.resolve(strict=True).relative_to(repo.resolve()).as_posix()
+    except (FileNotFoundError, ValueError) as error:
+        raise GateError("identity evidence index must be a real file inside the approved evidence boundary") from error
+    index_path = resolve_approved_artifact(repo, rc_sha, index_ref)
+    document = load_json(index_path)
+    if set(document) != {"schemaVersion", "rcSha", "executor", "generatedAtUtc", "items"}:
+        raise GateError("identity evidence index has missing or unknown top-level fields")
+    if document.get("schemaVersion") != 1 or document.get("rcSha") != rc_sha:
+        raise GateError("identity evidence index is not bound to the exact RC SHA")
+    executor = document.get("executor")
+    if not isinstance(executor, str) or not executor.strip():
+        raise GateError("identity evidence index requires an executor identity")
+    generated_at = parse_attestation_timestamp(document.get("generatedAtUtc"), "identity evidence index")
+    items = document.get("items")
+    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+        raise GateError("identity evidence index items must be an array of objects")
+    for item in items:
+        if set(item) != {"id", "evidenceRef", "evidenceSha256"}:
+            raise GateError(f"identity evidence item {item.get('id', '<missing>')} has missing or unknown fields")
+    item_ids = [item.get("id", "") for item in items]
+    assert_unique("identity evidence", item_ids)
+    section_ids = {
+        "scenarios": [item["id"] for item in inventory["scenarios"]],
+        "criteria": inventory["criteria"],
+        "publicErrors": inventory["publicErrors"],
+    }
+    expected_ids = [identifier for identifiers in section_ids.values() for identifier in identifiers]
+    assert_exact_identities("identity evidence index/catalog", item_ids, expected_ids)
+    verified: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if item["evidenceRef"] == index_ref:
+            raise GateError(f"identity {item['id']} cannot use the evidence index itself as supporting evidence")
+        evidence_ref, digest = verify_artifact(
+            repo, rc_sha, item["evidenceRef"], item["evidenceSha256"], f"identity {item['id']}"
+        )
+        verified[item["id"]] = {
+            "id": item["id"],
+            "classification": "manual",
+            "result": "MANUAL_PASS",
+            "evidenceRefs": [evidence_ref],
+            "evidenceSha256": digest,
+        }
+    return (
+        {section: [verified[identifier] for identifier in identifiers] for section, identifiers in section_ids.items()},
+        {
+            "evidenceRef": index_ref,
+            "evidenceSha256": sha256_file(index_path),
+            "executor": executor.strip(),
+            "generatedAtUtc": generated_at,
+        },
+    )
 
 
 def parse_attestation_timestamp(value: Any, identifier: str) -> str:
@@ -515,7 +693,31 @@ def parse_attestation_timestamp(value: Any, identifier: str) -> str:
     return parsed.astimezone(dt.timezone.utc).isoformat()
 
 
-def validate_manual_pass(item: dict[str, Any], definition: dict[str, Any], rc_sha: str) -> dict[str, Any]:
+def validate_evidence_metadata(evidence_type: str, metadata: Any, rc_sha: str, identifier: str) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        raise GateError(f"manual evidence {identifier} metadata must be an object")
+    required = EVIDENCE_METADATA_RULES[evidence_type]
+    missing = sorted(
+        key for key in required
+        if not isinstance(metadata.get(key), str) or not metadata[key].strip()
+    )
+    if missing:
+        raise GateError(
+            f"manual evidence {identifier} lacks required {evidence_type} metadata: {', '.join(missing)}"
+        )
+    if evidence_type == "deployment_record" and metadata["deployedSha"] != rc_sha:
+        raise GateError(f"manual evidence {identifier} deployment metadata is bound to the wrong RC SHA")
+    if evidence_type in {"database_verification", "uat_record"} and metadata.get("verificationResult", metadata.get("result")) != "PASS":
+        raise GateError(f"manual evidence {identifier} must record a PASS verification result")
+    return metadata
+
+
+def validate_manual_pass(
+    item: dict[str, Any],
+    definition: dict[str, Any],
+    rc_sha: str,
+    repo: pathlib.Path,
+) -> dict[str, Any]:
     identifier = definition["id"]
     required = {
         "id",
@@ -538,8 +740,6 @@ def validate_manual_pass(item: dict[str, Any], definition: dict[str, Any], rc_sh
     evidence_type = item.get("evidenceType")
     if evidence_type not in MANUAL_EVIDENCE_TYPES:
         raise GateError(f"manual evidence {identifier} has an unsupported evidence type")
-    if identifier == "owner_go_no_go" and evidence_type != "owner_decision":
-        raise GateError("owner_go_no_go requires explicit owner_decision evidence")
     evidence_ref = item.get("evidenceRef")
     if not isinstance(evidence_ref, str) or not evidence_ref.strip() or len(evidence_ref) > 2048:
         raise GateError(f"manual evidence {identifier} requires an evidence reference")
@@ -549,9 +749,9 @@ def validate_manual_pass(item: dict[str, Any], definition: dict[str, Any], rc_sh
     if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
         raise GateError(f"manual evidence {identifier} requires a lowercase SHA-256 provenance digest")
     timestamp = parse_attestation_timestamp(item.get("executedAtUtc"), identifier)
-    metadata = item.get("metadata", {})
-    if not isinstance(metadata, dict):
-        raise GateError(f"manual evidence {identifier} metadata must be an object")
+    metadata = validate_evidence_metadata(evidence_type, item.get("metadata"), rc_sha, identifier)
+    evidence_ref, digest = verify_artifact(repo, rc_sha, evidence_ref.strip(), digest, f"manual evidence {identifier}")
+    validate_manual_evidence_receipt(repo, rc_sha, item, evidence_ref, timestamp, metadata)
     return {
         "id": identifier,
         "classification": "manual",
@@ -567,7 +767,12 @@ def validate_manual_pass(item: dict[str, Any], definition: dict[str, Any], rc_sh
     }
 
 
-def load_manual_evidence(path: pathlib.Path | None, definitions: list[dict[str, Any]], rc_sha: str) -> list[dict[str, Any]]:
+def load_manual_evidence(
+    path: pathlib.Path | None,
+    definitions: list[dict[str, Any]],
+    rc_sha: str,
+    repo: pathlib.Path,
+) -> list[dict[str, Any]]:
     supplied: dict[str, Any] = {}
     if path:
         document = load_json(path)
@@ -625,11 +830,128 @@ def load_manual_evidence(path: pathlib.Path | None, definitions: list[dict[str, 
             continue
         if item.get("result") != "MANUAL_PASS":
             raise GateError(f"manual evidence {definition['id']} has an unsupported result")
-        result.append(validate_manual_pass(item, definition, rc_sha))
+        result.append(validate_manual_pass(item, definition, rc_sha, repo))
     unknown = sorted(set(supplied) - {item["id"] for item in definitions})
     if unknown:
         raise GateError(f"unknown manual evidence IDs: {', '.join(unknown)}")
     return result
+
+
+def validate_ready_source_artifacts(repo: pathlib.Path, rc_sha: str, packet: dict[str, Any]) -> None:
+    for item in packet.get("manualEvidence", []):
+        if item.get("result") != "MANUAL_PASS":
+            raise GateError("owner decision source contains unresolved manual evidence")
+        validate_manual_pass(item, {"id": item.get("id")}, rc_sha, repo)
+    for section in packet.get("inventory", {}).values():
+        for item in section:
+            refs = item.get("evidenceRefs", [])
+            if item.get("result") != "MANUAL_PASS" or len(refs) != 1:
+                raise GateError("owner decision source contains unresolved identity evidence")
+            verify_artifact(
+                repo,
+                rc_sha,
+                refs[0],
+                item.get("evidenceSha256"),
+                f"identity {item.get('id', '<missing>')}",
+            )
+
+
+def apply_owner_decision(
+    repo: pathlib.Path,
+    rc_sha: str,
+    decision_path: pathlib.Path,
+    manifest: dict[str, Any],
+    inventory: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        decision_ref = decision_path.resolve(strict=True).relative_to(repo.resolve()).as_posix()
+    except (FileNotFoundError, ValueError) as error:
+        raise GateError("owner decision document must be inside the approved evidence boundary") from error
+    decision_file = resolve_approved_artifact(repo, rc_sha, decision_ref)
+    document = load_json(decision_file)
+    required = {
+        "schemaVersion",
+        "rcSha",
+        "decision",
+        "executor",
+        "decidedAtUtc",
+        "readyEvidenceRef",
+        "readyEvidenceSha256",
+        "evidenceRef",
+        "evidenceSha256",
+        "metadata",
+    }
+    if set(document) != required:
+        raise GateError("owner decision document has missing or unknown fields")
+    if document.get("schemaVersion") != 1 or document.get("rcSha") != rc_sha:
+        raise GateError("owner decision is bound to the wrong RC SHA")
+    decision = document.get("decision")
+    if decision not in {"GO", "NO_GO"}:
+        raise GateError("owner decision must be exactly GO or NO_GO")
+    executor = document.get("executor")
+    if not isinstance(executor, str) or not executor.strip():
+        raise GateError("owner decision requires an executor identity")
+    decided_at = parse_attestation_timestamp(document.get("decidedAtUtc"), "owner decision")
+    metadata = document.get("metadata")
+    if not isinstance(metadata, dict):
+        raise GateError("owner decision metadata must be an object")
+    missing_metadata = sorted(
+        key for key in {"decisionAuthority", "rationaleCode"}
+        if not isinstance(metadata.get(key), str) or not metadata[key].strip()
+    )
+    if missing_metadata:
+        raise GateError(f"owner decision lacks required metadata: {', '.join(missing_metadata)}")
+    ready_ref, ready_digest = verify_artifact(
+        repo,
+        rc_sha,
+        document.get("readyEvidenceRef"),
+        document.get("readyEvidenceSha256"),
+        "owner decision READY evidence",
+    )
+    evidence_ref, evidence_digest = verify_artifact(
+        repo,
+        rc_sha,
+        document.get("evidenceRef"),
+        document.get("evidenceSha256"),
+        "owner decision supporting evidence",
+    )
+    ready_packet = load_json(repo.joinpath(*pathlib.PurePosixPath(ready_ref).parts))
+    ready_generated_at = parse_attestation_timestamp(
+        ready_packet.get("generatedAtUtc"), "owner decision READY packet"
+    )
+    if dt.datetime.fromisoformat(decided_at) < dt.datetime.fromisoformat(ready_generated_at):
+        raise GateError("owner decision predates the READY_FOR_OWNER_GO_NO_GO transition")
+    if (
+        ready_packet.get("rcSha") != rc_sha
+        or ready_packet.get("expectedRcSha") != rc_sha
+        or ready_packet.get("lane") != "full"
+        or ready_packet.get("mode") != "final"
+        or ready_packet.get("finalGoStatus") != "READY_FOR_OWNER_GO_NO_GO"
+        or ready_packet.get("postflightClean") is not True
+        or not ready_packet.get("readinessConditions")
+        or not all(ready_packet["readinessConditions"].values())
+    ):
+        raise GateError("owner decision requires a complete READY_FOR_OWNER_GO_NO_GO source packet")
+    validate_packet(ready_packet, inventory, manifest["manualGates"], manifest)
+    validate_ready_source_artifacts(repo, rc_sha, ready_packet)
+    return {
+        "schemaVersion": 1,
+        "rcSha": rc_sha,
+        "generatedAtUtc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "sourceReadyEvidenceRef": ready_ref,
+        "sourceReadyEvidenceSha256": ready_digest,
+        "ownerDecisionDocumentRef": decision_ref,
+        "ownerDecisionDocumentSha256": sha256_file(decision_file),
+        "ownerDecision": {
+            "decision": decision,
+            "executor": executor.strip(),
+            "decidedAtUtc": decided_at,
+            "evidenceRef": evidence_ref,
+            "evidenceSha256": evidence_digest,
+            "metadata": metadata,
+        },
+        "finalGoStatus": decision,
+    }
 
 
 def create_run_directory(
@@ -722,7 +1044,10 @@ def validate_packet(
         for row in rows:
             if row["result"] not in RESULTS:
                 raise GateError(f"invalid result {row['result']} for {row['id']}")
-            if row["result"] == "AUTOMATED_PASS" and not row.get("evidenceRefs"):
+            if row["result"] == "MANUAL_PASS" and (
+                len(row.get("evidenceRefs", [])) != 1
+                or not SHA256_RE.fullmatch(str(row.get("evidenceSha256", "")))
+            ):
                 raise GateError(f"{row['id']} is marked passed without an evidence reference")
     manual_rows = packet["manualEvidence"]
     assert_unique("manual gate", [row["id"] for row in manual_rows])
@@ -796,14 +1121,34 @@ def human_summary(packet: dict[str, Any]) -> str:
 
 def run(args: argparse.Namespace) -> int:
     repo = pathlib.Path(args.repo_root).resolve()
+    head = assert_preflight(repo, args.expected_sha)
     manifest_path = pathlib.Path(args.manifest) if args.manifest else repo / "release-gates/final-rc/gates.json"
     catalog_path = pathlib.Path(args.catalog) if args.catalog else repo / "release-gates/final-rc/ratified-identities.json"
     if args.lane != "synthetic" and (args.manifest or args.catalog):
         raise GateError("full and hosted lanes must use the checked-in manifest and ratified identity catalog")
     manifest = load_json(manifest_path)
-    head = assert_preflight(repo, args.expected_sha)
     catalog = load_ratified_catalog(catalog_path, enforce_reviewed_baseline=args.lane != "synthetic")
     inventory = canonical_inventory(repo, manifest, catalog)
+    owner_decision_path = getattr(args, "owner_decision", None)
+    if args.mode == "owner-decision":
+        if args.lane != "full" or not owner_decision_path:
+            raise GateError("owner-decision mode requires lane=full and --owner-decision")
+        evidence_dir = create_run_directory(repo, args.evidence_root, head, args.run_id)
+        decision_packet = apply_owner_decision(
+            repo,
+            head,
+            pathlib.Path(owner_decision_path).resolve(),
+            manifest,
+            inventory,
+        )
+        decision_packet["runId"] = args.run_id
+        packet_path = evidence_dir / "owner-decision.json"
+        write_json_exclusive(packet_path, decision_packet, configured_secret_values(os.environ))
+        print(f"Owner decision: {decision_packet['finalGoStatus']}")
+        print(f"Owner decision evidence: {packet_path}")
+        return 0
+    if owner_decision_path:
+        raise GateError("owner decision evidence is accepted only by the distinct owner-decision transition")
     evidence_dir = create_run_directory(repo, args.evidence_root, head, args.run_id)
     secret_values = configured_secret_values(os.environ)
     selected = [gate for gate in manifest["automatedGates"] if args.lane in gate["lanes"]]
@@ -819,8 +1164,16 @@ def run(args: argparse.Namespace) -> int:
         pathlib.Path(args.manual_evidence).resolve() if args.manual_evidence else None,
         manifest["manualGates"],
         head,
+        repo,
     )
-    inventory_evidence = build_inventory_evidence(inventory, manifest, manual)
+    inventory_evidence, identity_index = load_identity_evidence(
+        pathlib.Path(getattr(args, "identity_evidence_index", "")).resolve()
+        if getattr(args, "identity_evidence_index", None)
+        else None,
+        repo,
+        head,
+        inventory,
+    )
     automated_pass = len(gate_rows) == len(selected) and all(row["result"] == "AUTOMATED_PASS" for row in gate_rows)
     manual_by_id = {row["id"]: row for row in manual}
     categories = []
@@ -844,7 +1197,7 @@ def run(args: argparse.Namespace) -> int:
     except GateError:
         postflight_clean = False
     packet = {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "rcSha": head,
         "expectedRcSha": args.expected_sha,
         "generatedAtUtc": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -858,6 +1211,7 @@ def run(args: argparse.Namespace) -> int:
         "manualEvidence": manual,
         "reliabilityCategories": categories,
         "inventory": inventory_evidence,
+        "identityEvidenceIndex": identity_index,
         "catalogCounts": RATIFIED_CATALOG_COUNTS,
         "mandatoryFullGateIds": mandatory_full_gate_ids(manifest),
         "statusVocabulary": sorted(RESULTS),
@@ -893,8 +1247,10 @@ def main() -> int:
     parser.add_argument("--evidence-root", default="artifacts/final-rc")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--manual-evidence")
+    parser.add_argument("--identity-evidence-index")
+    parser.add_argument("--owner-decision")
     parser.add_argument("--lane", choices=("full", "hosted", "synthetic"), default="full")
-    parser.add_argument("--mode", choices=("automated", "final"), default="final")
+    parser.add_argument("--mode", choices=("automated", "final", "owner-decision"), default="final")
     try:
         return run(parser.parse_args())
     except (GateError, OSError, json.JSONDecodeError, KeyError, ValueError) as error:

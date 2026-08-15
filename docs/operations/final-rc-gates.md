@@ -31,13 +31,24 @@ rejected. Recursive redaction is applied before writing JSON, Markdown or logs.
 
 `--mode automated` verifies code gates while honestly retaining external items as
 `MANUAL_EVIDENCE_REQUIRED`. `--mode final` can report `READY_FOR_OWNER_GO_NO_GO` only for the `full` lane,
-after every full-lane gate, ratified identity, #99 category and manual item is resolved and the final postflight
-is clean. A hosted lane can never produce readiness.
+after every full-lane gate, ratified identity, #99 category and pre-owner manual item is resolved and the final
+postflight is clean. A hosted lane can never produce readiness.
 
 Manual evidence follows `manual-evidence.schema.json`. Every `MANUAL_PASS` is independently bound to the full
-RC SHA and includes executor identity, timezone-qualified timestamp, evidence type, reference and lowercase
-SHA-256 provenance digest. `owner_go_no_go` additionally requires `owner_decision` evidence. Arbitrary text
-references, stale per-item SHAs, malformed attestations, duplicates and unknown items are refused.
+RC SHA and includes executor identity, timezone-qualified timestamp, evidence type, type-specific provenance
+metadata, a repository-relative artifact reference below `artifacts/final-rc/<sha>/`, and the lowercase SHA-256
+of that file's actual bytes. The artifact is a structured receipt conforming to
+`manual-evidence-receipt.schema.json`; its item, SHA, executor, timestamp, type and provenance must match the
+attestation. External evidence must be retained as a local immutable receipt and identify its
+provider, immutable external artifact ID, verification method and verifier. Arbitrary text, missing files,
+path escapes, stale per-item SHAs, digest mismatches, malformed attestations, duplicates and unknown items are
+refused.
+
+The owner decision is deliberately not a pre-readiness manual gate. Once a full final packet is
+`READY_FOR_OWNER_GO_NO_GO`, a separate `--mode owner-decision --owner-decision <document>` invocation validates
+the unchanged ready packet and every referenced artifact again. An explicit `GO` produces terminal `GO`; an
+explicit `NO_GO` produces terminal `NO_GO`. A decision document cannot promote a `NOT_READY` packet or bypass
+the full-lane transition.
 
 ## Automated commands
 
@@ -62,9 +73,11 @@ it does not resolve release-database or manual evidence.
 
 `ratified-identities.json` is an independently reviewed oracle containing the exact 160 scenarios, 208 AC,
 155 NAC and 45 public errors. Source documentation and final packet rows are reconciled independently against
-those exact identities. A future identity change therefore requires an explicit catalog diff. Broad suite
-success does not automatically claim identity evidence: the SHA-bound `reliability_99_completion` attestation
-must resolve the exact inventory.
+those exact identities. A future identity change therefore requires an explicit catalog diff. Broad suite or
+`reliability_99_completion` success does not claim identity evidence. Final mode requires a SHA-bound identity
+index conforming to `identity-evidence.schema.json`; it enumerates every ratified identity and binds each one to
+a distinct verified supporting artifact reference and digest. Omitting or falsifying any one identity blocks
+readiness.
 
 ## Release-database sequence
 
@@ -84,9 +97,11 @@ The following sequence is external evidence and is never executed by PR CI:
 12. post-UAT INV-AUDIT-01;
 13. reporting, finance, rentability and RBAC reconciliation;
 14. #99 completion;
-15. HB-09 sole-owner GO/NO-GO.
+15. preparation of the complete pre-owner evidence packet.
 
-Until those references are supplied, final GO remains `NOT_READY`.
+Until those references are supplied, readiness remains `NOT_READY`. After they are supplied and the full lane
+passes, the result is `READY_FOR_OWNER_GO_NO_GO`; only the subsequent explicit owner transition may produce
+terminal `GO` or `NO_GO`.
 
 ## Production boundary
 
