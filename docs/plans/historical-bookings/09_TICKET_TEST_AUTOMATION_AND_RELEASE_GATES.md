@@ -7,7 +7,7 @@
 | Field | Value |
 |---|---|
 | Ticket | HB-09 |
-| Status | **OWNER APPROVED — BLOCKED BY DEPENDENCY** |
+| Status | **RC AUTOMATION IMPLEMENTED — PENDING FOCUSED INDEPENDENT REVIEW** |
 | Depends on | HB-02 through HB-08A; HB-08B gates final release when REQ-16 is included |
 | Migration ownership | None |
 | Foundation | PRE-01 and PRE-02 are complete and merged |
@@ -164,5 +164,7 @@ counts and hosted-check links. The sole owner records any manual residue and the
 
 ## 13. Readiness
 
-The HB-09 contract is closed. Implementation is **BLOCKED BY DEPENDENCY** until HB-06, HB-07 and HB-08A are
-complete; final release evidence also depends on HB-08B and operational gates.
+The feature dependencies are merged. `RC-ENABLEMENT-01` implements the dynamic scenario/error/AC/NAC
+inventory and final-RC command orchestration described in this ticket. Automated PR evidence remains distinct
+from release-database rehearsal, UAT, finance review and the sole-owner go/no-go; unresolved mandatory manual
+evidence blocks final GO.

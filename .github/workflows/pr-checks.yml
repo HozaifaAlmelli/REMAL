@@ -154,3 +154,45 @@ jobs:
           cp .env.example .env.ci
           docker compose -f docker-compose.prod.yml --env-file .env.ci config >/dev/null
           echo "docker-compose.prod.yml is valid."
+
+  final-rc-automation:
+    name: Final RC automated evidence
+    needs:
+      - backend
+      - backend-postgres
+      - api-container
+      - frontend-demo
+      - frontend-portal
+      - compose-validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: rental-platform/package-lock.json
+      - name: Install Playwright system dependencies
+        working-directory: rental-platform
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run hosted final-RC evidence lane
+        env:
+          RC_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          bash scripts/final-rc-gates.sh
+          --expected-sha "$RC_SHA"
+          --lane hosted
+          --mode automated
+          --evidence-dir "artifacts/final-rc/$RC_SHA"
+      - name: Upload final-RC automated evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-rc-automated-evidence-${{ github.event.pull_request.head.sha }}
+          path: artifacts/final-rc/${{ github.event.pull_request.head.sha }}
+          if-no-files-found: error

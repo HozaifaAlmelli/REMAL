@@ -387,7 +387,7 @@ evidence packet.
 
 ### 15.9 INV-AUDIT-01 read-only invoice aggregate consistency gate
 
-**Status: IMPLEMENTED — PENDING INDEPENDENT REVIEW.** This gate was implemented after the Owner-merged
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** This gate was implemented after the Owner-merged
 INV-OPS-01, INV-OPS-02 and INV-OPS-03 write-side integrity corrections. It must pass after invoice-integrity
 write fixes and before #99 Reliability/UAT; execution against a release environment remains a later explicit
 Owner/operator step.
@@ -578,7 +578,8 @@ behavior, migration SQL, schema or production data.
 
 ### 15.16 AN-OPS-01B1-F01 Cairo business-date verification consistency
 
-**Status: IMPLEMENTED — PENDING FOCUSED INDEPENDENT REVIEW.** B1 capacity writers resolve each ordinary
+**Status: COMPLETE — INDEPENDENTLY APPROVED AND OWNER-MERGED.** PR #70 independently approved and the Owner
+merged this final pre-publication clock-consistency hardening. B1 capacity writers resolve each ordinary
 mutation's effective date once through `IBusinessClock.CairoToday` and persist that decision in the opening
 `unit_create` ledger revision. The pre-F01 verifier instead reconstructed a post-publication unit's entry date
 from its UTC `created_at` audit timestamp converted to Cairo time. If those clock sources straddled Cairo
