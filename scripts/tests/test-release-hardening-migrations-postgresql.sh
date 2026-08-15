@@ -243,12 +243,23 @@ wait_for_log "$TMP/runner-crash.log" "--- applying 0002_serialized_change.sql"
 run_runner "$DB_OTHER" > "$TMP/runner-other.log" 2>&1
 assert_contains "$TMP/runner-other.log" "Up to date"
 
-kill -TERM "$runner_crash"
+lock_backend_pid="$(docker exec "$CONTAINER" psql -X -qAt -U postgres -d "$DB_CRASH" -c \
+  "SELECT l.pid
+   FROM pg_locks l
+   JOIN pg_stat_activity a ON a.pid = l.pid
+   WHERE l.locktype = 'advisory'
+     AND l.granted
+     AND l.classid = 1263092295::oid
+     AND a.datname = current_database();")"
+[[ "$lock_backend_pid" =~ ^[0-9]+$ ]] || fail "could not identify the migration lock backend"
+lock_backend_terminated="$(docker exec "$CONTAINER" psql -X -qAt -U postgres -d postgres -c \
+  "SELECT pg_terminate_backend($lock_backend_pid, 5000);")"
+[ "$lock_backend_terminated" = "t" ] || fail "could not terminate the migration lock connection"
 set +e
 wait "$runner_crash"
 crash_status=$?
 set -e
-[ "$crash_status" -ne 0 ] || fail "terminated runner unexpectedly reported success"
+[ "$crash_status" -ne 0 ] || fail "runner with a terminated lock connection unexpectedly reported success"
 
 lock_reacquired="$(docker exec "$CONTAINER" psql -X -qAt -U postgres -d "$DB_CRASH" -c \
   "SELECT pg_try_advisory_lock(1263092295, (SELECT oid::integer FROM pg_database WHERE datname=current_database()));")"
