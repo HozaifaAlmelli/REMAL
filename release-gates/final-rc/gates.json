@@ -5,11 +5,19 @@
     "scenarios": "docs/plans/historical-bookings/99_RELIABILITY_TEST_SCENARIOS.md",
     "ticketDirectory": "docs/plans/historical-bookings"
   },
+  "identityEvidenceManualGateId": "reliability_99_completion",
   "automatedGates": [
     {
       "id": "rc_gate_self_tests",
       "lanes": ["full", "hosted"],
+      "requiresTests": true,
+      "testEvidence": {"type": "python-unittest"},
       "command": ["{python}", "scripts/tests/test_final_rc_gates.py"]
+    },
+    {
+      "id": "rc_gate_lock_test",
+      "lanes": ["full", "hosted"],
+      "command": ["bash", "scripts/tests/test-final-rc-runner-lock.sh"]
     },
     {
       "id": "backend_release_build",
@@ -17,57 +25,71 @@
       "command": ["dotnet", "build", "RentalPlatform.slnx", "-c", "Release"]
     },
     {
+      "id": "api_production_image_build",
+      "lanes": ["full"],
+      "command": ["docker", "build", "-f", "RentalPlatform.API/Dockerfile", "-t", "kaza-api:final-rc-test", "."]
+    },
+    {
       "id": "backend_fast",
       "lanes": ["full"],
       "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
       "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "Category=Fast"]
     },
     {
       "id": "historical_booking_focused",
       "lanes": ["full"],
       "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
       "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~HistoricalBooking"]
     },
     {
       "id": "historical_reporting_focused",
       "lanes": ["full"],
       "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
       "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~HistoricalReporting|FullyQualifiedName~HistoricalPaymentReporting"]
     },
     {
       "id": "rentability_b1_focused",
       "lanes": ["full"],
       "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
       "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~RentableCapacityHistoryPostgreSqlTests"]
     },
     {
       "id": "occupancy_b2_focused",
       "lanes": ["full"],
       "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
       "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~OccupancyAnalytics"]
     },
     {
       "id": "invoice_payment_critical",
       "lanes": ["full"],
       "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
       "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~Invoice|FullyQualifiedName~Payment|FullyQualifiedName~OwnerPayout"]
     },
     {
       "id": "invoice_audit_implementation",
       "lanes": ["full"],
       "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
       "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~InvoiceAggregateConsistencyGatePostgreSqlTests"]
     },
     {
       "id": "backend_postgresql",
       "lanes": ["full"],
       "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
       "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "Category=PostgreSQL"]
     },
     {
       "id": "backend_full",
       "lanes": ["full"],
       "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
       "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore"]
     },
     {
@@ -93,6 +115,7 @@
       "lanes": ["full", "hosted"],
       "workingDirectory": "rental-platform",
       "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
       "command": ["npm", "run", "test:playwright-isolation"]
     },
     {
@@ -100,6 +123,7 @@
       "lanes": ["full", "hosted"],
       "workingDirectory": "rental-platform",
       "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
       "command": ["npm", "run", "test:hb06"]
     },
     {
@@ -107,6 +131,7 @@
       "lanes": ["full", "hosted"],
       "workingDirectory": "rental-platform",
       "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
       "command": ["npm", "run", "test:hb08a3"]
     },
     {
@@ -114,6 +139,7 @@
       "lanes": ["full", "hosted"],
       "workingDirectory": "rental-platform",
       "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
       "command": ["npm", "run", "test:occupancy"]
     },
     {
@@ -121,6 +147,7 @@
       "lanes": ["full", "hosted"],
       "workingDirectory": "rental-platform",
       "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
       "command": ["npm", "run", "test:rbac"]
     },
     {
@@ -147,28 +174,32 @@
       "lanes": ["full", "hosted"],
       "workingDirectory": "rental-platform",
       "requiresTests": true,
-      "command": ["npm", "run", "test:occupancy:e2e"]
+      "testEvidence": {"type": "playwright-json"},
+      "command": ["npx", "playwright", "test", "--config=playwright.occupancy.config.ts", "--reporter=json"]
     },
     {
       "id": "playwright_historical_reporting",
       "lanes": ["full", "hosted"],
       "workingDirectory": "rental-platform",
       "requiresTests": true,
-      "command": ["npm", "run", "test:hb08a3:e2e"]
+      "testEvidence": {"type": "playwright-json"},
+      "command": ["npx", "playwright", "test", "--config=playwright.historical-reporting.config.ts", "--reporter=json"]
     },
     {
       "id": "playwright_historical_booking",
       "lanes": ["full", "hosted"],
       "workingDirectory": "rental-platform",
       "requiresTests": true,
-      "command": ["npm", "run", "test:hb06:e2e"]
+      "testEvidence": {"type": "playwright-json"},
+      "command": ["npx", "playwright", "test", "--config=playwright.historical-booking.config.ts", "--reporter=json"]
     },
     {
       "id": "playwright_booking_history_rbac",
       "lanes": ["full", "hosted"],
       "workingDirectory": "rental-platform",
       "requiresTests": true,
-      "command": ["npm", "run", "test:booking-history"]
+      "testEvidence": {"type": "playwright-json"},
+      "command": ["npx", "playwright", "test", "--config=playwright.booking-history.config.ts", "--reporter=json"]
     },
     {
       "id": "storefront_install",
@@ -181,6 +212,7 @@
       "lanes": ["full"],
       "workingDirectory": "demo",
       "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
       "command": ["npm", "test"]
     },
     {
@@ -215,63 +247,41 @@
       "command": ["bash", "scripts/tests/test-current-production-migrations-postgresql.sh"]
     },
     {
+      "id": "shellcheck_release_scripts",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-release-static-validation.sh", "shellcheck"]
+    },
+    {
+      "id": "github_workflow_validation",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-release-static-validation.sh", "actionlint"]
+    },
+    {
       "id": "production_compose_validation",
       "lanes": ["full"],
       "command": ["docker", "compose", "-f", "docker-compose.prod.yml", "--env-file", ".env.example", "config", "--quiet"]
     }
   ],
-  "scenarioGroupEvidence": {
-    "HAPPY": ["historical_booking_focused", "playwright_historical_booking"],
-    "DATE": ["historical_booking_focused"],
-    "AVAIL": ["historical_booking_focused", "backend_postgresql"],
-    "DUP": ["historical_booking_focused", "backend_postgresql"],
-    "SEC": ["historical_booking_focused", "portal_rbac_contracts", "playwright_historical_booking"],
-    "FIN": ["invoice_payment_critical", "historical_reporting_focused"],
-    "PAY": ["invoice_payment_critical"],
-    "OWN": ["invoice_payment_critical", "historical_booking_focused"],
-    "NOTIF": ["historical_booking_focused"],
-    "AUDIT": ["historical_booking_focused", "historical_reporting_focused"],
-    "REP": ["historical_reporting_focused", "playwright_historical_reporting"],
-    "UI": ["portal_historical_booking_contracts", "playwright_historical_booking"],
-    "TXN": ["historical_booking_focused", "backend_postgresql"],
-    "REG": ["backend_full"],
-    "MIG": ["migration_current_bootstrap_postgresql", "migration_release_hardening_postgresql"],
-    "PERF": ["backend_full"],
-    "CONC": ["historical_booking_focused", "backend_postgresql"]
-  },
-  "ticketEvidence": {
-    "HB01": ["rc_gate_self_tests"],
-    "HB02": ["historical_booking_focused"],
-    "HB03": ["historical_booking_focused", "backend_postgresql"],
-    "HB04": ["invoice_payment_critical"],
-    "HB04B": ["invoice_payment_critical"],
-    "HB05": ["historical_booking_focused", "invoice_payment_critical"],
-    "HB06": ["portal_historical_booking_contracts", "playwright_historical_booking"],
-    "HB07": ["historical_booking_focused"],
-    "HB08": ["historical_reporting_focused", "playwright_historical_reporting"],
-    "HB09": ["rc_gate_self_tests"]
-  },
-  "publicErrorEvidence": ["historical_booking_focused", "backend_full"],
   "reliabilityCategories": {
     "P0": {
       "automatedGateIds": ["historical_booking_focused", "invoice_payment_critical", "playwright_historical_booking", "migration_current_bootstrap_postgresql"],
-      "manualGateIds": ["uat_p0"]
+      "manualGateIds": ["uat_p0", "reliability_99_completion"]
     },
     "P1": {
       "automatedGateIds": ["backend_fast", "backend_postgresql", "backend_full", "playwright_historical_reporting", "playwright_occupancy"],
-      "manualGateIds": ["uat_p1"]
+      "manualGateIds": ["uat_p1", "reliability_99_completion"]
     },
     "security": {
       "automatedGateIds": ["portal_rbac_contracts", "playwright_historical_booking", "playwright_booking_history_rbac"],
-      "manualGateIds": ["uat_security"]
+      "manualGateIds": ["uat_security", "reliability_99_completion"]
     },
     "accounting": {
       "automatedGateIds": ["invoice_payment_critical", "historical_reporting_focused", "invoice_audit_implementation"],
-      "manualGateIds": ["release_db_pre_migration_invoice_audit", "uat_finance_reconciliation", "release_db_post_uat_invoice_audit"]
+      "manualGateIds": ["release_db_pre_migration_invoice_audit", "uat_finance_reconciliation", "release_db_post_uat_invoice_audit", "reliability_99_completion"]
     },
     "release_critical_uat": {
       "automatedGateIds": ["playwright_historical_booking", "playwright_historical_reporting", "playwright_occupancy", "playwright_booking_history_rbac"],
-      "manualGateIds": ["uat_p0", "uat_p1", "uat_security", "uat_finance_reconciliation", "owner_go_no_go"]
+      "manualGateIds": ["uat_p0", "uat_p1", "uat_security", "uat_finance_reconciliation", "reliability_99_completion", "owner_go_no_go"]
     }
   },
   "manualGates": [

@@ -183,16 +183,18 @@ jobs:
       - name: Run hosted final-RC evidence lane
         env:
           RC_SHA: ${{ github.event.pull_request.head.sha }}
+          RC_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
         run: >-
           bash scripts/final-rc-gates.sh
           --expected-sha "$RC_SHA"
           --lane hosted
           --mode automated
-          --evidence-dir "artifacts/final-rc/$RC_SHA"
+          --evidence-root "artifacts/final-rc"
+          --run-id "$RC_RUN_ID"
       - name: Upload final-RC automated evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-rc-automated-evidence-${{ github.event.pull_request.head.sha }}
-          path: artifacts/final-rc/${{ github.event.pull_request.head.sha }}
+          name: final-rc-automated-evidence-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/final-rc/${{ github.event.pull_request.head.sha }}/gh-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error

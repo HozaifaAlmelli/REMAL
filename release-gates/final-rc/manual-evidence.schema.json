@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kaza-booking.invalid/schemas/final-rc-manual-evidence.schema.json",
+  "title": "Final RC manual evidence attestations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "rcSha", "items"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "rcSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "result", "rcSha"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+          "result": {"enum": ["MANUAL_EVIDENCE_REQUIRED", "NOT_RUN", "MANUAL_PASS"]},
+          "rcSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "executor": {"type": ["string", "null"], "minLength": 1, "maxLength": 200},
+          "executedAtUtc": {"type": ["string", "null"], "format": "date-time"},
+          "evidenceType": {
+            "type": ["string", "null"],
+            "enum": [null, "database_verification", "deployment_record", "external_artifact", "operator_attestation", "owner_decision", "release_snapshot_record", "uat_record"]
+          },
+          "evidenceRef": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
+          "evidenceSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "metadata": {"type": "object"}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"result": {"const": "MANUAL_PASS"}}},
+            "then": {"required": ["executor", "executedAtUtc", "evidenceType", "evidenceRef", "evidenceSha256"]}
+          }
+        ]
+      }
+    }
+  }
+}

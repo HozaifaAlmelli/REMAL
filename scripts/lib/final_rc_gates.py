@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import hashlib
 import json
 import os
 import pathlib
@@ -13,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from collections import Counter
 from typing import Any
 
@@ -31,10 +31,43 @@ RESULTS = {
     "NOT_APPLICABLE",
 }
 REQUIRED_RELIABILITY_CATEGORIES = {"P0", "P1", "security", "accounting", "release_critical_uat"}
+RATIFIED_CATALOG_COUNTS = {
+    "scenarios": 160,
+    "criteria": 363,
+    "acceptanceCriteria": 208,
+    "negativeAcceptanceCriteria": 155,
+    "publicErrors": 45,
+}
+SAFE_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+SAFE_RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+MANUAL_EVIDENCE_TYPES = {
+    "database_verification",
+    "deployment_record",
+    "external_artifact",
+    "operator_attestation",
+    "owner_decision",
+    "release_snapshot_record",
+    "uat_record",
+}
+SENSITIVE_KEY_RE = re.compile(
+    r"(?:password|passwd|pwd|token|secret|jwt|authorization|database_url|"
+    r"kaza_invoice_audit_db|kaza_rentable_capacity_db|kaza_test_db|connection_string|api_key|(?:^|_)db$)",
+    re.IGNORECASE,
+)
 SECRET_PATTERNS = (
-    re.compile(r"(?i)(password|pwd|token|jwt|secret)\s*[=:]\s*[^;\s]+"),
-    re.compile(r"(?i)(Password|Pwd)=[^;\s]+"),
-    re.compile(r"(?i)Bearer\s+[A-Za-z0-9._~+/=-]+"),
+    re.compile(
+        r"(?i)\b(?:DATABASE_URL|KAZA_INVOICE_AUDIT_DB|KAZA_RENTABLE_CAPACITY_DB|"
+        r"PASSWORD|PASSWD|PWD|TOKEN|SECRET|JWT|AUTHORIZATION)\b\s*[=:]\s*"
+        r"(?:\"[^\"]*\"|'[^']*'|[^\s,}\]]+)"
+    ),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"),
+    re.compile(r"(?i)\bpostgres(?:ql)?://[^\s\"'<>]+"),
+    re.compile(r"(?i)\bhttps?://[^\s/:@]+:[^\s/@]+@[^\s\"'<>]+"),
+    re.compile(
+        r"(?i)\b(?:Host|Server)=[^\r\n]+?(?:Password|Pwd)=[^;\r\n]+(?:;[^\r\n]*)?"
+    ),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b"),
 )
 SCENARIO_RE = re.compile(r"^####\s+(SC-[A-Z]+-\d{2})\b", re.MULTILINE)
 CRITERION_RE = re.compile(r"^\|\s*((?:NAC|AC)-HB\d+[A-Z]?-\d{2})\s*\|", re.MULTILINE)
@@ -49,19 +82,47 @@ def load_json(path: pathlib.Path) -> dict[str, Any]:
         return json.load(handle)
 
 
-def write_json(path: pathlib.Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def write_json_exclusive(path: pathlib.Path, value: Any, secret_values: list[str]) -> None:
+    redacted = redact_value(value, secret_values)
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump(redacted, handle, indent=2, sort_keys=True)
+        handle.write("\n")
 
 
 def redact(value: str, secret_values: list[str] | None = None) -> str:
     result = value
     for secret in secret_values or []:
-        if len(secret) >= 8:
+        if len(secret) >= 4:
             result = result.replace(secret, "[REDACTED]")
+        elif secret:
+            result = re.sub(
+                rf"(?<![A-Za-z0-9]){re.escape(secret)}(?![A-Za-z0-9])",
+                "[REDACTED]",
+                result,
+            )
     for pattern in SECRET_PATTERNS:
-        result = pattern.sub(lambda match: f"{match.group(1)}=[REDACTED]" if match.lastindex else "[REDACTED]", result)
+        result = pattern.sub("[REDACTED]", result)
     return result
+
+
+def redact_value(value: Any, secret_values: list[str] | None = None, key: str = "") -> Any:
+    if key and SENSITIVE_KEY_RE.search(key):
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {item_key: redact_value(item_value, secret_values, str(item_key)) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [redact_value(item, secret_values) for item in value]
+    if isinstance(value, str):
+        return redact(value, secret_values)
+    return value
+
+
+def configured_secret_values(environment: dict[str, str]) -> list[str]:
+    values = []
+    for key, value in environment.items():
+        if value and SENSITIVE_KEY_RE.search(key):
+            values.append(value)
+    return sorted(set(values), key=len, reverse=True)
 
 
 def git(repo: pathlib.Path, *args: str) -> str:
@@ -73,15 +134,19 @@ def git(repo: pathlib.Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
-def assert_preflight(repo: pathlib.Path, expected_sha: str) -> str:
+def assert_repository_clean(repo: pathlib.Path, expected_sha: str, phase: str) -> str:
     if not re.fullmatch(r"[0-9a-f]{40}", expected_sha):
         raise GateError("expected RC SHA must be a full lowercase 40-character commit SHA")
     head = git(repo, "rev-parse", "HEAD")
     if head != expected_sha:
-        raise GateError(f"HEAD mismatch: expected {expected_sha}, found {head}")
+        raise GateError(f"{phase} HEAD mismatch: expected {expected_sha}, found {head}")
     if git(repo, "diff", "--name-only") or git(repo, "diff", "--cached", "--name-only"):
-        raise GateError("tracked working tree or index is dirty")
+        raise GateError(f"tracked working tree or index is dirty during {phase}")
     return head
+
+
+def assert_preflight(repo: pathlib.Path, expected_sha: str) -> str:
+    return assert_repository_clean(repo, expected_sha, "preflight")
 
 
 def parse_scenarios(path: pathlib.Path) -> list[dict[str, str]]:
@@ -136,81 +201,194 @@ def assert_unique(kind: str, identifiers: list[str]) -> None:
         raise GateError(f"duplicate/conflicting {kind} IDs: {', '.join(duplicates)}")
 
 
-def canonical_inventory(repo: pathlib.Path, manifest: dict[str, Any]) -> dict[str, Any]:
+def load_ratified_catalog(path: pathlib.Path, enforce_reviewed_baseline: bool = True) -> dict[str, Any]:
+    catalog = load_json(path)
+    if catalog.get("schemaVersion") != 1:
+        raise GateError("ratified identity catalog schemaVersion must be 1")
+    scenarios = catalog.get("scenarios")
+    criteria = catalog.get("criteria")
+    errors = catalog.get("publicErrors")
+    if not all(isinstance(section, list) and all(isinstance(item, str) for item in section) for section in (scenarios, criteria, errors)):
+        raise GateError("ratified identity catalog sections must be string arrays")
+    assert_unique("ratified scenario", scenarios)
+    assert_unique("ratified AC/NAC", criteria)
+    assert_unique("ratified public error", errors)
+    counts = {
+        "scenarios": len(scenarios),
+        "criteria": len(criteria),
+        "acceptanceCriteria": sum(item.startswith("AC-") for item in criteria),
+        "negativeAcceptanceCriteria": sum(item.startswith("NAC-") for item in criteria),
+        "publicErrors": len(errors),
+    }
+    if catalog.get("counts") != counts:
+        raise GateError(f"ratified identity catalog declared counts do not match its exact identities: {counts}")
+    if enforce_reviewed_baseline and counts != RATIFIED_CATALOG_COUNTS:
+        raise GateError(f"ratified identity catalog counts do not match the reviewed baseline: {counts}")
+    return {"scenarios": scenarios, "criteria": criteria, "publicErrors": errors}
+
+
+def assert_exact_identities(kind: str, observed: list[str], expected: list[str]) -> None:
+    missing = sorted(set(expected) - set(observed))
+    extra = sorted(set(observed) - set(expected))
+    if missing or extra or len(observed) != len(expected):
+        raise GateError(f"{kind} identity mismatch; missing={missing}, extra={extra}")
+
+
+def validate_manifest(manifest: dict[str, Any]) -> None:
+    automated = manifest.get("automatedGates", [])
+    manual = manifest.get("manualGates", [])
+    automated_ids = [item.get("id", "") for item in automated]
+    manual_ids = [item.get("id", "") for item in manual]
+    assert_unique("automated gate", automated_ids)
+    assert_unique("manual gate", manual_ids)
+    for identifier in automated_ids + manual_ids:
+        if not SAFE_IDENTIFIER_RE.fullmatch(identifier):
+            raise GateError(f"unsafe gate ID: {identifier}")
+    for gate in automated:
+        lanes = gate.get("lanes", [])
+        if not lanes or not set(lanes) <= {"full", "hosted", "synthetic"}:
+            raise GateError(f"gate {gate['id']} has invalid lanes")
+        if gate.get("mandatory", True) and "full" not in lanes and "synthetic" not in lanes:
+            raise GateError(f"mandatory gate {gate['id']} is absent from the full lane")
+        if gate.get("requiresTests") and gate.get("testEvidence", {}).get("type") not in {
+            "dotnet-trx",
+            "node-tap",
+            "playwright-json",
+            "python-unittest",
+        }:
+            raise GateError(f"test gate {gate['id']} lacks a supported structured completion contract")
+    automated_set = set(automated_ids)
+    manual_set = set(manual_ids)
+    if manifest.get("identityEvidenceManualGateId") not in manual_set:
+        raise GateError("ratified identity evidence manual gate is missing")
+    if set(manifest.get("reliabilityCategories", {})) != REQUIRED_RELIABILITY_CATEGORIES:
+        raise GateError("#99 evidence categories must exactly match the ratified category set")
+    for category, mapping in manifest["reliabilityCategories"].items():
+        unknown_automated = sorted(set(mapping.get("automatedGateIds", [])) - automated_set)
+        unknown_manual = sorted(set(mapping.get("manualGateIds", [])) - manual_set)
+        if unknown_automated or unknown_manual or not mapping.get("manualGateIds"):
+            raise GateError(
+                f"#99 category {category} has incomplete/unknown evidence; automated={unknown_automated}, manual={unknown_manual}"
+            )
+
+
+def canonical_inventory(
+    repo: pathlib.Path,
+    manifest: dict[str, Any],
+    catalog: dict[str, Any],
+) -> dict[str, Any]:
+    validate_manifest(manifest)
     sources = manifest["canonicalSources"]
     scenarios = parse_scenarios(repo / sources["scenarios"])
     criteria = parse_criteria(repo / sources["ticketDirectory"])
     errors = parse_errors(repo / sources["masterContract"])
-    automated_gate_ids = [item["id"] for item in manifest["automatedGates"]]
-    manual_gate_ids = [item["id"] for item in manifest["manualGates"]]
-    assert_unique("automated gate", automated_gate_ids)
-    assert_unique("manual gate", manual_gate_ids)
-    automated_ids = set(automated_gate_ids)
-    manual_ids = set(manual_gate_ids)
-    group_mapping = manifest["scenarioGroupEvidence"]
-    missing_groups = sorted({item["group"] for item in scenarios} - set(group_mapping))
-    if missing_groups:
-        raise GateError(f"scenario groups lack evidence mapping: {', '.join(missing_groups)}")
-    for group, gate_ids in group_mapping.items():
-        unknown = sorted(set(gate_ids) - automated_ids)
-        if unknown:
-            raise GateError(f"scenario group {group} references unknown automated gates: {', '.join(unknown)}")
-    ticket_mapping = manifest["ticketEvidence"]
-    missing_tickets = sorted(
-        {re.match(r"(?:NAC|AC)-(HB\d+[A-Z]?)-", item).group(1) for item in criteria}
-        - set(ticket_mapping)
-    )
-    if missing_tickets:
-        raise GateError(f"AC/NAC tickets lack evidence mapping: {', '.join(missing_tickets)}")
-    for ticket, gate_ids in ticket_mapping.items():
-        unknown = sorted(set(gate_ids) - automated_ids)
-        if unknown:
-            raise GateError(f"ticket {ticket} references unknown automated gates: {', '.join(unknown)}")
-    if errors and not manifest.get("publicErrorEvidence"):
-        raise GateError("public error contracts lack evidence mapping")
-    unknown_error_gates = sorted(set(manifest["publicErrorEvidence"]) - automated_ids)
-    if unknown_error_gates:
-        raise GateError(f"public error contracts reference unknown gates: {', '.join(unknown_error_gates)}")
-    missing_categories = sorted(REQUIRED_RELIABILITY_CATEGORIES - set(manifest["reliabilityCategories"]))
-    if missing_categories:
-        raise GateError(f"#99 evidence categories are missing: {', '.join(missing_categories)}")
-    for category, mapping in manifest["reliabilityCategories"].items():
-        unknown_automated = sorted(set(mapping["automatedGateIds"]) - automated_ids)
-        unknown_manual = sorted(set(mapping["manualGateIds"]) - manual_ids)
-        if unknown_automated or unknown_manual:
-            raise GateError(
-                f"#99 category {category} has unknown gates; automated={unknown_automated}, manual={unknown_manual}"
-            )
+    assert_exact_identities("scenario source/catalog", [item["id"] for item in scenarios], catalog["scenarios"])
+    assert_exact_identities("AC/NAC source/catalog", criteria, catalog["criteria"])
+    assert_exact_identities("public error source/catalog", errors, catalog["publicErrors"])
     return {"scenarios": scenarios, "criteria": criteria, "publicErrors": errors}
 
 
-def parse_counts(output: str) -> dict[str, int | None]:
-    patterns = (
-        re.compile(r"Failed:\s*(\d+),\s*Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+)", re.I),
-        re.compile(
-            r"(?:#|ℹ)\s*tests\s+(\d+).*?(?:#|ℹ)\s*pass\s+(\d+).*?"
-            r"(?:#|ℹ)\s*fail\s+(\d+).*?(?:#|ℹ)\s*skipped\s+(\d+)",
-            re.I | re.S,
-        ),
-    )
-    first = patterns[0].search(output)
-    if first:
-        return {"failed": int(first.group(1)), "passed": int(first.group(2)), "skipped": int(first.group(3)), "total": int(first.group(4))}
-    second = patterns[1].search(output)
-    if second:
-        return {"total": int(second.group(1)), "passed": int(second.group(2)), "failed": int(second.group(3)), "skipped": int(second.group(4))}
-    unittest_total = re.search(r"^Ran\s+(\d+)\s+tests?\s+in\s+[^\n]+$", output, re.MULTILINE)
-    unittest_result = re.search(r"^OK(?:\s+\([^\n]*skipped=(\d+)[^\n]*\))?\s*$", output, re.MULTILINE)
-    if unittest_total and unittest_result:
-        total = int(unittest_total.group(1))
-        skipped = int(unittest_result.group(1) or 0)
-        return {"total": total, "passed": total - skipped, "failed": 0, "skipped": skipped}
-    passed = sum(int(value) for value in re.findall(r"(?:^|\s)(\d+) passed(?:\s|$)", output, re.M))
-    failed = sum(int(value) for value in re.findall(r"(?:^|\s)(\d+) failed(?:\s|$)", output, re.M))
-    skipped = sum(int(value) for value in re.findall(r"(?:^|\s)(\d+) skipped(?:\s|$)", output, re.M))
-    if passed or failed or skipped:
-        return {"passed": passed, "failed": failed, "skipped": skipped, "total": passed + failed + skipped}
-    return {"passed": None, "failed": None, "skipped": None, "total": None}
+def incomplete_counts(source: str) -> dict[str, Any]:
+    return {
+        "total": None,
+        "passed": None,
+        "failed": None,
+        "skipped": None,
+        "completionVerified": False,
+        "source": source,
+    }
+
+
+def complete_counts(total: int, passed: int, failed: int, skipped: int, source: str) -> dict[str, Any]:
+    if min(total, passed, failed, skipped) < 0 or total != passed + failed + skipped:
+        return incomplete_counts(source)
+    return {
+        "total": total,
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+        "completionVerified": True,
+        "source": source,
+    }
+
+
+def parse_node_tap(output: str) -> dict[str, Any]:
+    values: dict[str, int] = {}
+    for name in ("tests", "pass", "fail", "cancelled", "skipped", "todo"):
+        match = re.search(rf"^(?:#|ℹ)\s*{name}\s+(\d+)\s*$", output, re.MULTILINE)
+        if not match:
+            return incomplete_counts("node-tap")
+        values[name] = int(match.group(1))
+    if not re.search(r"^(?:#|ℹ)\s*duration_ms\s+\d+(?:\.\d+)?\s*$", output, re.MULTILINE):
+        return incomplete_counts("node-tap")
+    failed = values["fail"] + values["cancelled"]
+    skipped = values["skipped"] + values["todo"]
+    return complete_counts(values["tests"], values["pass"], failed, skipped, "node-tap")
+
+
+def parse_python_unittest(output: str) -> dict[str, Any]:
+    total_matches = list(re.finditer(r"^Ran\s+(\d+)\s+tests?\s+in\s+[^\n]+$", output, re.MULTILINE))
+    result_matches = list(re.finditer(r"^(OK|FAILED)(?:\s+\(([^\n]*)\))?\s*$", output, re.MULTILINE))
+    if not total_matches or not result_matches:
+        return incomplete_counts("python-unittest")
+    total_match = total_matches[-1]
+    result_match = result_matches[-1]
+    total = int(total_match.group(1))
+    details = result_match.group(2) or ""
+    detail_values = {key: int(value) for key, value in re.findall(r"(failures|errors|skipped)=(\d+)", details)}
+    failed = detail_values.get("failures", 0) + detail_values.get("errors", 0)
+    skipped = detail_values.get("skipped", 0)
+    if result_match.group(1) == "FAILED" and failed == 0:
+        return incomplete_counts("python-unittest")
+    return complete_counts(total, total - failed - skipped, failed, skipped, "python-unittest")
+
+
+def parse_dotnet_trx(report_dir: pathlib.Path) -> dict[str, Any]:
+    reports = list(report_dir.glob("*.trx"))
+    if len(reports) != 1:
+        return incomplete_counts("dotnet-trx")
+    try:
+        root = ET.parse(reports[0]).getroot()
+    except (ET.ParseError, OSError):
+        return incomplete_counts("dotnet-trx")
+    counters = next((element for element in root.iter() if element.tag.rsplit("}", 1)[-1] == "Counters"), None)
+    required = {"total", "executed", "passed", "failed", "error", "timeout", "aborted", "notExecuted"}
+    if counters is None or not required <= set(counters.attrib):
+        return incomplete_counts("dotnet-trx")
+    values = {key: int(counters.attrib[key]) for key in required}
+    failed = values["failed"] + values["error"] + values["timeout"] + values["aborted"]
+    skipped = values["notExecuted"]
+    return complete_counts(values["total"], values["passed"], failed, skipped, "dotnet-trx")
+
+
+def parse_playwright_json(report_path: pathlib.Path) -> dict[str, Any]:
+    try:
+        report = load_json(report_path)
+    except (OSError, json.JSONDecodeError):
+        return incomplete_counts("playwright-json")
+    stats = report.get("stats")
+    required = {"expected", "unexpected", "flaky", "skipped", "duration"}
+    if not isinstance(stats, dict) or not required <= set(stats) or not isinstance(report.get("suites"), list):
+        return incomplete_counts("playwright-json")
+    try:
+        passed = int(stats["expected"])
+        failed = int(stats["unexpected"]) + int(stats["flaky"])
+        skipped = int(stats["skipped"])
+    except (TypeError, ValueError):
+        return incomplete_counts("playwright-json")
+    return complete_counts(passed + failed + skipped, passed, failed, skipped, "playwright-json")
+
+
+def parse_test_completion(kind: str, output: str, report_dir: pathlib.Path) -> dict[str, Any]:
+    if kind == "node-tap":
+        return parse_node_tap(output)
+    if kind == "python-unittest":
+        return parse_python_unittest(output)
+    if kind == "dotnet-trx":
+        return parse_dotnet_trx(report_dir)
+    if kind == "playwright-json":
+        return parse_playwright_json(report_dir / "results.json")
+    return incomplete_counts(kind or "none")
 
 
 def run_gate(
@@ -218,19 +396,33 @@ def run_gate(
     gate: dict[str, Any],
     evidence_dir: pathlib.Path,
     secret_values: list[str],
+    expected_sha: str,
 ) -> dict[str, Any]:
     gate_id = gate["id"]
+    if not SAFE_IDENTIFIER_RE.fullmatch(gate_id):
+        raise GateError(f"unsafe gate ID: {gate_id}")
     log_path = evidence_dir / "logs" / f"{gate_id}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    report_dir = evidence_dir / ".reports" / gate_id
+    report_dir.mkdir(parents=True, exist_ok=False)
     environment = os.environ.copy()
     environment.setdefault("PYTHONIOENCODING", "utf-8")
-    environment.update(gate.get("environment", {}))
-    command = [sys.executable if value == "{python}" else value for value in gate["command"]]
+    environment.update({key: value.replace("{repo}", str(repo)) for key, value in gate.get("environment", {}).items()})
+    command = [
+        sys.executable if value == "{python}" else value.replace("{repo}", str(repo))
+        for value in gate["command"]
+    ]
+    test_kind = gate.get("testEvidence", {}).get("type", "")
+    if test_kind == "dotnet-trx":
+        command.extend(["--logger", "trx;LogFileName=results.trx", "--results-directory", str(report_dir)])
+    elif test_kind == "playwright-json":
+        environment["PLAYWRIGHT_JSON_OUTPUT_NAME"] = str(report_dir / "results.json")
     if os.name == "nt" and command:
         command[0] = shutil.which(command[0]) or command[0]
+    gate_secret_values = sorted(set(secret_values + configured_secret_values(environment)), key=len, reverse=True)
     display = " ".join(command)
     started = dt.datetime.now(dt.timezone.utc)
-    print(f"\n=== FINAL-RC GATE {gate_id}: {display} ===", flush=True)
+    print(f"\n=== FINAL-RC GATE {gate_id}: {redact(display, gate_secret_values)} ===", flush=True)
     process = subprocess.Popen(
         command,
         cwd=repo / gate.get("workingDirectory", "."),
@@ -243,88 +435,171 @@ def run_gate(
     )
     captured: list[str] = []
     assert process.stdout is not None
-    with log_path.open("w", encoding="utf-8") as log:
+    with log_path.open("x", encoding="utf-8") as log:
         for raw_line in process.stdout:
-            line = redact(raw_line, secret_values)
+            line = redact(raw_line, gate_secret_values)
             captured.append(line)
             log.write(line)
             print(line, end="", flush=True)
     exit_code = process.wait()
     process.stdout.close()
     output = "".join(captured)
-    counts = parse_counts(output)
-    unexplained_skip = bool(counts["skipped"] and counts["skipped"] > 0)
-    missing_tests = bool(gate.get("requiresTests") and not counts["total"])
-    passed = exit_code == 0 and not unexplained_skip and not missing_tests
+    counts = (
+        parse_test_completion(test_kind, output, report_dir)
+        if gate.get("requiresTests")
+        else incomplete_counts("not-applicable")
+    )
+    shutil.rmtree(report_dir, ignore_errors=True)
+    unexplained_skip = bool(counts["skipped"] is not None and counts["skipped"] > 0)
+    test_failure = bool(counts["failed"] is not None and counts["failed"] > 0)
+    missing_tests = bool(gate.get("requiresTests") and (not counts["completionVerified"] or not counts["total"]))
+    workspace_dirty = False
+    try:
+        assert_repository_clean(repo, expected_sha, f"postflight for {gate_id}")
+    except GateError as error:
+        workspace_dirty = True
+        diagnostic = redact(f"FINAL-RC postflight error: {error}\n", gate_secret_values)
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write(diagnostic)
+        print(diagnostic, end="", file=sys.stderr)
+    passed = exit_code == 0 and not unexplained_skip and not test_failure and not missing_tests and not workspace_dirty
     return {
         "id": gate_id,
         "classification": "automated",
         "result": "AUTOMATED_PASS" if passed else "AUTOMATED_FAIL",
         "exitCode": exit_code,
-        "command": redact(display, secret_values),
+        "command": redact(display, gate_secret_values),
         "startedAtUtc": started.isoformat(),
         "completedAtUtc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "counts": counts,
         "evidenceRef": str(log_path.relative_to(evidence_dir)).replace("\\", "/"),
         "unexplainedSkipped": unexplained_skip,
         "requiredTestsMissing": missing_tests,
-    }
-
-
-def evidence_item(identifier: str, gate_ids: list[str], gate_results: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    evidence = [gate_results[gate_id]["evidenceRef"] for gate_id in gate_ids if gate_id in gate_results]
-    passed = bool(gate_ids) and all(
-        gate_id in gate_results and gate_results[gate_id]["result"] == "AUTOMATED_PASS"
-        for gate_id in gate_ids
-    )
-    return {
-        "id": identifier,
-        "classification": "automated",
-        "result": "AUTOMATED_PASS" if passed else "NOT_RUN",
-        "evidenceRefs": evidence,
+        "workspaceDirty": workspace_dirty,
     }
 
 
 def build_inventory_evidence(
     inventory: dict[str, Any],
     manifest: dict[str, Any],
-    gate_results: dict[str, dict[str, Any]],
     manual_evidence: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
-    scenarios = []
-    manual_by_id = {item["id"]: item for item in manual_evidence}
-    for scenario in inventory["scenarios"]:
-        if scenario["automate"] == "NO":
-            manual = manual_by_id["reliability_99_completion"]
-            scenarios.append({
-                "id": scenario["id"],
-                "classification": "manual",
-                "result": manual["result"],
-                "evidenceRefs": manual["evidenceRefs"],
-            })
-            continue
-        mapping = manifest["scenarioGroupEvidence"][scenario["group"]]
-        scenarios.append(evidence_item(scenario["id"], mapping, gate_results))
-    criteria = []
-    for criterion in inventory["criteria"]:
-        ticket = re.match(r"(?:NAC|AC)-(HB\d+[A-Z]?)-", criterion).group(1)
-        criteria.append(evidence_item(criterion, manifest["ticketEvidence"][ticket], gate_results))
-    errors = [
-        evidence_item(code, manifest["publicErrorEvidence"], gate_results)
-        for code in inventory["publicErrors"]
-    ]
-    return {"scenarios": scenarios, "criteria": criteria, "publicErrors": errors}
+    manual = {item["id"]: item for item in manual_evidence}[manifest["identityEvidenceManualGateId"]]
+
+    def row(identifier: str) -> dict[str, Any]:
+        return {
+            "id": identifier,
+            "classification": "manual",
+            "result": manual["result"],
+            "evidenceRefs": manual["evidenceRefs"],
+        }
+
+    return {
+        "scenarios": [row(item["id"]) for item in inventory["scenarios"]],
+        "criteria": [row(identifier) for identifier in inventory["criteria"]],
+        "publicErrors": [row(identifier) for identifier in inventory["publicErrors"]],
+    }
+
+
+def parse_attestation_timestamp(value: Any, identifier: str) -> str:
+    if not isinstance(value, str):
+        raise GateError(f"manual evidence {identifier} requires an ISO-8601 timestamp")
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise GateError(f"manual evidence {identifier} has an invalid timestamp") from error
+    if parsed.tzinfo is None:
+        raise GateError(f"manual evidence {identifier} timestamp must include a timezone")
+    if parsed > dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5):
+        raise GateError(f"manual evidence {identifier} timestamp is in the future")
+    return parsed.astimezone(dt.timezone.utc).isoformat()
+
+
+def validate_manual_pass(item: dict[str, Any], definition: dict[str, Any], rc_sha: str) -> dict[str, Any]:
+    identifier = definition["id"]
+    required = {
+        "id",
+        "result",
+        "rcSha",
+        "executor",
+        "executedAtUtc",
+        "evidenceType",
+        "evidenceRef",
+        "evidenceSha256",
+    }
+    missing = sorted(required - set(item))
+    if missing:
+        raise GateError(f"manual evidence {identifier} is missing required attestation fields: {', '.join(missing)}")
+    if item.get("rcSha") != rc_sha:
+        raise GateError(f"manual evidence {identifier} is bound to the wrong RC SHA")
+    executor = item.get("executor")
+    if not isinstance(executor, str) or not executor.strip() or len(executor) > 200:
+        raise GateError(f"manual evidence {identifier} requires an executor identity")
+    evidence_type = item.get("evidenceType")
+    if evidence_type not in MANUAL_EVIDENCE_TYPES:
+        raise GateError(f"manual evidence {identifier} has an unsupported evidence type")
+    if identifier == "owner_go_no_go" and evidence_type != "owner_decision":
+        raise GateError("owner_go_no_go requires explicit owner_decision evidence")
+    evidence_ref = item.get("evidenceRef")
+    if not isinstance(evidence_ref, str) or not evidence_ref.strip() or len(evidence_ref) > 2048:
+        raise GateError(f"manual evidence {identifier} requires an evidence reference")
+    if redact(evidence_ref) != evidence_ref:
+        raise GateError(f"manual evidence {identifier} reference contains secret-like material")
+    digest = item.get("evidenceSha256")
+    if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+        raise GateError(f"manual evidence {identifier} requires a lowercase SHA-256 provenance digest")
+    timestamp = parse_attestation_timestamp(item.get("executedAtUtc"), identifier)
+    metadata = item.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise GateError(f"manual evidence {identifier} metadata must be an object")
+    return {
+        "id": identifier,
+        "classification": "manual",
+        "result": "MANUAL_PASS",
+        "rcSha": rc_sha,
+        "executor": executor.strip(),
+        "executedAtUtc": timestamp,
+        "evidenceType": evidence_type,
+        "evidenceRef": evidence_ref.strip(),
+        "evidenceSha256": digest,
+        "evidenceRefs": [evidence_ref.strip()],
+        "metadata": metadata,
+    }
 
 
 def load_manual_evidence(path: pathlib.Path | None, definitions: list[dict[str, Any]], rc_sha: str) -> list[dict[str, Any]]:
     supplied: dict[str, Any] = {}
     if path:
         document = load_json(path)
+        unknown_document_fields = sorted(set(document) - {"schemaVersion", "rcSha", "items"})
+        if unknown_document_fields:
+            raise GateError(f"manual evidence document has unknown fields: {', '.join(unknown_document_fields)}")
+        if document.get("schemaVersion") != 1:
+            raise GateError("manual evidence schemaVersion must be 1")
         if document.get("rcSha") != rc_sha:
             raise GateError("manual evidence is bound to the wrong RC SHA")
         items = document.get("items", [])
+        if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+            raise GateError("manual evidence items must be an array of objects")
+        allowed_item_fields = {
+            "id",
+            "result",
+            "rcSha",
+            "executor",
+            "executedAtUtc",
+            "evidenceType",
+            "evidenceRef",
+            "evidenceSha256",
+            "metadata",
+        }
+        for item in items:
+            unknown_item_fields = sorted(set(item) - allowed_item_fields)
+            if unknown_item_fields:
+                raise GateError(
+                    f"manual evidence {item.get('id', '<missing>')} has unknown fields: {', '.join(unknown_item_fields)}"
+                )
         assert_unique("manual evidence", [item.get("id", "") for item in items])
-        supplied = {item["id"]: item for item in items}
+        supplied = {item.get("id", ""): item for item in items}
     result = []
     for definition in definitions:
         item = supplied.get(definition["id"])
@@ -339,6 +614,8 @@ def load_manual_evidence(path: pathlib.Path | None, definitions: list[dict[str, 
         if item.get("result") == "AUTOMATED_PASS":
             raise GateError(f"manual-required item {definition['id']} cannot become AUTOMATED_PASS")
         if item.get("result") in {"MANUAL_EVIDENCE_REQUIRED", "NOT_RUN"}:
+            if item.get("rcSha") not in {None, rc_sha}:
+                raise GateError(f"manual evidence {definition['id']} is bound to the wrong RC SHA")
             result.append({
                 "id": definition["id"],
                 "classification": "manual",
@@ -346,21 +623,87 @@ def load_manual_evidence(path: pathlib.Path | None, definitions: list[dict[str, 
                 "evidenceRefs": [],
             })
             continue
-        if item.get("result") != "MANUAL_PASS" or not item.get("evidenceRefs"):
-            raise GateError(f"manual evidence {definition['id']} requires MANUAL_PASS and an evidence reference")
-        result.append({
-            "id": definition["id"],
-            "classification": "manual",
-            "result": "MANUAL_PASS",
-            "evidenceRefs": item["evidenceRefs"],
-        })
+        if item.get("result") != "MANUAL_PASS":
+            raise GateError(f"manual evidence {definition['id']} has an unsupported result")
+        result.append(validate_manual_pass(item, definition, rc_sha))
     unknown = sorted(set(supplied) - {item["id"] for item in definitions})
     if unknown:
         raise GateError(f"unknown manual evidence IDs: {', '.join(unknown)}")
     return result
 
 
-def validate_packet(packet: dict[str, Any], inventory: dict[str, Any], manual_definitions: list[dict[str, Any]]) -> None:
+def create_run_directory(
+    repo: pathlib.Path,
+    requested_root: str,
+    rc_sha: str,
+    run_id: str,
+) -> pathlib.Path:
+    if not SAFE_RUN_ID_RE.fullmatch(run_id) or ".." in run_id:
+        raise GateError("run ID must use only lowercase letters, digits, dots, underscores or hyphens")
+    approved_root = repo / "artifacts" / "final-rc"
+    requested = pathlib.Path(requested_root)
+    if not requested.is_absolute():
+        requested = repo / requested
+    if requested.resolve() != approved_root.resolve():
+        raise GateError("evidence output must be the approved artifacts/final-rc root")
+    for candidate in (repo / "artifacts", approved_root):
+        if candidate.exists() and candidate.is_symlink():
+            raise GateError("evidence output must not traverse a symlink")
+    approved_root.mkdir(parents=True, exist_ok=True)
+    sha_dir = approved_root / rc_sha
+    if sha_dir.exists() and sha_dir.is_symlink():
+        raise GateError("RC SHA evidence directory must not be a symlink")
+    sha_dir.mkdir(exist_ok=True)
+    run_dir = sha_dir / run_id
+    try:
+        run_dir.mkdir(exist_ok=False)
+    except FileExistsError as error:
+        raise GateError(f"evidence run already exists and will not be overwritten: {run_id}") from error
+    if run_dir.resolve().parent != sha_dir.resolve():
+        raise GateError("evidence run escaped the approved SHA directory")
+    return run_dir
+
+
+def mandatory_full_gate_ids(manifest: dict[str, Any]) -> list[str]:
+    return [
+        gate["id"]
+        for gate in manifest["automatedGates"]
+        if gate.get("mandatory", True) and "full" in gate["lanes"]
+    ]
+
+
+def readiness_conditions(packet: dict[str, Any], manifest: dict[str, Any]) -> dict[str, bool]:
+    required_ids = mandatory_full_gate_ids(manifest)
+    observed_ids = [gate["id"] for gate in packet["gates"]]
+    return {
+        "finalModeSelected": packet.get("mode") == "final",
+        "fullLaneSelected": packet.get("lane") == "full",
+        "allMandatoryAutomatedExecuted": observed_ids == required_ids,
+        "allMandatoryAutomatedPassed": bool(required_ids) and all(
+            gate["result"] == "AUTOMATED_PASS" for gate in packet["gates"]
+        ),
+        "allRatifiedIdentitiesEvidenced": all(
+            row["result"] == "MANUAL_PASS"
+            for section in packet["inventory"].values()
+            for row in section
+        ),
+        "allReliabilityCategoriesResolved": all(
+            category["result"] == "MANUAL_PASS" for category in packet["reliabilityCategories"]
+        ),
+        "allManualEvidenceValid": all(
+            row["result"] == "MANUAL_PASS" for row in packet["manualEvidence"]
+        ),
+        "exactShaBound": packet.get("rcSha") == packet.get("expectedRcSha"),
+        "postflightClean": packet.get("postflightClean") is True,
+    }
+
+
+def validate_packet(
+    packet: dict[str, Any],
+    inventory: dict[str, Any],
+    manual_definitions: list[dict[str, Any]],
+    manifest: dict[str, Any],
+) -> None:
     if packet.get("rcSha") != packet.get("expectedRcSha"):
         raise GateError("evidence packet is bound to the wrong RC SHA")
     expected = {
@@ -390,6 +733,12 @@ def validate_packet(packet: dict[str, Any], inventory: dict[str, Any], manual_de
             raise GateError(f"invalid manual result {row['result']} for {row['id']}")
         if row["classification"] != "manual" or row["result"] == "AUTOMATED_PASS":
             raise GateError(f"manual-required item {row['id']} cannot become automatic PASS")
+    expected_conditions = readiness_conditions(packet, manifest)
+    if packet.get("readinessConditions") != expected_conditions:
+        raise GateError("final readiness condition evidence is inconsistent")
+    expected_status = "READY_FOR_OWNER_GO_NO_GO" if all(expected_conditions.values()) else "NOT_READY"
+    if packet.get("finalGoStatus") != expected_status:
+        raise GateError("final GO/NO-GO status does not match fail-closed readiness conditions")
 
 
 def human_summary(packet: dict[str, Any]) -> str:
@@ -400,6 +749,9 @@ def human_summary(packet: dict[str, Any]) -> str:
         f"- Generated UTC: `{packet['generatedAtUtc']}`",
         f"- Automated result: **{packet['automatedResult']}**",
         f"- Final GO status: **{packet['finalGoStatus']}**",
+        f"- Lane: `{packet['lane']}`",
+        f"- Mode: `{packet['mode']}`",
+        f"- Run ID: `{packet['runId']}`",
         "",
         "## Automated gates",
         "",
@@ -415,6 +767,9 @@ def human_summary(packet: dict[str, Any]) -> str:
             f"{counts['skipped'] if counts['skipped'] is not None else '-'} | "
             f"`{gate['evidenceRef']}` |"
         )
+    lines.extend(["", "## Readiness conditions", "", "| Condition | Satisfied |", "|---|---|"])
+    for condition, satisfied in packet["readinessConditions"].items():
+        lines.append(f"| `{condition}` | {'YES' if satisfied else 'NO'} |")
     lines.extend(["", "## #99 evidence categories", "", "| Category | Result | Automated gates | Manual gates |", "|---|---|---|---|"])
     for category in packet["reliabilityCategories"]:
         lines.append(
@@ -422,27 +777,40 @@ def human_summary(packet: dict[str, Any]) -> str:
             f"{', '.join(f'`{item}`' for item in category['automatedGateIds'])} | "
             f"{', '.join(f'`{item}`' for item in category['manualGateIds'])} |"
         )
-    lines.extend(["", "## Manual and external evidence", "", "| Gate | Result | Evidence |", "|---|---|---|"])
+    lines.extend([
+        "",
+        "## Manual and external evidence",
+        "",
+        "| Gate | Result | Executor | Type | Evidence | SHA-256 |",
+        "|---|---|---|---|---|---|",
+    ])
     for item in packet["manualEvidence"]:
         refs = ", ".join(f"`{ref}`" for ref in item["evidenceRefs"]) or "-"
-        lines.append(f"| `{item['id']}` | {item['result']} | {refs} |")
+        digest = item.get("evidenceSha256", "-")
+        lines.append(
+            f"| `{item['id']}` | {item['result']} | {item.get('executor', '-')} | "
+            f"{item.get('evidenceType', '-')} | {refs} | `{digest}` |"
+        )
     return "\n".join(lines) + "\n"
 
 
 def run(args: argparse.Namespace) -> int:
     repo = pathlib.Path(args.repo_root).resolve()
     manifest_path = pathlib.Path(args.manifest) if args.manifest else repo / "release-gates/final-rc/gates.json"
+    catalog_path = pathlib.Path(args.catalog) if args.catalog else repo / "release-gates/final-rc/ratified-identities.json"
+    if args.lane != "synthetic" and (args.manifest or args.catalog):
+        raise GateError("full and hosted lanes must use the checked-in manifest and ratified identity catalog")
     manifest = load_json(manifest_path)
     head = assert_preflight(repo, args.expected_sha)
-    inventory = canonical_inventory(repo, manifest)
-    evidence_dir = pathlib.Path(args.evidence_dir).resolve()
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    secret_values = [value for key, value in os.environ.items() if re.search(r"PASSWORD|TOKEN|SECRET|JWT|_DB$", key, re.I)]
+    catalog = load_ratified_catalog(catalog_path, enforce_reviewed_baseline=args.lane != "synthetic")
+    inventory = canonical_inventory(repo, manifest, catalog)
+    evidence_dir = create_run_directory(repo, args.evidence_root, head, args.run_id)
+    secret_values = configured_secret_values(os.environ)
     selected = [gate for gate in manifest["automatedGates"] if args.lane in gate["lanes"]]
     gate_rows: list[dict[str, Any]] = []
     gate_results: dict[str, dict[str, Any]] = {}
     for gate in selected:
-        result = run_gate(repo, gate, evidence_dir, secret_values)
+        result = run_gate(repo, gate, evidence_dir, secret_values, head)
         gate_rows.append(result)
         gate_results[gate["id"]] = result
         if result["result"] != "AUTOMATED_PASS":
@@ -452,9 +820,8 @@ def run(args: argparse.Namespace) -> int:
         manifest["manualGates"],
         head,
     )
-    inventory_evidence = build_inventory_evidence(inventory, manifest, gate_results, manual)
+    inventory_evidence = build_inventory_evidence(inventory, manifest, manual)
     automated_pass = len(gate_rows) == len(selected) and all(row["result"] == "AUTOMATED_PASS" for row in gate_rows)
-    manual_pass = all(row["result"] == "MANUAL_PASS" for row in manual)
     manual_by_id = {row["id"]: row for row in manual}
     categories = []
     for category_id, mapping in manifest["reliabilityCategories"].items():
@@ -471,34 +838,48 @@ def run(args: argparse.Namespace) -> int:
             "automatedGateIds": mapping["automatedGateIds"],
             "manualGateIds": mapping["manualGateIds"],
         })
+    postflight_clean = True
+    try:
+        assert_repository_clean(repo, head, "final postflight")
+    except GateError:
+        postflight_clean = False
     packet = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "rcSha": head,
         "expectedRcSha": args.expected_sha,
         "generatedAtUtc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "runId": args.run_id,
         "lane": args.lane,
+        "mode": args.mode,
         "automatedResult": "AUTOMATED_PASS" if automated_pass else "AUTOMATED_FAIL",
-        "finalGoStatus": "READY_FOR_OWNER_GO_NO_GO" if automated_pass and manual_pass else "NOT_READY",
+        "finalGoStatus": "NOT_READY",
+        "postflightClean": postflight_clean,
         "gates": gate_rows,
         "manualEvidence": manual,
         "reliabilityCategories": categories,
         "inventory": inventory_evidence,
-        "catalogCounts": {key: len(value) for key, value in inventory.items()},
+        "catalogCounts": RATIFIED_CATALOG_COUNTS,
+        "mandatoryFullGateIds": mandatory_full_gate_ids(manifest),
         "statusVocabulary": sorted(RESULTS),
     }
-    validate_packet(packet, inventory, manifest["manualGates"])
+    packet["readinessConditions"] = readiness_conditions(packet, manifest)
+    if all(packet["readinessConditions"].values()):
+        packet["finalGoStatus"] = "READY_FOR_OWNER_GO_NO_GO"
+    validate_packet(packet, inventory, manifest["manualGates"], manifest)
     packet_path = evidence_dir / "evidence.json"
     summary_path = evidence_dir / "summary.md"
-    write_json(packet_path, packet)
-    summary = redact(human_summary(packet), secret_values)
-    summary_path.write_text(summary, encoding="utf-8")
+    write_json_exclusive(packet_path, packet, secret_values)
+    redacted_packet = redact_value(packet, secret_values)
+    summary = human_summary(redacted_packet)
+    with summary_path.open("x", encoding="utf-8") as handle:
+        handle.write(summary)
     print("\n" + summary)
     print(f"Machine-readable evidence: {packet_path}")
     print(f"Human-readable summary: {summary_path}")
     if not automated_pass:
         return 1
-    if args.mode == "final" and not manual_pass:
-        print("FINAL-RC refused: mandatory manual/release-database evidence remains unresolved.", file=sys.stderr)
+    if args.mode == "final" and packet["finalGoStatus"] != "READY_FOR_OWNER_GO_NO_GO":
+        print("FINAL-RC refused: full-lane, identity, #99 or manual evidence remains unresolved.", file=sys.stderr)
         return 2
     return 0
 
@@ -507,8 +888,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", default=".")
     parser.add_argument("--manifest")
+    parser.add_argument("--catalog")
     parser.add_argument("--expected-sha", required=True)
-    parser.add_argument("--evidence-dir", required=True)
+    parser.add_argument("--evidence-root", default="artifacts/final-rc")
+    parser.add_argument("--run-id", required=True)
     parser.add_argument("--manual-evidence")
     parser.add_argument("--lane", choices=("full", "hosted", "synthetic"), default="full")
     parser.add_argument("--mode", choices=("automated", "final"), default="final")

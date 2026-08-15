@@ -9,27 +9,35 @@ From a clean checkout at the proposed RC commit:
 
 ```bash
 sha="$(git rev-parse HEAD)"
+run_id="$(date -u +%Y%m%dt%H%M%sz)-operator"
 bash scripts/final-rc-gates.sh \
   --expected-sha "$sha" \
   --lane full \
   --mode automated \
-  --evidence-dir "artifacts/final-rc/$sha"
+  --evidence-root "artifacts/final-rc" \
+  --run-id "$run_id"
 ```
 
 The full lane always provisions its own official `postgres:16-alpine` container and volume and overrides the
 test connection for that process. The disposable resources are removed on exit. This prevents the code/test
 orchestrator from being pointed at an owner, shared, staging, release or production database.
 
-The runner requires an exact 40-character SHA, checks `HEAD`, rejects a dirty tracked tree or index, streams
-redacted underlying output, stops at the first failing mandatory gate, and treats any discovered skipped test
-as a failure. It writes `evidence.json`, `summary.md`, and one log per command. Generated evidence belongs
-under ignored `artifacts/`; it must not contain credentials, connection strings, JWTs, payment references, or
-database row contents.
+The runner requires an exact 40-character SHA, takes an exclusive repository-local execution lock, checks
+`HEAD`, rejects a dirty tracked tree or index before and after every gate, streams redacted underlying output,
+stops at the first failing mandatory gate, and treats any unverified completion or discovered skipped test as
+a failure. Every retry uses a new, exclusively created
+`artifacts/final-rc/<sha>/<run-id>/` directory. Traversal, symlink escape, unsafe gate IDs and overwrite are
+rejected. Recursive redaction is applied before writing JSON, Markdown or logs.
 
 `--mode automated` verifies code gates while honestly retaining external items as
-`MANUAL_EVIDENCE_REQUIRED`. `--mode final` additionally requires a SHA-bound manual evidence file in which
-every manual item is `MANUAL_PASS` with an evidence reference. A manual item cannot be promoted to
-`AUTOMATED_PASS`.
+`MANUAL_EVIDENCE_REQUIRED`. `--mode final` can report `READY_FOR_OWNER_GO_NO_GO` only for the `full` lane,
+after every full-lane gate, ratified identity, #99 category and manual item is resolved and the final postflight
+is clean. A hosted lane can never produce readiness.
+
+Manual evidence follows `manual-evidence.schema.json`. Every `MANUAL_PASS` is independently bound to the full
+RC SHA and includes executor identity, timezone-qualified timestamp, evidence type, reference and lowercase
+SHA-256 provenance digest. `owner_go_no_go` additionally requires `owner_decision` evidence. Arbitrary text
+references, stale per-item SHAs, malformed attestations, duplicates and unknown items are refused.
 
 ## Automated commands
 
@@ -41,7 +49,7 @@ The checked manifest at `release-gates/final-rc/gates.json` is the executable in
   and isolated Historical Booking, Historical Reporting, Occupancy and Booking History/RBAC Playwright;
 - storefront install, tests and its TypeScript-validating production build;
 - migration selection, backup safety, release-hardening PostgreSQL, current migration/bootstrap PostgreSQL,
-  and production Compose rendering;
+  API production-image construction, production Compose rendering, ShellCheck and actionlint;
 - the final-RC validator's own fail-closed tests.
 
 The manifest maps those commands into the #99 `P0`, `P1`, `security`, `accounting`, and
@@ -50,13 +58,13 @@ The hosted aggregate lane depends on all six existing PR checks at the same PR-h
 self-tests, portal contracts and four isolated browser suites. Its success proves automated PR evidence only;
 it does not resolve release-database or manual evidence.
 
-## Dynamic HB-09 inventory
+## Ratified HB-09 identity inventory
 
-The validator derives scenario headings and automation classification from
-`99_RELIABILITY_TEST_SCENARIOS.md`, AC/NAC definitions from the ticket documents, and public error codes from
-Master section 12.3. It rejects duplicate IDs, missing group/ticket/error mappings, missing final evidence
-rows, passed rows without evidence, wrong-SHA evidence and unexplained skips. Observed counts are output for
-review but are never used as a fixed correctness oracle.
+`ratified-identities.json` is an independently reviewed oracle containing the exact 160 scenarios, 208 AC,
+155 NAC and 45 public errors. Source documentation and final packet rows are reconciled independently against
+those exact identities. A future identity change therefore requires an explicit catalog diff. Broad suite
+success does not automatically claim identity evidence: the SHA-bound `reliability_99_completion` attestation
+must resolve the exact inventory.
 
 ## Release-database sequence
 
