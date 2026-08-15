@@ -158,7 +158,7 @@ read_and_validate_ledger
 
 echo "### Taking a pre-migration backup ..."
 assert_migration_lock_alive
-"$SCRIPT_DIR/backup-postgres.sh"
+bash "$SCRIPT_DIR/backup-postgres.sh"
 assert_migration_lock_alive
 
 echo "### Scanning for pending migrations in $MIG_DIR ..."

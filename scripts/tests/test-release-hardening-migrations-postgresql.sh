@@ -152,7 +152,7 @@ run_runner() {
   PRODUCTION_MANIFEST="$TMP/production.sql" \
   MIGRATION_CHECKSUMS="$TMP/checksums.sha256" \
   BACKUP_DIR="$backup_dir" \
-  "$ROOT/scripts/apply-migrations.sh"
+  bash "$ROOT/scripts/apply-migrations.sh"
 }
 
 expect_ledger_refusal() {
@@ -267,7 +267,7 @@ restore_source="${artifacts[0]}"
 PATH="$TMP/bin:$PATH" \
 ENV_FILE="$(write_env "$DB_SAME")" \
 COMPOSE_FILE="$TMP/compose.yml" \
-"$ROOT/scripts/restore-postgres.sh" "$restore_source" "$DB_RESTORE" > "$TMP/restore.log"
+bash "$ROOT/scripts/restore-postgres.sh" "$restore_source" "$DB_RESTORE" > "$TMP/restore.log"
 restored_ledger="$(docker exec "$CONTAINER" psql -U postgres -d "$DB_RESTORE" -tA \
   -c "SELECT to_regclass('public.schema_migrations') IS NOT NULL;")"
 [ "$restored_ledger" = "t" ] || fail "validated backup did not restore into the disposable scratch database"

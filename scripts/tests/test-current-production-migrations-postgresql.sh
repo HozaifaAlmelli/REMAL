@@ -136,7 +136,7 @@ COMPOSE_FILE="$TMP/compose.yml" \
 APP_DIR="$ROOT" \
 BACKUP_DIR="$TMP/backups" \
 APPROVE_DESTRUCTIVE=1 \
-"$ROOT/scripts/apply-migrations.sh" > "$TMP/upgrade.log"
+bash "$ROOT/scripts/apply-migrations.sh" > "$TMP/upgrade.log"
 
 grep -Fq -- '--- applying 0063_add_historical_reporting_read_models.sql' "$TMP/upgrade.log" ||
   fail "hardened runner did not apply 0063 on the disposable upgrade path"
