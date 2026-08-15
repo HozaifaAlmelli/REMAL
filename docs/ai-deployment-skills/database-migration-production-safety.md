@@ -54,8 +54,9 @@ docker exec kaza-prod-db sh -lc '
      WHERE table_name = '\''owners'\'' ORDER BY 1;"'
 
 # 2. BACK UP FIRST and verify it (do not proceed if this fails).
-sh /opt/apps/kaza-booking/scripts/backup-postgres.sh
-# (verifies non-empty + gzip -t + retention; see command-templates.md #6)
+bash /opt/apps/kaza-booking/scripts/backup-postgres.sh
+# (verifies dump exit, non-empty gzip, complete dump metadata, no-clobber publication
+# and retention; see command-templates.md #6)
 
 # 3. Pick a UNIQUE next number. Check both the files and the ledger.
 ls -1 /opt/apps/kaza-booking/db/migrations | grep -E '^[0-9]{4}_' | sort | tail
@@ -77,10 +78,11 @@ ALTER TABLE owners ADD COLUMN IF NOT EXISTS emergency_phone  text;
 Apply it through the **gated runner** (never ad-hoc, never during deploy):
 
 ```bash
-# scripts/apply-migrations.sh: backs up, applies only pending non-destructive NNNN_*.sql,
-# runs the matching *_verify.sql, records the number ONLY on success, refuses an empty
-# ledger, and refuses DROP/TRUNCATE/DELETE unless APPROVE_DESTRUCTIVE=1.
-APPROVE_DESTRUCTIVE=0 sh /opt/apps/kaza-booking/scripts/apply-migrations.sh
+# scripts/apply-migrations.sh: verifies the ordered checksum registry, takes the dedicated
+# database-scoped migration lock, validates the ledger, creates a validated unique backup,
+# applies only the pending suffix, runs *_verify.sql, records success strictly, validates
+# the final ledger, and refuses DROP/TRUNCATE/DELETE unless APPROVE_DESTRUCTIVE=1.
+APPROVE_DESTRUCTIVE=0 bash /opt/apps/kaza-booking/scripts/apply-migrations.sh
 ```
 
 ## Rules that keep the ledger sane
@@ -88,9 +90,15 @@ APPROVE_DESTRUCTIVE=0 sh /opt/apps/kaza-booking/scripts/apply-migrations.sh
 - **Additive, nullable, idempotent** (`ADD COLUMN IF NOT EXISTS`) — no drops, renames,
   or type changes to existing columns without a separate human-led plan.
 - **Never edit an applied migration** — write a new one. Editing history diverges the
-  live DB from the ledger.
+  live DB from the ledger and fails the ordered checksum registry.
 - **Never reuse a number.** Duplicate numbers (like the historical `0048`) break the
   applied/pending accounting.
+- **Register every production migration twice:** once in `infra/db/init.prod.sql` and once
+  with its LF-normalized SHA-256 in `infra/db/production-migrations.sha256`. Never update a
+  checksum to bless modified applied content.
+- **Never bypass ledger refusal.** Missing, empty, malformed, duplicate, unknown,
+  out-of-order, gapped or conflicting ledger state requires investigation, not repair by
+  the runner.
 - **Never run migrations during deploy.** The deploy explicitly does not; keep it that way.
 - **Never write before a verified backup.**
 

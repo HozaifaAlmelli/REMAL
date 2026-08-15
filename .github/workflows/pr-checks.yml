@@ -125,8 +125,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Test production migration selection
-        run: bash scripts/tests/test-apply-migrations-selection.sh
+      - name: Test production migration and backup safeguards
+        run: |
+          bash scripts/tests/test-apply-migrations-selection.sh
+          bash scripts/tests/test-backup-postgres-safety.sh
+      - name: Test production migration workflow on PostgreSQL 16
+        run: |
+          container=kaza-release-hardening-ci-test-pg16
+          docker run -d --name "$container" \
+            -e POSTGRES_PASSWORD=test-only \
+            postgres:16-alpine >/dev/null
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 60); do
+            if docker exec "$container" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+              break
+            fi
+            [ "$attempt" -lt 60 ] || { echo "PostgreSQL 16 did not become ready" >&2; exit 1; }
+            sleep 1
+          done
+          KAZA_MIGRATION_TEST_CONTAINER="$container" \
+            KAZA_MIGRATION_TEST_DB_PREFIX=kaza_test_release_hardening \
+            bash scripts/tests/test-release-hardening-migrations-postgresql.sh
+          KAZA_MIGRATION_TEST_CONTAINER="$container" \
+            KAZA_MIGRATION_TEST_DB_PREFIX=kaza_test_current_migrations \
+            bash scripts/tests/test-current-production-migrations-postgresql.sh
       - name: Render placeholder env + validate
         run: |
           cp .env.example .env.ci

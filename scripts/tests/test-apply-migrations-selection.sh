@@ -113,6 +113,11 @@ assert_manifest_completeness() {
 }
 
 current="$(list_production_migrations "$ROOT/infra/db/init.prod.sql" "$ROOT/db/migrations")"
+mapfile -t current_files <<< "$current"
+validate_production_migration_checksums \
+  "$ROOT/infra/db/production-migrations.sha256" \
+  "$ROOT/db/migrations" \
+  "${current_files[@]}"
 assert_not_contains "$current" "0008_seed_dev_master_data.sql"
 assert_not_contains "$current" "0046_seed_dev_users_units.sql"
 assert_not_contains "$current" "0047_seed_minimal_dev_login.sql"
@@ -170,8 +175,12 @@ expect_failure \
   "$TMP/unsupported-include.sql"
 
 cat > "$TMP/production.sql" <<'SQL'
+\i /docker-entrypoint-initdb.d/migrations/0096_baseline.sql
 \i /docker-entrypoint-initdb.d/migrations/0097_legitimate_first.sql
 \i /docker-entrypoint-initdb.d/migrations/0099_legitimate_second.sql
+SQL
+cat > "$TMP/migrations/0096_baseline.sql" <<'SQL'
+SELECT 'baseline';
 SQL
 cat > "$TMP/migrations/0097_legitimate_first.sql" <<'SQL'
 SELECT 'legitimate-first';
@@ -187,9 +196,67 @@ SELECT 'legitimate-second-verified';
 SQL
 
 synthetic="$(list_production_migrations "$TMP/production.sql" "$TMP/migrations")"
-[ "$synthetic" = $'0097_legitimate_first.sql\n0099_legitimate_second.sql' ] ||
+[ "$synthetic" = $'0096_baseline.sql\n0097_legitimate_first.sql\n0099_legitimate_second.sql' ] ||
   fail "production migrations did not preserve manifest ordering"
 assert_not_contains "$synthetic" "0098_seed_dev_future.sql"
+
+write_checksum_registry() {
+  local manifest="$1"
+  local migration_dir="$2"
+  local output="$3"
+  local file
+  local hash
+
+  : > "$output"
+  while IFS= read -r file; do
+    hash="$(canonical_migration_sha256 "$migration_dir/$file")"
+    printf '%s  %s\n' "$hash" "$file" >> "$output"
+  done < <(list_production_migrations "$manifest" "$migration_dir")
+}
+
+write_checksum_registry "$TMP/production.sql" "$TMP/migrations" "$TMP/checksums.sha256"
+
+cp -a "$TMP/migrations" "$TMP/checksum-mismatch-migrations"
+printf '\nSELECT '\''changed-history'\'';\n' >> \
+  "$TMP/checksum-mismatch-migrations/0097_legitimate_first.sql"
+expect_failure \
+  "historical migration checksum mismatch" \
+  "production migration checksum mismatch: 0097_legitimate_first.sql" \
+  validate_production_migration_checksums \
+  "$TMP/checksums.sha256" \
+  "$TMP/checksum-mismatch-migrations" \
+  0096_baseline.sql 0097_legitimate_first.sql 0099_legitimate_second.sql
+
+expect_failure \
+  "ledger gap" \
+  "ordering gap; expected 0097 but found 0099" \
+  validate_migration_ledger_rows \
+  $'0096|0096_baseline.sql\n0099|0099_legitimate_second.sql' \
+  0096_baseline.sql 0097_legitimate_first.sql 0099_legitimate_second.sql
+expect_failure \
+  "unknown applied migration" \
+  "applied migration is absent from the production registry: 0098" \
+  validate_migration_ledger_rows \
+  $'0096|0096_baseline.sql\n0098|unknown.sql' \
+  0096_baseline.sql 0097_legitimate_first.sql 0099_legitimate_second.sql
+expect_failure \
+  "duplicate ledger migration" \
+  "duplicate schema_migrations entry: 0096" \
+  validate_migration_ledger_rows \
+  $'0096|0096_baseline.sql\n0096|0096_baseline.sql' \
+  0096_baseline.sql 0097_legitimate_first.sql 0099_legitimate_second.sql
+expect_failure \
+  "out-of-order ledger history" \
+  "ordering gap; expected 0096 but found 0097" \
+  validate_migration_ledger_rows \
+  $'0097|0097_legitimate_first.sql\n0096|0096_baseline.sql' \
+  0096_baseline.sql 0097_legitimate_first.sql 0099_legitimate_second.sql
+expect_failure \
+  "conflicting ledger name" \
+  "name conflicts with the production registry for 0096" \
+  validate_migration_ledger_rows \
+  '0096|different.sql' \
+  0096_baseline.sql 0097_legitimate_first.sql 0099_legitimate_second.sql
 
 cat > "$TMP/test.env" <<'ENV'
 POSTGRES_DB=test
@@ -199,6 +266,10 @@ ENV
 cat > "$TMP/runner/backup-postgres.sh" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+[ "${BACKUP_FAIL:-0}" != "1" ] || {
+  echo "simulated backup validation failure" >&2
+  exit 1
+}
 echo backup >> "$BACKUP_CALLS_FILE"
 SH
 cat > "$TMP/bin/docker" <<'SH'
@@ -207,27 +278,34 @@ set -euo pipefail
 
 joined="$*"
 echo "$joined" >> "$DB_CALLS_FILE"
-if [[ "$joined" == *"CREATE TABLE IF NOT EXISTS schema_migrations"* ]]; then
-  [ -e "$LEDGER_FILE" ] || : > "$LEDGER_FILE"
+if [[ "$joined" == *" -qAt "* ]]; then
+  while IFS= read -r sql; do
+    if [[ "$sql" == *"pg_try_advisory_lock"* ]]; then
+      echo "${LOCK_RESULT:-LOCKED}"
+    elif [[ "$sql" == *"SELECT 'LOCK_HELD'"* ]]; then
+      echo LOCK_HELD
+    elif [ "$sql" = '\q' ]; then
+      exit 0
+    fi
+  done
   exit 0
 fi
-if [[ "$joined" == *"SELECT count(*) FROM schema_migrations"* ]]; then
-  wc -l < "$LEDGER_FILE" | tr -d ' '
+if [[ "$joined" == *"to_regclass('public.schema_migrations')"* ]]; then
+  if [ -e "$LEDGER_FILE" ]; then echo t; else echo f; fi
   exit 0
 fi
-if [[ "$joined" == *"SELECT 1 FROM schema_migrations WHERE migration_number="* ]]; then
-  # Reproduce the real stdin-starvation hazard: docker/psql may consume the
-  # discovery loop's stdin even when the query itself does not need SQL input.
-  cat >/dev/null
-  number="$(printf '%s' "$joined" | grep -oE "'[0-9]{4}'" | head -1 | tr -d "'")"
-  if grep -qx "$number" "$LEDGER_FILE"; then
-    echo 1
-  fi
+if [[ "$joined" == *"information_schema.columns"* ]]; then
+  echo 4
+  exit 0
+fi
+if [[ "$joined" == *"FROM schema_migrations"* ]]; then
+  cat "$LEDGER_FILE"
   exit 0
 fi
 if [[ "$joined" == *"INSERT INTO schema_migrations"* ]]; then
-  number="$(printf '%s' "$joined" | grep -oE "'[0-9]{4}'" | head -1 | tr -d "'")"
-  grep -qx "$number" "$LEDGER_FILE" || echo "$number" >> "$LEDGER_FILE"
+  number="$(printf '%s' "$joined" | grep -oE "VALUES \('[0-9]{4}'" | grep -oE '[0-9]{4}')"
+  name="$(printf '%s' "$joined" | grep -oE "'[0-9]{4}_[^']+\.sql'" | tr -d "'")"
+  printf '%s|%s\n' "$number" "$name" >> "$LEDGER_FILE"
   exit 0
 fi
 
@@ -236,7 +314,7 @@ printf '\n-- invocation --\n' >> "$EXECUTED_SQL_FILE"
 SH
 chmod +x "$TMP/runner/apply-migrations.sh" "$TMP/runner/backup-postgres.sh" "$TMP/bin/docker"
 
-printf '0001\n0097\n' > "$TMP/ledger"
+printf '0096|0096_baseline.sql\n0097|0097_legitimate_first.sql\n' > "$TMP/ledger"
 : > "$TMP/executed.sql"
 : > "$TMP/backups"
 : > "$TMP/db-calls"
@@ -254,6 +332,7 @@ run_runner() {
   APP_DIR="$ROOT" \
   MIG_DIR="$migration_dir" \
   PRODUCTION_MANIFEST="$manifest" \
+  MIGRATION_CHECKSUMS="$TMP/checksums.sha256" \
   APPROVE_DESTRUCTIVE="${1:-0}" \
   "$TMP/runner/apply-migrations.sh" </dev/null
 }
@@ -360,7 +439,7 @@ missing_ledger_output="$(run_runner 2>&1)"
 missing_ledger_status=$?
 set -e
 [ "$missing_ledger_status" -ne 0 ] || fail "missing ledger was not rejected"
-assert_contains "$missing_ledger_output" "schema_migrations is empty"
+assert_contains "$missing_ledger_output" "schema_migrations is missing"
 [ ! -s "$TMP/backups" ] || fail "missing ledger triggered a backup"
 
 : > "$TMP/ledger"
@@ -372,7 +451,7 @@ set -e
 assert_contains "$empty_ledger_output" "schema_migrations is empty"
 [ ! -s "$TMP/backups" ] || fail "empty ledger triggered a backup"
 
-printf '0001\n0097\n' > "$TMP/ledger"
+printf '0096|0096_baseline.sql\n0097|0097_legitimate_first.sql\n' > "$TMP/ledger"
 : > "$TMP/db-calls"
 first_run="$(run_runner)"
 assert_contains "$first_run" "Pending: 0099_legitimate_second.sql"
@@ -380,11 +459,8 @@ assert_contains "$(cat "$TMP/executed.sql")" "legitimate-second"
 assert_contains "$(cat "$TMP/executed.sql")" "legitimate-second-verified"
 assert_not_contains "$(cat "$TMP/executed.sql")" "legitimate-first"
 assert_not_contains "$(cat "$TMP/executed.sql")" "development-only"
-[ "$(grep -cx 0099 "$TMP/ledger")" -eq 1 ] || fail "legitimate migration was not recorded once"
-[ "$(grep -c "SELECT 1 FROM schema_migrations WHERE migration_number=" "$TMP/db-calls")" -eq 2 ] ||
-  fail "runner did not inspect every materialized migration candidate"
-assert_contains "$(cat "$TMP/db-calls")" "'0097'"
-assert_contains "$(cat "$TMP/db-calls")" "'0099'"
+[ "$(grep -c '^0099|' "$TMP/ledger")" -eq 1 ] || fail "legitimate migration was not recorded once"
+assert_not_contains "$(cat "$TMP/db-calls")" "SELECT 1 FROM schema_migrations WHERE migration_number="
 
 before_second="$(sha256sum "$TMP/executed.sql" | cut -d' ' -f1)"
 second_run="$(run_runner)"
@@ -392,13 +468,24 @@ after_second="$(sha256sum "$TMP/executed.sql" | cut -d' ' -f1)"
 assert_contains "$second_run" "Up to date"
 [ "$before_second" = "$after_second" ] || fail "second invocation re-executed a migration"
 
-printf '0001\n' > "$TMP/ledger"
+printf '0096|0096_baseline.sql\n0097|0097_legitimate_first.sql\n' > "$TMP/ledger"
+: > "$TMP/executed.sql"
+set +e
+backup_failure_output="$(BACKUP_FAIL=1 run_runner 2>&1)"
+backup_failure_status=$?
+set -e
+[ "$backup_failure_status" -ne 0 ] || fail "runner continued after backup validation failure"
+assert_contains "$backup_failure_output" "simulated backup validation failure"
+assert_not_contains "$(cat "$TMP/executed.sql")" "legitimate-second"
+grep -q '^0099|' "$TMP/ledger" && fail "runner recorded a migration after backup failure"
+
+printf '0096|0096_baseline.sql\n' > "$TMP/ledger"
 : > "$TMP/executed.sql"
 : > "$TMP/db-calls"
 multiple_run="$(run_runner)"
 assert_contains "$multiple_run" "Pending: 0097_legitimate_first.sql 0099_legitimate_second.sql"
-[ "$(grep -cx 0097 "$TMP/ledger")" -eq 1 ] || fail "first pending migration was not recorded"
-[ "$(grep -cx 0099 "$TMP/ledger")" -eq 1 ] || fail "second pending migration was not recorded"
+[ "$(grep -c '^0097|' "$TMP/ledger")" -eq 1 ] || fail "first pending migration was not recorded"
+[ "$(grep -c '^0099|' "$TMP/ledger")" -eq 1 ] || fail "second pending migration was not recorded"
 first_line="$(grep -n "legitimate-first" "$TMP/executed.sql" | head -1 | cut -d: -f1)"
 second_line="$(grep -n "legitimate-second';" "$TMP/executed.sql" | head -1 | cut -d: -f1)"
 [ "$first_line" -lt "$second_line" ] || fail "multiple pending migrations ran out of order"
@@ -409,6 +496,7 @@ SQL
 cat > "$TMP/migrations/0100_legitimate_destructive.sql" <<'SQL'
 DELETE FROM disposable_test_table;
 SQL
+write_checksum_registry "$TMP/production.sql" "$TMP/migrations" "$TMP/checksums.sha256"
 
 set +e
 destructive_output="$(run_runner 0 2>&1)"
@@ -416,7 +504,7 @@ destructive_status=$?
 set -e
 [ "$destructive_status" -ne 0 ] || fail "destructive migration was not blocked"
 assert_contains "$destructive_output" "looks destructive"
-grep -qx 0100 "$TMP/ledger" && fail "blocked destructive migration was recorded"
+grep -q '^0100|' "$TMP/ledger" && fail "blocked destructive migration was recorded"
 assert_not_contains "$(cat "$TMP/executed.sql")" "disposable_test_table"
 
 echo "PASS: production migration selection and runner safeguards"
