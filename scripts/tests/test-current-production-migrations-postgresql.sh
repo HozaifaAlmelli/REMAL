@@ -50,6 +50,13 @@ cat > "$TMP/bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The compose-agreement preflight resolves one key from a throwaway probe
+# project. Hand that straight to the real docker compose: it is the authority
+# this harness is checking the parser against, and the probe touches nothing.
+if [[ "$*" == *kaza-env-probe.yml* ]]; then
+  exec "$REAL_DOCKER" "$@"
+fi
+
 # `docker compose config --quiet` is the runner's env-file preflight: it
 # validates and prints nothing. There is no compose project in this harness, so
 # accept it.

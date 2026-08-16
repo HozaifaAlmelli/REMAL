@@ -125,6 +125,11 @@ compose_env_preflight() {
 #     honour \\, \" , \n and \t escapes
 #   * an unquoted value ends at the first `#` preceded by whitespace, and its
 #     trailing whitespace is trimmed
+#   * when a key is assigned more than once the LAST assignment wins, exactly as
+#     Compose resolves it — reading the first would silently disagree with the
+#     value the running containers were created from
+# This function is a convenience reader, not the authority: compose_identifier_-
+# agreement_preflight proves the result equals what Compose itself resolves.
 # Never call this for a secret.
 env_file_value() {
   local env_file="$1"
@@ -181,17 +186,126 @@ env_file_value() {
         end = closing(value, quote)
         if (end > 0) {
           inner = substr(value, 2, end - 2)
-          print (quote == "\"") ? unquote_double(inner) : inner
-          exit
+          resolved = (quote == "\"") ? unquote_double(inner) : inner
+          found = 1
+          next
         }
       }
       # Unquoted: an inline comment starts at the first `#` preceded by whitespace.
       if (match(value, /[[:space:]]#/)) value = substr(value, 1, RSTART - 1)
       sub(/[[:space:]]+$/, "", value)
-      print value
-      exit
+      resolved = value
+      found = 1
     }
+    # Last assignment wins, matching Compose.
+    END { if (found) print resolved }
   ' "$env_file"
+}
+
+# Ask docker compose itself what a key resolves to, using a throwaway probe
+# project. This is `config` only: it reads, renders and exits, so no production
+# service is created, recreated, started or restarted.
+#
+# Going through Compose means the agreement check below stays correct even for
+# dotenv behaviour this file does not implement — `${VAR}` interpolation, `$$`
+# escaping, future parser changes — without reimplementing any of it here.
+compose_resolved_value() {
+  local env_file="$1"
+  local key="$2"
+
+  if ! printf '%s' "$key" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$'; then
+    echo "REFUSING: refusing to resolve a malformed environment key" >&2
+    return 1
+  fi
+
+  local probe_dir
+  probe_dir="$(mktemp -d)" || return 1
+
+  {
+    printf 'services:\n'
+    printf '  kazaenvprobe:\n'
+    printf '    image: busybox\n'
+    printf '    environment:\n'
+    printf '      PROBE: "${%s}"\n' "$key"
+  } > "$probe_dir/kaza-env-probe.yml"
+
+  local rendered
+  rendered="$(
+    docker compose -f "$probe_dir/kaza-env-probe.yml" --env-file "$env_file" \
+      config --format json 2>/dev/null |
+      awk '
+        function unescape(s,   i, c, out) {
+          out = ""
+          i = 1
+          while (i <= length(s)) {
+            c = substr(s, i, 1)
+            if (c == "\\" && i < length(s)) {
+              i++
+              c = substr(s, i, 1)
+              if (c == "n") out = out "\n"
+              else if (c == "t") out = out "\t"
+              else if (c == "r") out = out "\r"
+              else if (c == "b") out = out sprintf("%c", 8)
+              else if (c == "f") out = out sprintf("%c", 12)
+              else out = out c
+            } else {
+              out = out c
+            }
+            i++
+          }
+          return out
+        }
+        /^[[:space:]]*"PROBE":[[:space:]]*"/ {
+          line = $0
+          sub(/^[[:space:]]*"PROBE":[[:space:]]*"/, "", line)
+          sub(/",?[[:space:]]*$/, "", line)
+          printf "%s", unescape(line)
+          found = 1
+          exit
+        }
+        END { exit(found ? 0 : 1) }
+      '
+  )"
+  local status=$?
+
+  rm -rf -- "$probe_dir"
+  [ "$status" -eq 0 ] || return 1
+  printf '%s' "$rendered"
+}
+
+# Fail-closed proof that what this library parsed is exactly what Docker Compose
+# resolves from the same file — so the identifiers the backup and the migration
+# use cannot drift from the ones the running containers were created with.
+# Values are compared, never printed.
+compose_identifier_agreement_preflight() {
+  local env_file="$1"
+  shift
+
+  local key parsed resolved
+  local mismatch=0
+  local checked=0
+
+  for key in "$@"; do
+    parsed="$(env_file_value "$env_file" "$key")"
+    if ! resolved="$(compose_resolved_value "$env_file" "$key")"; then
+      echo "REFUSING: docker compose could not resolve $key from $env_file" >&2
+      return 1
+    fi
+    if [ -z "$resolved" ]; then
+      echo "REFUSING: docker compose resolves $key to an empty value in $env_file" >&2
+      return 1
+    fi
+    if [ "$parsed" != "$resolved" ]; then
+      # Deliberately no values: a mismatch is reported by key only.
+      echo "REFUSING: $key as parsed from $env_file does not match the value docker compose resolves from it" >&2
+      echo "          (a duplicate assignment, an interpolation or an escape this reader does not model)" >&2
+      mismatch=1
+    fi
+    checked=$((checked + 1))
+  done
+
+  [ "$mismatch" -eq 0 ] || return 1
+  echo "### compose agreement OK: $checked identifier(s) parse identically to docker compose"
 }
 
 # Load the two non-secret connection identifiers the release scripts need into

@@ -2,6 +2,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# The stubbed docker binary answers the compose-agreement probe from these
+# literals — the values this suite's fixture declares — so the oracle stays
+# independent of the parser under test.
+export KAZA_PROBE_STUB_LIB="$ROOT/scripts/tests/lib/compose-probe-stub.sh"
+export KAZA_PROBE_POSTGRES_USER="test"
+export KAZA_PROBE_POSTGRES_DB="test"
 # shellcheck source=scripts/lib/production-migrations.sh
 source "$ROOT/scripts/lib/production-migrations.sh"
 
@@ -276,6 +283,10 @@ SH
 cat > "$TMP/bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+
+# shellcheck source=scripts/tests/lib/compose-probe-stub.sh
+source "$KAZA_PROBE_STUB_LIB"
+respond_to_compose_probe "$@"
 
 joined="$*"
 echo "$joined" >> "$DB_CALLS_FILE"

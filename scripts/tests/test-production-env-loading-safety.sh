@@ -16,6 +16,13 @@ source "$ROOT/scripts/lib/env-file.sh"
 # shellcheck source=scripts/lib/postgres-backup.sh
 source "$ROOT/scripts/lib/postgres-backup.sh"
 
+# The stubbed docker binaries below answer the compose-agreement probe from these
+# literals — the values this suite's fixture declares — so the oracle is
+# independent of the parser under test.
+export KAZA_PROBE_STUB_LIB="$ROOT/scripts/tests/lib/compose-probe-stub.sh"
+export KAZA_PROBE_POSTGRES_USER="kaza test user"
+export KAZA_PROBE_POSTGRES_DB="kaza_whitespace_test"
+
 fail() {
   echo "FAIL: $*" >&2
   exit 1
@@ -71,6 +78,14 @@ COMMENTED_USER=kaza_prod   # the application role used by the API
 COMMENTED_QUOTED="value with  spaces"   # and a trailing comment
 HASH_INSIDE=abc#def
 ESCAPES="line1\nline2"
+# Repeated assignments. Compose keeps the LAST one; so must we, or the backup and
+# the migration would use a stale identifier the containers were never created with.
+DUP_UNQUOTED=stale value
+DUP_UNQUOTED=winning value
+DUP_QUOTED="stale quoted"
+DUP_QUOTED="winning quoted"   # with a trailing comment
+DUP_MIXED=stale
+  export DUP_MIXED="winning mixed"
 
 #POSTGRES_COMMENTED=should not count
 ENV
@@ -133,6 +148,16 @@ done
 [ -z "$(env_file_value "$TMP/whitespace.env" POSTGRES_COMMENTED)" ] ||
   fail "a commented-out assignment produced a value"
 
+# Duplicate keys: the LAST assignment wins, exactly as docker compose resolves it.
+# Reading the first would silently disagree with the running containers.
+[ "$(env_file_value "$TMP/whitespace.env" DUP_UNQUOTED)" = "winning value" ] ||
+  fail "a repeated unquoted key did not resolve to its last assignment"
+[ "$(env_file_value "$TMP/whitespace.env" DUP_QUOTED)" = "winning quoted" ] ||
+  fail "a repeated quoted key did not resolve to its last assignment"
+[ "$(env_file_value "$TMP/whitespace.env" DUP_MIXED)" = "winning mixed" ] ||
+  fail "a repeated key whose last assignment is exported did not resolve to it"
+echo "confirmed: a repeated key resolves to its last assignment, as compose does"
+
 # The loader exposes only the two non-secret connection identifiers.
 ( load_db_connection_identifiers "$TMP/whitespace.env"
   [ "$POSTGRES_USER" = "kaza test user" ] || exit 1
@@ -165,7 +190,62 @@ expect_failure "missing required key" \
   fail "a missing required key produced the wrong refusal"
 
 # --------------------------------------------------------------------------
-# 6. backup-postgres.sh runs end to end against the production-shaped env file.
+# 6. Compose agreement. The identifiers the release scripts use must be exactly
+#    what docker compose resolves from the same file. This is what protects the
+#    rollout from dotenv behaviour this reader deliberately does not model —
+#    interpolation, `$$`, a future Compose parser change — without
+#    reimplementing Compose's semantics here. Runs against the real docker.
+# --------------------------------------------------------------------------
+command -v docker >/dev/null 2>&1 ||
+  fail "docker is required: the compose agreement preflight is the subject of this section"
+
+cat > "$TMP/agree-ok.env" <<'ENV'
+POSTGRES_DB=kaza_agreement_test
+POSTGRES_USER=kaza_prod   # the application role used by the API
+POSTGRES_PASSWORD=first second third
+ENV
+
+# A repeated assignment must still AGREE, because both sides take the last one.
+cat > "$TMP/agree-duplicate.env" <<'ENV'
+POSTGRES_DB=kaza_agreement_test
+POSTGRES_USER=stale_role
+POSTGRES_PASSWORD=first second third
+POSTGRES_USER=kaza_prod
+ENV
+
+# Interpolation is Compose behaviour this reader does not model. The preflight
+# must catch the disagreement and refuse rather than guess.
+cat > "$TMP/agree-interpolated.env" <<'ENV'
+POSTGRES_DB=kaza_agreement_test
+ROLE_PREFIX=kaza
+POSTGRES_USER=${ROLE_PREFIX}_prod
+POSTGRES_PASSWORD=first second third
+ENV
+
+for shape in ok duplicate; do
+  agreement_output="$(compose_identifier_agreement_preflight \
+    "$TMP/agree-$shape.env" POSTGRES_USER POSTGRES_DB)" ||
+    fail "the compose agreement preflight refused a file it should accept ($shape)"
+  assert_contains "$agreement_output" "compose agreement OK"
+  for secret in kaza_prod stale_role kaza_agreement_test "first second third"; do
+    assert_not_contains "$agreement_output" "$secret"
+  done
+done
+
+[ "$(env_file_value "$TMP/agree-duplicate.env" POSTGRES_USER)" = "kaza_prod" ] ||
+  fail "the duplicate-key fixture did not resolve to its last assignment"
+
+mismatch_output="$(expect_failure "an interpolated identifier" \
+  compose_identifier_agreement_preflight "$TMP/agree-interpolated.env" POSTGRES_USER POSTGRES_DB)"
+assert_contains "$mismatch_output" "does not match the value docker compose resolves"
+assert_contains "$mismatch_output" "POSTGRES_USER"
+for secret in kaza_prod '${ROLE_PREFIX}' "first second third"; do
+  assert_not_contains "$mismatch_output" "$secret"
+done
+echo "confirmed: parsed identifiers are proven equal to docker compose's own resolution"
+
+# --------------------------------------------------------------------------
+# 7. backup-postgres.sh runs end to end against the production-shaped env file.
 # --------------------------------------------------------------------------
 mkdir -p "$TMP/runner/lib" "$TMP/bin" "$TMP/backups"
 cp "$ROOT/scripts/backup-postgres.sh" "$TMP/runner/backup-postgres.sh"
@@ -175,6 +255,9 @@ cat > "$TMP/bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 joined="$*"
+# shellcheck source=scripts/tests/lib/compose-probe-stub.sh
+source "$KAZA_PROBE_STUB_LIB"
+respond_to_compose_probe "$@"
 if [[ "$joined" == *" config --quiet"* ]]; then
   exit "${COMPOSE_CONFIG_STATUS:-0}"
 fi
@@ -235,7 +318,7 @@ expect_failure "backup with a missing env file" \
   fail "a backup artifact was produced despite an unusable env file"
 
 # --------------------------------------------------------------------------
-# 7. Retention never deletes silently and never drops below the retained floor.
+# 8. Retention never deletes silently and never drops below the retained floor.
 # --------------------------------------------------------------------------
 mkdir -p "$TMP/retention"
 for age in 400 300 200 100 1; do
@@ -263,7 +346,7 @@ assert_contains "$pruned" "removing $TMP/retention/kaza_postgres_age_300.sql.gz"
   fail "an artifact inside the retained floor was pruned"
 
 # --------------------------------------------------------------------------
-# 8. apply-migrations.sh: the env preflight runs before the lock, the backup
+# 9. apply-migrations.sh: the env preflight runs before the lock, the backup
 #    and any SQL, and an unusable env file stops the rollout with nothing done.
 # --------------------------------------------------------------------------
 mkdir -p "$TMP/mig/runner/lib" "$TMP/mig/migrations"
@@ -295,6 +378,9 @@ cat > "$TMP/bin/docker-mig" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 joined="$*"
+# shellcheck source=scripts/tests/lib/compose-probe-stub.sh
+source "$KAZA_PROBE_STUB_LIB"
+respond_to_compose_probe "$@"
 echo "$joined" >> "$DB_CALLS_FILE"
 if [[ "$joined" == *" config --quiet"* ]]; then
   exit "${COMPOSE_CONFIG_STATUS:-0}"

@@ -43,6 +43,10 @@ validate_production_migration_checksums "$MIGRATION_CHECKSUMS" "$MIG_DIR" "${MIG
 # is never sourced — see scripts/lib/env-file.sh.
 env_file_preflight "$ENV_FILE" POSTGRES_USER POSTGRES_DB POSTGRES_PASSWORD
 compose_env_preflight "$COMPOSE_FILE" "$ENV_FILE"
+# The identifiers must be exactly what docker compose resolves from the same
+# file. A duplicate assignment, an interpolation or an escape this reader does
+# not model would otherwise silently point the migration at another database.
+compose_identifier_agreement_preflight "$ENV_FILE" POSTGRES_USER POSTGRES_DB
 load_db_connection_identifiers "$ENV_FILE"
 
 db_exec() {

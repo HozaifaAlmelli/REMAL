@@ -19,6 +19,10 @@ source "$SCRIPT_DIR/lib/env-file.sh"
 # identifiers are read; POSTGRES_PASSWORD is never read on the host. See
 # scripts/lib/env-file.sh for why.
 env_file_preflight "$ENV_FILE" POSTGRES_USER POSTGRES_DB POSTGRES_PASSWORD
+# Fail closed unless the identifiers this script parsed are exactly the ones
+# docker compose resolves, so the dump cannot target a different database from
+# the one the running containers were created with. Runs before any dump.
+compose_identifier_agreement_preflight "$ENV_FILE" POSTGRES_USER POSTGRES_DB
 load_db_connection_identifiers "$ENV_FILE"
 
 if ! mkdir -p "$BACKUP_DIR"; then
