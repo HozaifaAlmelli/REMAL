@@ -18,13 +18,13 @@ evidence base** for the release gate defined in [HB-09](09_TICKET_TEST_AUTOMATIO
 |---|---|
 | Document status | `OWNER APPROVED` — target verification contract |
 | Applies to | The historical command, the hardened normal flow, and every subsystem they touch |
-| Scenario count | **159**, across **17** groups — `SC-HAPPY` 7, `SC-DATE` 10, `SC-AVAIL` 12, `SC-DUP` 8, `SC-SEC` 12, `SC-FIN` 14, `SC-PAY` 10, `SC-OWN` 17, `SC-NOTIF` 12, `SC-AUDIT` 6, `SC-REP` 14, `SC-UI` 10, `SC-TXN` 6, `SC-REG` 7, `SC-MIG` 5, `SC-PERF` 4, `SC-CONC` 5 |
+| Scenario count | **160**, across **17** groups — `SC-HAPPY` 7, `SC-DATE` 10, `SC-AVAIL` 12, `SC-DUP` 8, `SC-SEC` 12, `SC-FIN` 14, `SC-PAY` 10, `SC-OWN` 18, `SC-NOTIF` 12, `SC-AUDIT` 6, `SC-REP` 14, `SC-UI` 10, `SC-TXN` 6, `SC-REG` 7, `SC-MIG` 5, `SC-PERF` 4, `SC-CONC` 5 |
 | Duplicate scenario ids | 0 |
 | Dangling scenario references | 0 |
 | Expected to fail against `8dafb5a` | Exactly **one** — `SC-REG-02`. See [the expected-to-fail set](#the-expected-to-fail-set) |
 | Contract-closure base | `3e2090ecda2a0a70197521390f2c8d2c34905eff` |
 | Executable in production? | **No**, except the explicitly marked read-only smoke subset in [P14](#p14-production-smoke-restrictions) |
-| Relationship to acceptance criteria | Every currently ratified identifier is covered by the dynamically recounted contiguous ranges in [§Traceability matrices](#traceability-matrices): 205 ACs and 154 NACs at this revision, 359 total, including HB-04B |
+| Relationship to acceptance criteria | Every currently ratified identifier is covered by the dynamically recounted contiguous ranges in [§Traceability matrices](#traceability-matrices): 208 ACs and 155 NACs at this revision, 363 total, including HB-04B |
 | Canonical endpoint | `POST /api/internal/bookings/historical`, success `200 OK` — see [P16](#p16-canonical-contract-and-decided-behaviour) |
 | Decisions governing these scenarios | All final. Invoice and historical-payment policy are `OWNER APPROVED` — see [P16.2](#p16-canonical-contract-and-decided-behaviour) |
 
@@ -3783,9 +3783,9 @@ a range unambiguously includes every member.
 | Requirements `REQ-01 … REQ-20` | 20 | 20 | 0 | 0 | 0 |
 | Architecture decisions `ADR-01 … ADR-12` | 12 | 12 | 0 | 0 | 0 |
 | Tickets `HB-01 … HB-09` | 9 | 9 | 0 | 0 | 0 |
-| Acceptance criteria `AC-HBnn-nn` | 205 | 205 | 0 | 0 | 0 |
-| Negative acceptance criteria `NAC-HBnn-nn` | 154 | 154 | 0 | 0 | 0 |
-| Reliability scenarios `SC-GROUP-nn` | 159 | 159 | 0 | 0 | 0 |
+| Acceptance criteria `AC-HBnn-nn` | 208 | 208 | 0 | 0 | 0 |
+| Negative acceptance criteria `NAC-HBnn-nn` | 155 | 155 | 0 | 0 | 0 |
+| Reliability scenarios `SC-GROUP-nn` | 160 | 160 | 0 | 0 | 0 |
 | Scenario groups | 17 | 17 | 0 | 0 | 0 |
 
 ### Requirement to ADR to ticket
@@ -3830,7 +3830,7 @@ from `01`**, so membership is unambiguous: `AC-HB04-14` is in `AC-HB04-01 … AC
 | HB-07 | `AC-HB07-01` … `AC-HB07-15` | 15 | `NAC-HB07-01` … `NAC-HB07-14` | 14 | REQ-13, REQ-14 |
 | HB-08 | `AC-HB08-01` … `AC-HB08-26` | 26 | `NAC-HB08-01` … `NAC-HB08-18` | 18 | REQ-12, REQ-14, REQ-15, REQ-16 (implementation), REQ-18 |
 | HB-09 | `AC-HB09-01` … `AC-HB09-22` | 22 | `NAC-HB09-01` … `NAC-HB09-14` | 14 | All — HB-09 automates the pack |
-| **Observed at contract closure; CI recounts dynamically** | | **205** | | **154** | 20 of 20 |
+| **Observed at contract closure; CI recounts dynamically** | | **208** | | **155** | 20 of 20 |
 
 `AC-HB08-23` … `AC-HB08-26` and `NAC-HB08-16` … `NAC-HB08-18` are the REQ-16 hardening criteria, added when
 implementation moved from HB-01 to HB-08. They are the runtime counterparts of `AC-HB01-01` … `AC-HB01-05`,
@@ -3838,7 +3838,7 @@ which a document alone can satisfy. REQ-16 therefore has unbroken specification-
 
 ### Scenario group to tickets and requirements
 
-The reverse direction, `SC → AC/NAC → HB → REQ`. Every one of the 159 scenarios belongs to exactly one of
+The reverse direction, `SC → AC/NAC → HB → REQ`. Every one of the 160 scenarios belongs to exactly one of
 these 17 groups, and every group resolves to a ticket and its criterion range.
 
 | Group | Count | Ticket(s) | AC/NAC range | Requirements |
@@ -3860,7 +3860,7 @@ these 17 groups, and every group resolves to a ticket and its criterion range.
 | `SC-MIG-01` … `-05` | 5 | HB-04A, HB-06, HB-08 | `AC-HB04-07` … `-14`, `AC-HB08-05`, `-06` | REQ-05, REQ-11, REQ-15 |
 | `SC-PERF-01` … `-04` | 4 | HB-03, HB-08 | `AC-HB03-*`, `AC-HB08-13` | REQ-09, REQ-10, REQ-12, REQ-18 |
 | `SC-CONC-01` … `-05` | 5 | HB-03 | `AC-HB03-01` … `-20` | REQ-09, REQ-19 |
-| **Total** | **159** | | | 20 of 20 |
+| **Total** | **160** | | | 20 of 20 |
 
 ### Requirement to scenarios
 

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kaza-booking.invalid/schemas/final-rc-identity-evidence.schema.json",
+  "title": "Final RC identity-level HB-09 evidence index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "rcSha", "executor", "generatedAtUtc", "items"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "rcSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "executor": {"type": "string", "minLength": 1, "maxLength": 200},
+    "generatedAtUtc": {"type": "string", "format": "date-time"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "evidenceRef", "evidenceSha256"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "evidenceRef": {"type": "string", "pattern": "^artifacts/final-rc/[0-9a-f]{40}/"},
+          "evidenceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

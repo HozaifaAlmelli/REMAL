@@ -7,7 +7,7 @@
 | Field | Value |
 |---|---|
 | Ticket | HB-09 |
-| Status | **OWNER APPROVED — BLOCKED BY DEPENDENCY** |
+| Status | **RC AUTOMATION IMPLEMENTED — PENDING FOCUSED INDEPENDENT REVIEW** |
 | Depends on | HB-02 through HB-08A; HB-08B gates final release when REQ-16 is included |
 | Migration ownership | None |
 | Foundation | PRE-01 and PRE-02 are complete and merged |
@@ -42,9 +42,15 @@ authorized disposable PostgreSQL 16 database satisfying the fixture's test-name 
 Vitest, Jest and React Testing Library are not introduced. EF InMemory is never evidence for PostgreSQL
 constraints, transactions, advisory locks, uniqueness or concurrency.
 
-## 4. Dynamic contract counts
+## 4. Ratified contract identity oracle and dynamic test counts
 
-No stable-code, scenario or test count is hard-coded as a release invariant. CI derives and publishes:
+The PR #71 independent review established that source documents cannot serve as their own expected inventory.
+`release-gates/final-rc/ratified-identities.json` now fixes the independently reviewed exact identities at
+160 scenarios, 208 AC, 155 NAC and 45 public errors. The validator compares both source documentation and
+final evidence rows independently against that catalog. Changing an identity requires an explicit reviewed
+catalog change; counts alone are never sufficient.
+
+CI still derives and publishes dynamic execution totals:
 
 1. canonical error rows from Master §12.3, asserting unique code spelling and one owner;
 2. scenario definitions from `99_RELIABILITY_TEST_SCENARIOS.md`, asserting unique IDs and valid references;
@@ -52,7 +58,8 @@ No stable-code, scenario or test count is hard-coded as a release invariant. CI 
 4. AC/NAC identifiers and contiguous ticket mappings;
 5. migration-object ownership rows, asserting one owner and no reserved migration number.
 
-The PR may report the observed counts, but gates compare generated inventories, not stale constants.
+The ratified identity oracle is not a fixed test-count or coverage-percentage threshold. Test populations and
+pass/fail/skip totals remain discovered from structured completion evidence.
 
 ## 5. Feature coverage
 
@@ -145,7 +152,7 @@ connections. Task-created databases/containers/volumes/networks are removed and 
 | NAC-HB09-02 | No implicit localhost or development Compose connection. |
 | NAC-HB09-03 | No production, staging or shared database data in tests. |
 | NAC-HB09-04 | No `continue-on-error`, ignored exit code or unconditional skip. |
-| NAC-HB09-05 | No fixed stable-code/scenario/test count as a correctness oracle. |
+| NAC-HB09-05 | No count-only stable-code/scenario/test assertion; required identities use the reviewed exact catalog and test totals remain dynamic. |
 | NAC-HB09-06 | No new Vitest, Jest or React Testing Library dependency. |
 | NAC-HB09-07 | No arbitrary coverage-percentage release threshold. |
 | NAC-HB09-08 | No test weakening to make a known invariant pass. |
@@ -164,5 +171,8 @@ counts and hosted-check links. The sole owner records any manual residue and the
 
 ## 13. Readiness
 
-The HB-09 contract is closed. Implementation is **BLOCKED BY DEPENDENCY** until HB-06, HB-07 and HB-08A are
-complete; final release evidence also depends on HB-08B and operational gates.
+The feature dependencies are merged. `RC-ENABLEMENT-01` implements exact catalog reconciliation and final-RC
+command orchestration. The PR #71 correction makes full-lane execution, structured SHA-bound attestations,
+#99 resolution, safe evidence isolation, recursive redaction and a clean postflight mandatory for readiness.
+Automated PR evidence remains distinct from release-database rehearsal, UAT, finance review and the sole-owner
+go/no-go; unresolved mandatory manual evidence blocks final GO.

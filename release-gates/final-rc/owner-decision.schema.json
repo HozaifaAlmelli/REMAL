@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kaza-booking.invalid/schemas/final-rc-owner-decision.schema.json",
+  "title": "Final RC post-readiness owner decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "rcSha", "decision", "executor", "decidedAtUtc", "readyEvidenceRef", "readyEvidenceSha256", "evidenceRef", "evidenceSha256", "metadata"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "rcSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "decision": {"enum": ["GO", "NO_GO"]},
+    "executor": {"type": "string", "minLength": 1, "maxLength": 200},
+    "decidedAtUtc": {"type": "string", "format": "date-time"},
+    "readyEvidenceRef": {"type": "string", "pattern": "^artifacts/final-rc/[0-9a-f]{40}/"},
+    "readyEvidenceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidenceRef": {"type": "string", "pattern": "^artifacts/final-rc/[0-9a-f]{40}/"},
+    "evidenceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "metadata": {
+      "type": "object",
+      "required": ["decisionAuthority", "rationaleCode"],
+      "properties": {
+        "decisionAuthority": {"type": "string", "minLength": 1},
+        "rationaleCode": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

@@ -58,6 +58,7 @@ mono_crash.*
 **/bin/
 **/obj/
 node_modules/
+__pycache__/
 .claude/
 # Test / browser-automation artifacts
 .tmp/
