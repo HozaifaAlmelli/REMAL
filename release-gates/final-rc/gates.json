@@ -241,6 +241,11 @@
       "command": ["bash", "scripts/tests/test-backup-postgres-safety.sh"]
     },
     {
+      "id": "production_env_loading_safety",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-production-env-loading-safety.sh"]
+    },
+    {
       "id": "migration_release_hardening_postgresql",
       "lanes": ["full"],
       "command": ["bash", "scripts/tests/test-release-hardening-migrations-postgresql.sh"]

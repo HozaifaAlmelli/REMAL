@@ -62,6 +62,7 @@ expect_failure \
 mkdir -p "$TMP/runner/lib" "$TMP/bin" "$TMP/backups"
 cp "$ROOT/scripts/backup-postgres.sh" "$TMP/runner/backup-postgres.sh"
 cp "$ROOT/scripts/lib/postgres-backup.sh" "$TMP/runner/lib/postgres-backup.sh"
+cp "$ROOT/scripts/lib/env-file.sh" "$TMP/runner/lib/env-file.sh"
 cat > "$TMP/test.env" <<'ENV'
 POSTGRES_DB=kaza_test_backup
 POSTGRES_USER=postgres

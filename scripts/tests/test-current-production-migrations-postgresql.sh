@@ -50,6 +50,15 @@ cat > "$TMP/bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 
+# `docker compose config --quiet` is the runner's env-file preflight: it
+# validates and prints nothing. There is no compose project in this harness, so
+# accept it.
+for arg in "$@"; do
+  if [ "$arg" = "config" ]; then
+    exit 0
+  fi
+done
+
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "exec" ]; then
     shift

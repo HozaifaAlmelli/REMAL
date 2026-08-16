@@ -63,6 +63,15 @@ set -euo pipefail
 printf '%q ' "$@" >> "$DOCKER_CALLS_FILE"
 printf '\n' >> "$DOCKER_CALLS_FILE"
 
+# `docker compose config --quiet` is the runner's env-file preflight: it
+# validates and prints nothing. There is no compose project in this harness, so
+# accept it. COMPOSE_CONFIG_STATUS simulates an unparseable deployment config.
+for arg in "$@"; do
+  if [ "$arg" = "config" ]; then
+    exit "${COMPOSE_CONFIG_STATUS:-0}"
+  fi
+done
+
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "exec" ]; then
     shift

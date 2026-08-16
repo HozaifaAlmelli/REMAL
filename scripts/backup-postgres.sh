@@ -7,13 +7,19 @@ ENV_FILE="${ENV_FILE:-/opt/kaza/env/.env.production}"
 COMPOSE_FILE="${COMPOSE_FILE:-/opt/apps/kaza-booking/docker-compose.prod.yml}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/kaza/backups/postgres}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
+BACKUP_MIN_RETAINED="${BACKUP_MIN_RETAINED:-3}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=scripts/lib/postgres-backup.sh
 source "$SCRIPT_DIR/lib/postgres-backup.sh"
+# shellcheck source=scripts/lib/env-file.sh
+source "$SCRIPT_DIR/lib/env-file.sh"
 
-# shellcheck disable=SC1090
-set -a; source "$ENV_FILE"; set +a
+# The env file is parsed, never sourced. Only the two non-secret connection
+# identifiers are read; POSTGRES_PASSWORD is never read on the host. See
+# scripts/lib/env-file.sh for why.
+env_file_preflight "$ENV_FILE" POSTGRES_USER POSTGRES_DB POSTGRES_PASSWORD
+load_db_connection_identifiers "$ENV_FILE"
 
 if ! mkdir -p "$BACKUP_DIR"; then
   echo "ERROR: backup destination is inaccessible: $BACKUP_DIR" >&2
@@ -48,6 +54,7 @@ PARTIAL=""
 
 echo "$(date -Is) backup OK: $OUT ($(du -h "$OUT" | cut -f1))"
 
-# Retention
-find "$BACKUP_DIR" -name 'kaza_postgres_*.sql.gz' -type f -mtime +"$RETENTION_DAYS" -delete
-echo "$(date -Is) pruned backups older than ${RETENTION_DAYS} days"
+# Retention. Never silent, never below the retained floor, and fully disabled by
+# RETENTION_DAYS=0 — which is what a production rollout must use so that no
+# pre-existing reference artifact can be removed by the pre-migration backup.
+prune_postgres_backup_artifacts "$BACKUP_DIR" "$RETENTION_DAYS" "$BACKUP_MIN_RETAINED"

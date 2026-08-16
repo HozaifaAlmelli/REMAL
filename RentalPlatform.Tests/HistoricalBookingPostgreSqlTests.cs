@@ -506,7 +506,11 @@ public sealed class HistoricalBookingPostgreSqlTests
         await using var context = database.CreateDbContext();
         var data = await SeedAsync(context);
         var unitOfWork = new UnitOfWork(context);
-        var service = new BookingService(unitOfWork, new UnitAvailabilityService(unitOfWork));
+        var service = new BookingService(
+            unitOfWork,
+            new UnitAvailabilityService(unitOfWork),
+            new FixedBusinessClock(new DateOnly(2026, 8, 1)),
+            NullLogger<BookingService>.Instance);
 
         var booking = await service.CreateAsync(
             data.Client.Id,
@@ -576,7 +580,9 @@ public sealed class HistoricalBookingPostgreSqlTests
         var normalUnitOfWork = new UnitOfWork(context);
         var normalService = new BookingService(
             normalUnitOfWork,
-            new UnitAvailabilityService(normalUnitOfWork));
+            new UnitAvailabilityService(normalUnitOfWork),
+            new FixedBusinessClock(new DateOnly(2026, 8, 1)),
+            NullLogger<BookingService>.Instance);
         await Assert.ThrowsAsync<NotFoundException>(() => normalService.CreateAsync(
             data.Client.Id,
             data.Unit.Id,
@@ -990,7 +996,11 @@ public sealed class HistoricalBookingPostgreSqlTests
         var data = await SeedAsync(context);
         var unitOfWork = new UnitOfWork(context);
         var availability = new UnitAvailabilityService(unitOfWork);
-        var bookingService = new BookingService(unitOfWork, availability);
+        var bookingService = new BookingService(
+            unitOfWork,
+            availability,
+            new FixedBusinessClock(new DateOnly(2026, 8, 1)),
+            NullLogger<BookingService>.Instance);
         var clientService = new ClientService(unitOfWork, NullLogger<ClientService>.Instance);
         var idempotency = new FailingCompletionStore(new HistoricalIdempotencyStore(unitOfWork));
         var service = new HistoricalBookingService(
@@ -1034,7 +1044,9 @@ public sealed class HistoricalBookingPostgreSqlTests
         var bookingUnitOfWork = new UnitOfWork(context);
         var bookingService = new BookingService(
             bookingUnitOfWork,
-            new UnitAvailabilityService(bookingUnitOfWork));
+            new UnitAvailabilityService(bookingUnitOfWork),
+            new FixedBusinessClock(new DateOnly(2026, 8, 1)),
+            NullLogger<BookingService>.Instance);
         var updateError = await Assert.ThrowsAsync<ConflictException>(() =>
             bookingService.UpdatePendingAsync(
                 result.Booking.Id,
@@ -1765,7 +1777,11 @@ public sealed class HistoricalBookingPostgreSqlTests
     {
         var unitOfWork = new UnitOfWork(context);
         var availability = new UnitAvailabilityService(unitOfWork);
-        var bookingService = new BookingService(unitOfWork, availability);
+        var bookingService = new BookingService(
+            unitOfWork,
+            availability,
+            new FixedBusinessClock(cairoToday),
+            NullLogger<BookingService>.Instance);
         var clientService = new ClientService(
             unitOfWork,
             NullLogger<ClientService>.Instance);
@@ -1980,18 +1996,6 @@ public sealed class HistoricalBookingPostgreSqlTests
         bool IsValid,
         bool IsReady,
         string AccessMethod);
-
-    private sealed class FixedBusinessClock : IBusinessClock
-    {
-        private readonly DateOnly _today;
-
-        public FixedBusinessClock(DateOnly today)
-        {
-            _today = today;
-        }
-
-        public DateOnly CairoToday() => _today;
-    }
 
     private sealed class FailingCompletionStore : IHistoricalIdempotencyStore
     {

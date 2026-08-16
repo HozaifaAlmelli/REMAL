@@ -62,6 +62,7 @@ public sealed class HistoricalNotificationIsolationPostgreSqlTests
         await using var provider = services.BuildServiceProvider();
         var job = new AutoCompleteBookingsJob(
             provider.GetRequiredService<IServiceScopeFactory>(),
+            new FixedBusinessClock(new DateOnly(2026, 8, 16)),
             NullLogger<AutoCompleteBookingsJob>.Instance);
 
         await InvokeSweepAsync(job);

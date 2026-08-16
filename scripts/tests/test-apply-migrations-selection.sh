@@ -134,6 +134,7 @@ trap 'rm -rf -- "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/migrations" "$TMP/runner/lib"
 cp "$ROOT/scripts/apply-migrations.sh" "$TMP/runner/apply-migrations.sh"
 cp "$ROOT/scripts/lib/production-migrations.sh" "$TMP/runner/lib/production-migrations.sh"
+cp "$ROOT/scripts/lib/env-file.sh" "$TMP/runner/lib/env-file.sh"
 
 mkdir -p "$TMP/completeness-migrations"
 cp -a "$ROOT/db/migrations/." "$TMP/completeness-migrations/"
@@ -278,6 +279,11 @@ set -euo pipefail
 
 joined="$*"
 echo "$joined" >> "$DB_CALLS_FILE"
+# `docker compose config --quiet` is the env-file preflight: it validates and
+# prints nothing. COMPOSE_CONFIG_STATUS simulates an unparseable env file.
+if [[ "$joined" == *" config --quiet"* ]]; then
+  exit "${COMPOSE_CONFIG_STATUS:-0}"
+fi
 if [[ "$joined" == *" -qAt "* ]]; then
   while IFS= read -r sql; do
     if [[ "$sql" == *"pg_try_advisory_lock"* ]]; then

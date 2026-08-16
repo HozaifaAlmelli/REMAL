@@ -4,9 +4,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Models;
+using RentalPlatform.Business.Time;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Constants;
@@ -17,16 +19,30 @@ namespace RentalPlatform.Business.Services;
 
 public class BookingService : IBookingService
 {
+    // REQ-16 / HB-08B. Fixed wording (AC-HB01-09) so the API, the portal and the operator
+    // documentation cannot diverge. It names the Historical Booking flow as the correct route.
+    public const string StayDatesInPastMessage =
+        "Check-in date cannot be earlier than the current business date in Cairo. "
+        + "A stay that has already happened must be recorded through the Historical Booking flow.";
+
     private static readonly TimeSpan RecentDuplicateWindow = TimeSpan.FromSeconds(30);
     private readonly IUnitOfWork _unitOfWork;
     private readonly IUnitAvailabilityService _availabilityService;
+    private readonly IBusinessClock _clock;
+    private readonly ILogger<BookingService> _logger;
 
     private static readonly string[] AllowedSources = { "direct", "admin", "phone", "whatsapp", "website" };
 
-    public BookingService(IUnitOfWork unitOfWork, IUnitAvailabilityService availabilityService)
+    public BookingService(
+        IUnitOfWork unitOfWork,
+        IUnitAvailabilityService availabilityService,
+        IBusinessClock clock,
+        ILogger<BookingService> logger)
     {
         _unitOfWork = unitOfWork;
         _availabilityService = availabilityService;
+        _clock = clock;
+        _logger = logger;
     }
 
     public async Task<PagedResult<Booking>> GetAllAsync(
@@ -149,7 +165,12 @@ public class BookingService : IBookingService
         BookingCreationOptions? creationOptions = null)
     {
         // --- Input validation ---
-        ValidateStayDates(checkInDate, checkOutDate);
+        ValidateStayDates(
+            checkInDate,
+            checkOutDate,
+            creationOptions?.AvailabilityPolicy == BookingAvailabilityPolicy.HistoricalAuthoritative,
+            operation: "create",
+            actorAdminUserId: createdByAdminUserId);
         ValidateGuestCount(guestCount);
         var normalizedSource = ValidateAndNormalizeSource(source);
 
@@ -450,7 +471,14 @@ public class BookingService : IBookingService
                 $"Booking {id} cannot be updated because its status is '{booking.BookingStatus}'. Only prospecting or relevant bookings can be updated.");
 
         // --- Input validation ---
-        ValidateStayDates(checkInDate, checkOutDate);
+        // D-03: the same past-date rule applies to date-changing updates. Historical bookings
+        // are exempt, and are already refused outright a few lines above.
+        ValidateStayDates(
+            checkInDate,
+            checkOutDate,
+            historicalAuthoritative: false,
+            operation: "update",
+            actorAdminUserId: null);
         ValidateGuestCount(guestCount);
         var normalizedSource = ValidateAndNormalizeSource(source);
 
@@ -523,10 +551,44 @@ public class BookingService : IBookingService
     //  Private helpers
     // ---------------------------------------------------------------
 
-    private static void ValidateStayDates(DateOnly checkInDate, DateOnly checkOutDate)
+    /// <summary>
+    /// The single choke point every creation path and every date-changing update funnels through
+    /// (REQ-16 / HB-08B, D-02 and D-03). <paramref name="historicalAuthoritative"/> is never
+    /// client-supplied: it is set only by <see cref="HistoricalBookingService"/>, which is gated by
+    /// the <c>bookings:record_historical</c> permission, so there is no request-level bypass.
+    /// </summary>
+    private void ValidateStayDates(
+        DateOnly checkInDate,
+        DateOnly checkOutDate,
+        bool historicalAuthoritative,
+        string operation,
+        Guid? actorAdminUserId)
     {
         if (checkOutDate <= checkInDate)
             throw new BusinessValidationException("Check-out date must be after check-in date");
+
+        // The Historical Booking flow remains the explicit authorized path for completed past stays.
+        if (historicalAuthoritative)
+            return;
+
+        // D-02: reject check-in before the current Cairo business date; same-day check-in stays legal.
+        var cairoBusinessDate = _clock.CairoToday();
+        if (checkInDate >= cairoBusinessDate)
+            return;
+
+        BookingCreationTelemetry.RecordRejected(HistoricalErrorCodes.StayDatesInPast, operation);
+        _logger.LogInformation(
+            "booking.create.rejected Reason={Reason} Operation={Operation} ActorAdminUserId={ActorAdminUserId} CheckInDate={CheckInDate} CheckOutDate={CheckOutDate} CairoBusinessDate={CairoBusinessDate}",
+            HistoricalErrorCodes.StayDatesInPast,
+            operation,
+            actorAdminUserId,
+            checkInDate,
+            checkOutDate,
+            cairoBusinessDate);
+
+        throw new BusinessValidationException(
+            StayDatesInPastMessage,
+            HistoricalErrorCodes.StayDatesInPast);
     }
 
     private static void ValidateGuestCount(int guestCount)
