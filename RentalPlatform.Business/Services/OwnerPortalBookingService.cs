@@ -44,9 +44,21 @@ public class OwnerPortalBookingService : IOwnerPortalBookingService
         if (checkInTo.HasValue)
             query = query.Where(b => b.CheckInDate <= checkInTo.Value);
 
-        return await query
+        var bookings = await query
             .OrderByDescending(b => b.CreatedAt)
             .ToListAsync(cancellationToken);
+
+        var bookingIds = bookings.Select(booking => booking.BookingId).ToArray();
+        var historicalIds = await _unitOfWork.Bookings.Query()
+            .Where(booking => booking.OwnerId == ownerId && bookingIds.Contains(booking.Id))
+            .Where(booking => booking.IsHistorical)
+            .Select(booking => booking.Id)
+            .ToListAsync(cancellationToken);
+        var historicalIdSet = historicalIds.ToHashSet();
+        foreach (var booking in bookings)
+            booking.IsHistorical = historicalIdSet.Contains(booking.BookingId);
+
+        return bookings;
     }
 
     public async Task<OwnerPortalBookingOverview?> GetByOwnerAndBookingIdAsync(
@@ -62,6 +74,11 @@ public class OwnerPortalBookingService : IOwnerPortalBookingService
 
         if (booking is null)
             throw new NotFoundException($"Booking {bookingId} not found in owner portal context.");
+
+        booking.IsHistorical = await _unitOfWork.Bookings.Query()
+            .Where(item => item.OwnerId == ownerId && item.Id == bookingId)
+            .Select(item => item.IsHistorical)
+            .SingleAsync(cancellationToken);
 
         return booking;
     }

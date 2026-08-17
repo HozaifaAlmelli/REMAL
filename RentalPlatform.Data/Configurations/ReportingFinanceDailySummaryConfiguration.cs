@@ -55,5 +55,41 @@ public sealed class ReportingFinanceDailySummaryConfiguration
             .HasColumnName("total_paid_payout_amount")
             .HasPrecision(14, 2)
             .IsRequired();
+
+        builder.Property(x => x.HistoricalBookingsCount)
+            .HasColumnName("historical_bookings_count")
+            .IsRequired();
+
+        builder.Property(x => x.HistoricalAgreedAmount)
+            .HasColumnName("historical_agreed_amount")
+            .HasPrecision(14, 2)
+            .IsRequired();
+
+        builder.Property(x => x.HistoricalBookingsWithInvoiceCount)
+            .HasColumnName("historical_bookings_with_invoice_count")
+            .IsRequired();
+
+        builder.Property(x => x.HistoricalInvoicedAmount)
+            .HasColumnName("historical_invoiced_amount")
+            .HasPrecision(14, 2)
+            .IsRequired();
+
+        builder.Property(x => x.OrdinaryUnlinkedPaidCount)
+            .HasColumnName("ordinary_unlinked_paid_count")
+            .IsRequired();
+
+        builder.Property(x => x.OrdinaryUnlinkedPaidAmount)
+            .HasColumnName("ordinary_unlinked_paid_amount")
+            .HasPrecision(14, 2)
+            .IsRequired();
+
+        builder.Property(x => x.HistoricalEvidenceRecordedCount)
+            .HasColumnName("historical_evidence_recorded_count")
+            .IsRequired();
+
+        builder.Property(x => x.HistoricalEvidenceRecordedAmount)
+            .HasColumnName("historical_evidence_recorded_amount")
+            .HasPrecision(14, 2)
+            .IsRequired();
     }
 }

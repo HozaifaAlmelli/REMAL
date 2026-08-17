@@ -23,6 +23,7 @@ public record BookingListItemResponse
     public decimal FinalAmount { get; init; }
     public string Source { get; init; } = string.Empty;
     public DateTime CreatedAt { get; init; }
+    public bool IsHistorical { get; init; }
     public bool IsAgedSoftHold { get; init; }
     public int? SoftHoldAgeDays { get; init; }
 }
@@ -47,6 +48,11 @@ public record BookingDetailsResponse
     public string? InternalNotes { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
+    public bool IsHistorical { get; init; }
+    public DateOnly? ActualBookedAt { get; init; }
+    public string? OriginalSource { get; init; }
+    public string? HistoricalEntryReason { get; init; }
+    public decimal? AgreedAmount { get; init; }
     public bool IsAgedSoftHold { get; init; }
     public int? SoftHoldAgeDays { get; init; }
 }

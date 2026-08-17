@@ -88,6 +88,7 @@ public class OwnerPortalBookingsController : ControllerBase
             GuestCount           = booking.GuestCount,
             FinalAmount          = booking.FinalAmount,
             Source               = booking.Source,
+            IsHistorical         = booking.IsHistorical,
             CreatedAt            = booking.CreatedAt,
             UpdatedAt            = booking.UpdatedAt,
         };

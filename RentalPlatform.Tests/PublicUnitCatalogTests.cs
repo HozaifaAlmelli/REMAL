@@ -4,12 +4,14 @@ using RentalPlatform.API.DTOs.Requests.Units;
 using RentalPlatform.API.Validators;
 using RentalPlatform.Business.Models;
 using RentalPlatform.Business.Services;
+using RentalPlatform.Business.Time;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using Xunit;
 
 namespace RentalPlatform.Tests;
 
+[Trait(TestCategories.Name, TestCategories.Fast)]
 public sealed class PublicUnitCatalogTests
 {
     [Fact]
@@ -184,7 +186,11 @@ public sealed class PublicUnitCatalogTests
                 new UnitAmenity { UnitId = visibleOtherProject.Id, AmenityId = pool.Id });
             await context.SaveChangesAsync();
 
-            return new CatalogFixture(context, new UnitService(new UnitOfWork(context)))
+            var unitOfWork = new UnitOfWork(context);
+            var ledger = new RentableCapacityLedgerService(
+                unitOfWork,
+                new CairoBusinessClock(TimeProvider.System));
+            return new CatalogFixture(context, new UnitService(unitOfWork, ledger))
             {
                 FirstProjectId = firstProject.Id,
                 PoolAmenityId = pool.Id,

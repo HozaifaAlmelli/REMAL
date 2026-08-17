@@ -1,91 +1,98 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { reportsService } from "@/lib/api/services/reports.service";
-import { unitsService } from "@/lib/api/services/units.service";
-import { queryKeys } from "@/lib/hooks/query-keys";
 import { usePermissions } from "@/lib/hooks/usePermissions";
-import { differenceInDays, format, startOfMonth, endOfMonth } from "date-fns";
-
-// CORRECTED per API Reference Section 34 / P28:
-// confirmedBookings → totalConfirmedBookingsCount
-// completedBookings → totalCompletedBookingsCount
+import { useReports } from "@/lib/hooks/useReports";
+import {
+  getCurrentMonthOccupancyRange,
+  getOccupancyPresentation,
+} from "@/lib/occupancy/presentation";
 
 export function OccupancyWidget() {
-  const { canViewUnits, canViewReports } = usePermissions();
-  const canViewOccupancy = canViewUnits && canViewReports;
-
-  const dateFrom = format(startOfMonth(new Date()), "yyyy-MM-dd");
-  const dateTo = format(endOfMonth(new Date()), "yyyy-MM-dd");
-
-  const { data: bookingsSummary, isLoading: summaryLoading } = useQuery({
-    queryKey: queryKeys.reports.bookingsSummary({ dateFrom, dateTo }),
-    queryFn: () => reportsService.getBookingsSummary({ dateFrom, dateTo }),
-    enabled: canViewOccupancy,
-    staleTime: 1000 * 60 * 10,
+  const { canViewReports } = usePermissions();
+  const { useOccupancy } = useReports();
+  const range = getCurrentMonthOccupancyRange();
+  const { data, isLoading, isError } = useOccupancy(range, {
+    enabled: canViewReports,
   });
 
-  const { data: unitsData, isLoading: unitsLoading } = useQuery({
-    queryKey: queryKeys.units.internalList({ pageSize: 1000 }),
-    queryFn: () => unitsService.getInternalList({ pageSize: 1000 }),
-    enabled: canViewOccupancy,
-    staleTime: 1000 * 60 * 10,
-  });
+  if (!canViewReports) return null;
 
-  if (!canViewOccupancy) return null;
-
-  if (summaryLoading || unitsLoading) {
-    return <Skeleton height={260} className="rounded-[4px]" />;
-  }
-
-  if (!bookingsSummary || !unitsData?.items) {
+  if (isLoading) {
     return (
-      <div className="rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white p-5">
-        <h3 className="mb-2 text-sm font-semibold text-neutral-900">
-          Occupancy rate
-        </h3>
-        <p className="text-sm text-neutral-500">Data unavailable</p>
+      <div
+        role="status"
+        aria-label="Loading occupancy"
+        data-testid="occupancy-loading"
+      >
+        <Skeleton height={260} className="rounded-[4px]" />
       </div>
     );
   }
 
-  // Compute occupancy rate
-  const activeUnitCount = unitsData.items.filter((u) => u.isActive).length;
-  const daysInRange =
-    differenceInDays(new Date(dateTo), new Date(dateFrom)) + 1;
-  const totalActiveDays = daysInRange * activeUnitCount;
+  if (isError || !data) {
+    return (
+      <section
+        role="alert"
+        aria-labelledby="occupancy-error-heading"
+        className="min-h-[260px] rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white p-5"
+      >
+        <h3
+          id="occupancy-error-heading"
+          className="mb-1 text-[13px] font-semibold text-neutral-900"
+        >
+          Occupancy rate
+        </h3>
+        <p className="mb-8 text-xs text-neutral-500">Current month to date</p>
+        <div className="flex flex-col items-center gap-2 text-center">
+          <AlertCircle aria-hidden="true" size={24} className="text-error" />
+          <p className="text-sm font-medium text-neutral-800">
+            Couldn&apos;t load occupancy
+          </p>
+          <p className="max-w-56 text-xs text-neutral-500">
+            Check your connection and try again.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
-  // CORRECTED: use totalConfirmedBookingsCount + totalCompletedBookingsCount — P28
-  const activeBookings =
-    (bookingsSummary.totalConfirmedBookingsCount ?? 0) +
-    (bookingsSummary.totalCompletedBookingsCount ?? 0);
-
-  const occupancyRate =
-    totalActiveDays > 0
-      ? Math.min((activeBookings / totalActiveDays) * 100, 100)
-      : 0;
-
+  const presentation = getOccupancyPresentation(data);
   const threshold =
-    occupancyRate >= 70
-      ? { color: "var(--color-accent-green)", label: "High" }
-      : occupancyRate >= 40
-        ? { color: "var(--color-accent-amber)", label: "Medium" }
-        : { color: "var(--color-error)", label: "Low" };
+    presentation.kind === "rate"
+      ? presentation.rate >= 70
+        ? { color: "var(--color-accent-green)", label: "High" }
+        : presentation.rate >= 40
+          ? { color: "var(--color-accent-amber)", label: "Medium" }
+          : { color: "var(--color-error)", label: "Low" }
+      : { color: "var(--color-neutral-400)", label: "Unavailable" };
 
   return (
-    <div className="rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white p-5">
-      <h3 className="mb-1 text-[13px] font-semibold text-neutral-900">
+    <section
+      aria-labelledby="occupancy-heading"
+      className="min-h-[260px] rounded-[var(--portal-radius-card)] border border-neutral-200 bg-white p-5"
+    >
+      <h3
+        id="occupancy-heading"
+        className="mb-1 text-[13px] font-semibold text-neutral-900"
+      >
         Occupancy rate
       </h3>
-      <p className="mb-4 text-xs text-neutral-500">
-        Current month (approximate)
-      </p>
+      <p className="mb-4 text-xs text-neutral-500">Current month to date</p>
 
-      {/* Radial progress */}
       <div className="flex items-center justify-center">
-        <div className="relative h-32 w-32">
+        <div
+          role="img"
+          aria-label={
+            presentation.kind === "rate"
+              ? `Occupancy rate ${presentation.valueLabel}`
+              : `Occupancy rate unavailable. ${presentation.message}`
+          }
+          className="relative h-32 w-32"
+        >
           <svg
+            aria-hidden="true"
             className="h-full w-full -rotate-90 transform"
             viewBox="0 0 100 100"
           >
@@ -93,37 +100,49 @@ export function OccupancyWidget() {
               cx="50"
               cy="50"
               r="42"
+              pathLength="100"
               fill="none"
               stroke="var(--color-neutral-100)"
               strokeWidth="8"
             />
-            <circle
-              cx="50"
-              cy="50"
-              r="42"
-              fill="none"
-              stroke={threshold.color}
-              strokeWidth="8"
-              strokeLinecap="round"
-              strokeDasharray={`${occupancyRate * 2.64} 264`}
-              className="transition-all duration-500"
-            />
+            {presentation.kind === "rate" && (
+              <circle
+                cx="50"
+                cy="50"
+                r="42"
+                pathLength="100"
+                fill="none"
+                stroke={threshold.color}
+                strokeWidth="8"
+                strokeLinecap="round"
+                strokeDasharray={`${presentation.rate} 100`}
+                className="transition-all duration-500 motion-reduce:transition-none"
+              />
+            )}
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span
-              className="text-3xl font-bold"
+              data-testid="occupancy-value"
+              className="text-3xl font-bold tabular-nums"
               style={{ color: threshold.color }}
             >
-              {occupancyRate.toFixed(0)}%
+              {presentation.valueLabel}
             </span>
             <span className="text-xs text-neutral-500">{threshold.label}</span>
           </div>
         </div>
       </div>
 
-      <div className="mt-4 text-center text-xs text-neutral-500">
-        {activeBookings} active bookings / {totalActiveDays} unit-days
+      <div className="mt-4 min-h-8 text-center text-xs text-neutral-500">
+        {presentation.kind === "rate" && data.availableUnitNights !== null ? (
+          <p>
+            {data.occupiedUnitNights} occupied unit-nights /{" "}
+            {data.availableUnitNights} available unit-nights
+          </p>
+        ) : (
+          <p>{presentation.kind === "unavailable" && presentation.message}</p>
+        )}
       </div>
-    </div>
+    </section>
   );
 }

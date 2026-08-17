@@ -1,0 +1,315 @@
+{
+  "schemaVersion": 1,
+  "canonicalSources": {
+    "masterContract": "docs/plans/historical-bookings/00_MASTER_PLAN.md",
+    "scenarios": "docs/plans/historical-bookings/99_RELIABILITY_TEST_SCENARIOS.md",
+    "ticketDirectory": "docs/plans/historical-bookings"
+  },
+  "identityEvidenceIndexRequired": true,
+  "ownerDecision": {
+    "id": "owner_go_no_go",
+    "description": "Distinct HB-09 owner GO/NO-GO transition after readiness."
+  },
+  "automatedGates": [
+    {
+      "id": "rc_gate_self_tests",
+      "lanes": ["full", "hosted"],
+      "requiresTests": true,
+      "testEvidence": {"type": "python-unittest"},
+      "command": ["{python}", "scripts/tests/test_final_rc_gates.py"]
+    },
+    {
+      "id": "rc_gate_lock_test",
+      "lanes": ["full", "hosted"],
+      "command": ["bash", "scripts/tests/test-final-rc-runner-lock.sh"]
+    },
+    {
+      "id": "backend_release_build",
+      "lanes": ["full"],
+      "command": ["dotnet", "build", "RentalPlatform.slnx", "-c", "Release"]
+    },
+    {
+      "id": "api_production_image_build",
+      "lanes": ["full"],
+      "command": ["docker", "build", "-f", "RentalPlatform.API/Dockerfile", "-t", "kaza-api:final-rc-test", "."]
+    },
+    {
+      "id": "backend_fast",
+      "lanes": ["full"],
+      "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
+      "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "Category=Fast"]
+    },
+    {
+      "id": "historical_booking_focused",
+      "lanes": ["full"],
+      "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
+      "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~HistoricalBooking"]
+    },
+    {
+      "id": "historical_reporting_focused",
+      "lanes": ["full"],
+      "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
+      "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~HistoricalReporting|FullyQualifiedName~HistoricalPaymentReporting"]
+    },
+    {
+      "id": "rentability_b1_focused",
+      "lanes": ["full"],
+      "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
+      "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~RentableCapacityHistoryPostgreSqlTests"]
+    },
+    {
+      "id": "occupancy_b2_focused",
+      "lanes": ["full"],
+      "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
+      "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~OccupancyAnalytics"]
+    },
+    {
+      "id": "invoice_payment_critical",
+      "lanes": ["full"],
+      "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
+      "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~Invoice|FullyQualifiedName~Payment|FullyQualifiedName~OwnerPayout"]
+    },
+    {
+      "id": "invoice_audit_implementation",
+      "lanes": ["full"],
+      "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
+      "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "FullyQualifiedName~InvoiceAggregateConsistencyGatePostgreSqlTests"]
+    },
+    {
+      "id": "backend_postgresql",
+      "lanes": ["full"],
+      "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
+      "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore", "--filter", "Category=PostgreSQL"]
+    },
+    {
+      "id": "backend_full",
+      "lanes": ["full"],
+      "requiresTests": true,
+      "testEvidence": {"type": "dotnet-trx"},
+      "command": ["dotnet", "test", "RentalPlatform.Tests/RentalPlatform.Tests.csproj", "-c", "Release", "--no-build", "--no-restore"]
+    },
+    {
+      "id": "portal_install",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "command": ["npm", "ci"]
+    },
+    {
+      "id": "portal_typecheck",
+      "lanes": ["full"],
+      "workingDirectory": "rental-platform",
+      "command": ["npm", "run", "type-check"]
+    },
+    {
+      "id": "portal_lint",
+      "lanes": ["full"],
+      "workingDirectory": "rental-platform",
+      "command": ["npm", "run", "lint"]
+    },
+    {
+      "id": "portal_playwright_isolation_contracts",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
+      "command": ["npm", "run", "test:playwright-isolation"]
+    },
+    {
+      "id": "portal_historical_booking_contracts",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
+      "command": ["npm", "run", "test:hb06"]
+    },
+    {
+      "id": "portal_historical_reporting_contracts",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
+      "command": ["npm", "run", "test:hb08a3"]
+    },
+    {
+      "id": "portal_occupancy_contracts",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
+      "command": ["npm", "run", "test:occupancy"]
+    },
+    {
+      "id": "portal_rbac_contracts",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
+      "command": ["npm", "run", "test:rbac"]
+    },
+    {
+      "id": "portal_production_build",
+      "lanes": ["full"],
+      "workingDirectory": "rental-platform",
+      "environment": {
+        "NEXT_PUBLIC_API_URL": "https://api.example.com",
+        "NEXT_PUBLIC_STORAGE_URL": "",
+        "NEXT_PUBLIC_APP_ENV": "production",
+        "NEXT_PUBLIC_MAPBOX_TOKEN": "",
+        "NEXT_PUBLIC_ALLOWED_RETURN_ORIGINS": "https://kaza.example.com"
+      },
+      "command": ["npm", "run", "build"]
+    },
+    {
+      "id": "playwright_browser_install",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "command": ["npx", "playwright", "install", "chromium"]
+    },
+    {
+      "id": "playwright_occupancy",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "requiresTests": true,
+      "testEvidence": {"type": "playwright-json"},
+      "command": ["npx", "playwright", "test", "--config=playwright.occupancy.config.ts", "--reporter=json"]
+    },
+    {
+      "id": "playwright_historical_reporting",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "requiresTests": true,
+      "testEvidence": {"type": "playwright-json"},
+      "command": ["npx", "playwright", "test", "--config=playwright.historical-reporting.config.ts", "--reporter=json"]
+    },
+    {
+      "id": "playwright_historical_booking",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "requiresTests": true,
+      "testEvidence": {"type": "playwright-json"},
+      "command": ["npx", "playwright", "test", "--config=playwright.historical-booking.config.ts", "--reporter=json"]
+    },
+    {
+      "id": "playwright_booking_history_rbac",
+      "lanes": ["full", "hosted"],
+      "workingDirectory": "rental-platform",
+      "requiresTests": true,
+      "testEvidence": {"type": "playwright-json"},
+      "command": ["npx", "playwright", "test", "--config=playwright.booking-history.config.ts", "--reporter=json"]
+    },
+    {
+      "id": "storefront_install",
+      "lanes": ["full"],
+      "workingDirectory": "demo",
+      "command": ["npx", "--yes", "npm@10.9.4", "ci"]
+    },
+    {
+      "id": "storefront_tests",
+      "lanes": ["full"],
+      "workingDirectory": "demo",
+      "requiresTests": true,
+      "testEvidence": {"type": "node-tap"},
+      "command": ["npm", "test"]
+    },
+    {
+      "id": "storefront_production_build",
+      "lanes": ["full"],
+      "workingDirectory": "demo",
+      "environment": {
+        "NEXT_PUBLIC_API_URL": "https://api.example.com",
+        "NEXT_PUBLIC_PLATFORM_URL": "https://app.example.com",
+        "NEXT_PUBLIC_STORAGE_URL": ""
+      },
+      "command": ["npm", "run", "build"]
+    },
+    {
+      "id": "migration_selection_safety",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-apply-migrations-selection.sh"]
+    },
+    {
+      "id": "backup_safety",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-backup-postgres-safety.sh"]
+    },
+    {
+      "id": "production_env_loading_safety",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-production-env-loading-safety.sh"]
+    },
+    {
+      "id": "migration_release_hardening_postgresql",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-release-hardening-migrations-postgresql.sh"]
+    },
+    {
+      "id": "migration_current_bootstrap_postgresql",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-current-production-migrations-postgresql.sh"]
+    },
+    {
+      "id": "shellcheck_release_scripts",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-release-static-validation.sh", "shellcheck"]
+    },
+    {
+      "id": "github_workflow_validation",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-release-static-validation.sh", "actionlint"]
+    },
+    {
+      "id": "production_compose_validation",
+      "lanes": ["full"],
+      "command": ["docker", "compose", "-f", "docker-compose.prod.yml", "--env-file", ".env.example", "config", "--quiet"]
+    }
+  ],
+  "reliabilityCategories": {
+    "P0": {
+      "automatedGateIds": ["historical_booking_focused", "invoice_payment_critical", "playwright_historical_booking", "migration_current_bootstrap_postgresql"],
+      "manualGateIds": ["uat_p0", "reliability_99_completion"]
+    },
+    "P1": {
+      "automatedGateIds": ["backend_fast", "backend_postgresql", "backend_full", "playwright_historical_reporting", "playwright_occupancy"],
+      "manualGateIds": ["uat_p1", "reliability_99_completion"]
+    },
+    "security": {
+      "automatedGateIds": ["portal_rbac_contracts", "playwright_historical_booking", "playwright_booking_history_rbac"],
+      "manualGateIds": ["uat_security", "reliability_99_completion"]
+    },
+    "accounting": {
+      "automatedGateIds": ["invoice_payment_critical", "historical_reporting_focused", "invoice_audit_implementation"],
+      "manualGateIds": ["release_db_pre_migration_invoice_audit", "uat_finance_reconciliation", "release_db_post_uat_invoice_audit", "reliability_99_completion"]
+    },
+    "release_critical_uat": {
+      "automatedGateIds": ["playwright_historical_booking", "playwright_historical_reporting", "playwright_occupancy", "playwright_booking_history_rbac"],
+      "manualGateIds": ["uat_p0", "uat_p1", "uat_security", "uat_finance_reconciliation", "reliability_99_completion"]
+    }
+  },
+  "manualGates": [
+    {"id": "snapshot_provenance", "sequence": 1, "description": "Approved production-derived snapshot provenance."},
+    {"id": "snapshot_restore_postgresql16", "sequence": 2, "description": "Isolated PostgreSQL 16 restore."},
+    {"id": "release_db_pre_migration_ledger", "sequence": 3, "description": "Pre-migration ledger capture."},
+    {"id": "release_db_pre_migration_invoice_audit", "sequence": 4, "description": "Pre-migration INV-AUDIT-01."},
+    {"id": "release_db_hardened_migration", "sequence": 5, "description": "Hardened migration runner against the release snapshot."},
+    {"id": "release_db_0063_verifier", "sequence": 6, "description": "Migration 0063 verifier."},
+    {"id": "release_db_0064_verifier", "sequence": 7, "description": "Migration 0064 verifier."},
+    {"id": "release_db_exact_rc_deployment", "sequence": 8, "description": "Exact-RC application deployment to isolated release environment."},
+    {"id": "release_db_rentability_initializer_rehearsal", "sequence": 9, "description": "Rentability initializer rehearsal only."},
+    {"id": "release_db_rentability_verifier", "sequence": 10, "description": "Read-only rentability verifier."},
+    {"id": "uat_p0", "sequence": 11, "description": "Required P0 UAT evidence."},
+    {"id": "uat_p1", "sequence": 11, "description": "Required P1 UAT evidence."},
+    {"id": "uat_security", "sequence": 11, "description": "Required security UAT evidence."},
+    {"id": "uat_finance_reconciliation", "sequence": 11, "description": "Accounting and finance-lens reconciliation."},
+    {"id": "release_db_post_uat_invoice_audit", "sequence": 12, "description": "Post-UAT INV-AUDIT-01."},
+    {"id": "release_db_reporting_finance_rentability_rbac_reconciliation", "sequence": 13, "description": "Reporting, finance, rentability and RBAC reconciliation."},
+    {"id": "reliability_99_completion", "sequence": 14, "description": "#99 category completion evidence; it does not replace identity-level HB-09 evidence."}
+  ]
+}

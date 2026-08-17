@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
@@ -33,19 +34,22 @@ public class DateBlockApprovalService : IDateBlockApprovalService
     private readonly IBookingLifecycleService _bookingLifecycleService;
     private readonly ICrmLeadService _crmLeadService;
     private readonly ILogger<DateBlockApprovalService> _logger;
+    private readonly IRentableCapacityLedgerService _rentableCapacityLedger;
 
     public DateBlockApprovalService(
         IUnitOfWork unitOfWork,
         INotificationService notificationService,
         IBookingLifecycleService bookingLifecycleService,
         ICrmLeadService crmLeadService,
-        ILogger<DateBlockApprovalService> logger)
+        ILogger<DateBlockApprovalService> logger,
+        IRentableCapacityLedgerService rentableCapacityLedger)
     {
         _unitOfWork = unitOfWork;
         _notificationService = notificationService;
         _bookingLifecycleService = bookingLifecycleService;
         _crmLeadService = crmLeadService;
         _logger = logger;
+        _rentableCapacityLedger = rentableCapacityLedger;
     }
 
     public async Task<DateBlock> RequestOwnerBlockAsync(
@@ -63,15 +67,14 @@ public class DateBlockApprovalService : IDateBlockApprovalService
         DateBlock block;
         int conflictCount = 0;
 
-        await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        IDbContextTransaction? ownedTransaction = null;
         try
         {
-            unit = await GetOwnedUnitOrThrowAsync(ownerId, unitId, tracked: true, cancellationToken);
+            if (!_unitOfWork.HasActiveTransaction)
+                ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
-                BuildUnitLockKey(unitId),
-                cancellationToken);
-            await _unitOfWork.ReloadAsync(unit, cancellationToken);
+            await _rentableCapacityLedger.EnterUnitMutationBoundaryAsync(unitId, cancellationToken);
+            unit = await GetOwnedUnitOrThrowAsync(ownerId, unitId, tracked: true, cancellationToken);
 
             if (unit.OwnerId != ownerId || unit.DeletedAt != null)
                 throw new NotFoundException($"Unit {unitId} was not found for this owner.");
@@ -99,13 +102,31 @@ public class DateBlockApprovalService : IDateBlockApprovalService
             };
 
             await _unitOfWork.DateBlocks.AddAsync(block, cancellationToken);
+            await _rentableCapacityLedger.RebuildCurrentAndFutureAsync(
+                unit,
+                unitIsDeleted: false,
+                isNewUnit: false,
+                new RentabilitySourceChange(
+                    "date_block_request",
+                    block.Id,
+                    "owner",
+                    ownerId,
+                    ToUpsert(block)),
+                cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            if (ownedTransaction is not null)
+                await ownedTransaction.CommitAsync(cancellationToken);
         }
         catch
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (ownedTransaction is not null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
             throw;
+        }
+        finally
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.DisposeAsync();
         }
 
         if (block.Status == DateBlockStatus.PendingApproval)
@@ -231,18 +252,25 @@ public class DateBlockApprovalService : IDateBlockApprovalService
         string unitName;
         int releasedConflictCount = 0;
 
-        await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        IDbContextTransaction? ownedTransaction = null;
         try
         {
+            if (!_unitOfWork.HasActiveTransaction)
+                ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
+            var unitId = await _unitOfWork.DateBlocks.Query()
+                .AsNoTracking()
+                .Where(dateBlock => dateBlock.Id == blockId)
+                .Select(dateBlock => (Guid?)dateBlock.UnitId)
+                .SingleOrDefaultAsync(cancellationToken)
+                ?? throw new NotFoundException($"Date block {blockId} not found.");
+
+            await _rentableCapacityLedger.EnterUnitMutationBoundaryAsync(unitId, cancellationToken);
             block = await _unitOfWork.DateBlocks.Query()
                 .Include(dateBlock => dateBlock.Unit)
                     .ThenInclude(unit => unit.Owner)
                 .FirstOrDefaultAsync(dateBlock => dateBlock.Id == blockId, cancellationToken)
                 ?? throw new NotFoundException($"Date block {blockId} not found.");
-
-            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
-                BuildUnitLockKey(block.UnitId),
-                cancellationToken);
             await _unitOfWork.ReloadAsync(block, cancellationToken);
 
             if (block.Status != DateBlockStatus.PendingApproval || block.DeletedAt != null)
@@ -291,13 +319,31 @@ public class DateBlockApprovalService : IDateBlockApprovalService
             }
 
             _unitOfWork.DateBlocks.Update(block);
+            await _rentableCapacityLedger.RebuildCurrentAndFutureAsync(
+                block.Unit,
+                unitIsDeleted: false,
+                isNewUnit: false,
+                new RentabilitySourceChange(
+                    "date_block_resolve",
+                    block.Id,
+                    "admin",
+                    resolvingAdminId,
+                    IsApprovedDecision(decision) ? ToUpsert(block) : ToRemove(block)),
+                cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            if (ownedTransaction is not null)
+                await ownedTransaction.CommitAsync(cancellationToken);
         }
         catch
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (ownedTransaction is not null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
             throw;
+        }
+        finally
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.DisposeAsync();
         }
 
         var templateCode = IsApprovedDecision(decision) ? ApprovedTemplate : RejectedTemplate;
@@ -321,15 +367,18 @@ public class DateBlockApprovalService : IDateBlockApprovalService
     {
         DateBlock block;
 
-        await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        IDbContextTransaction? ownedTransaction = null;
         try
         {
-            // Ownership gate: the unit must belong to this owner.
-            await GetOwnedUnitOrThrowAsync(ownerId, unitId, tracked: false, cancellationToken);
+            if (!_unitOfWork.HasActiveTransaction)
+                ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-            // Serialize against a concurrent admin resolve on the same unit.
-            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
-                BuildUnitLockKey(unitId),
+            await _rentableCapacityLedger.EnterUnitMutationBoundaryAsync(unitId, cancellationToken);
+
+            var unit = await GetOwnedUnitOrThrowAsync(
+                ownerId,
+                unitId,
+                tracked: true,
                 cancellationToken);
 
             block = await _unitOfWork.DateBlocks.Query()
@@ -348,13 +397,31 @@ public class DateBlockApprovalService : IDateBlockApprovalService
             block.RequiresAdminSignoff = false;
 
             _unitOfWork.DateBlocks.Update(block);
+            await _rentableCapacityLedger.RebuildCurrentAndFutureAsync(
+                unit,
+                unitIsDeleted: false,
+                isNewUnit: false,
+                new RentabilitySourceChange(
+                    "date_block_withdraw",
+                    block.Id,
+                    "owner",
+                    ownerId,
+                    ToRemove(block)),
+                cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            if (ownedTransaction is not null)
+                await ownedTransaction.CommitAsync(cancellationToken);
         }
         catch
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (ownedTransaction is not null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
             throw;
+        }
+        finally
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.DisposeAsync();
         }
 
         return block;
@@ -656,7 +723,21 @@ public class DateBlockApprovalService : IDateBlockApprovalService
     private static bool IsRejectedDecision(string decision) =>
         string.Equals(decision, "rejected", StringComparison.OrdinalIgnoreCase);
 
-    private static string BuildUnitLockKey(Guid unitId) => $"booking-unit:{unitId:N}";
+    private static DateBlockProjectionChange ToUpsert(DateBlock block) => new(
+        block.Id,
+        DateBlockProjectionChangeKind.Upsert,
+        block.StartDate,
+        block.EndDate,
+        block.Status,
+        block.DeletedAt is not null);
+
+    private static DateBlockProjectionChange ToRemove(DateBlock block) => new(
+        block.Id,
+        DateBlockProjectionChangeKind.Remove,
+        block.StartDate,
+        block.EndDate,
+        block.Status,
+        IsDeleted: true);
 
     private static DateOnly MaxDate(DateOnly left, DateOnly right) => left > right ? left : right;
 

@@ -12,10 +12,26 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   (
-    { label, error, helperText, leftAddon, rightAddon, className, ...props },
+    {
+      label,
+      error,
+      helperText,
+      leftAddon,
+      rightAddon,
+      className,
+      id: providedId,
+      "aria-describedby": describedBy,
+      ...props
+    },
     ref
   ) => {
-    const id = useId();
+    const generatedId = useId();
+    const id = providedId ?? generatedId;
+    const errorId = `${id}-error`;
+    const helperId = `${id}-help`;
+    const descriptionId = [describedBy, error ? errorId : helperText ? helperId : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
     return (
       <div className="w-full">
@@ -39,6 +55,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             id={id}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={descriptionId}
             className={cn(
               "w-full rounded-[var(--portal-radius-control)] border bg-white text-sm text-neutral-800",
               "h-[var(--portal-control-height)] px-3.5",
@@ -59,9 +77,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           )}
         </div>
 
-        {error && <p className="mt-1.5 text-xs text-error">{error}</p>}
+        {error && <p id={errorId} className="mt-1.5 text-xs text-error">{error}</p>}
         {!error && helperText && (
-          <p className="mt-1.5 text-xs text-neutral-500">{helperText}</p>
+          <p id={helperId} className="mt-1.5 text-xs text-neutral-500">{helperText}</p>
         )}
       </div>
     );

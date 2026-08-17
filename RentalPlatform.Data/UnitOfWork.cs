@@ -28,6 +28,11 @@ public class UnitOfWork : IUnitOfWork
     public IRepository<DateBlock> DateBlocks { get; }
     public IRepository<Booking> Bookings { get; }
     public IRepository<BookingStatusHistory> BookingStatusHistories { get; }
+    public IRepository<BookingOriginalSource> BookingOriginalSources { get; }
+    public IRepository<IdempotencyKey> IdempotencyKeys { get; }
+    public IRepository<HistoricalPaymentIdempotencyKey> HistoricalPaymentIdempotencyKeys { get; }
+    public IRepository<HistoricalOwnerAttributionCorrection> HistoricalOwnerAttributionCorrections { get; }
+    public IRepository<HistoricalOwnerCorrectionIdempotencyKey> HistoricalOwnerCorrectionIdempotencyKeys { get; }
     public IRepository<CrmLead> CrmLeads { get; }
     public IRepository<CrmNote> CrmNotes { get; }
     public IRepository<CrmAssignment> CrmAssignments { get; }
@@ -35,6 +40,8 @@ public class UnitOfWork : IUnitOfWork
     public IRepository<Invoice> Invoices { get; }
     public IRepository<InvoiceItem> InvoiceItems { get; }
     public IRepository<OwnerPayout> OwnerPayouts { get; }
+    public IRepository<RentableCapacityLedger> RentableCapacityLedgers { get; }
+    public IRepository<UnitRentabilityPeriod> UnitRentabilityPeriods { get; }
 
     // Reviews & Ratings
     public IRepository<Review> Reviews { get; }
@@ -61,6 +68,12 @@ public class UnitOfWork : IUnitOfWork
         => _context.ReportingBookingDailySummaries.AsNoTracking();
     public IQueryable<ReportingFinanceDailySummary> ReportingFinanceDailySummaries
         => _context.ReportingFinanceDailySummaries.AsNoTracking();
+    public IQueryable<ReportingBookingStayDailySummary> ReportingBookingStayDailySummaries
+        => _context.ReportingBookingStayDailySummaries.AsNoTracking();
+    public IQueryable<ReportingFinanceStayDailySummary> ReportingFinanceStayDailySummaries
+        => _context.ReportingFinanceStayDailySummaries.AsNoTracking();
+    public IQueryable<ReportingHistoricalEntryReconciliation> ReportingHistoricalEntryReconciliations
+        => _context.ReportingHistoricalEntryReconciliations.AsNoTracking();
     public IQueryable<ReportingReviewsDailySummary> ReportingReviewsDailySummaries
         => _context.ReportingReviewsDailySummaries.AsNoTracking();
     public IQueryable<ReportingNotificationsDailySummary> ReportingNotificationsDailySummaries
@@ -84,6 +97,11 @@ public class UnitOfWork : IUnitOfWork
         DateBlocks = new Repository<DateBlock>(_context);
         Bookings = new Repository<Booking>(_context);
         BookingStatusHistories = new Repository<BookingStatusHistory>(_context);
+        BookingOriginalSources = new Repository<BookingOriginalSource>(_context);
+        IdempotencyKeys = new Repository<IdempotencyKey>(_context);
+        HistoricalPaymentIdempotencyKeys = new Repository<HistoricalPaymentIdempotencyKey>(_context);
+        HistoricalOwnerAttributionCorrections = new Repository<HistoricalOwnerAttributionCorrection>(_context);
+        HistoricalOwnerCorrectionIdempotencyKeys = new Repository<HistoricalOwnerCorrectionIdempotencyKey>(_context);
         CrmLeads = new Repository<CrmLead>(_context);
         CrmNotes = new Repository<CrmNote>(_context);
         CrmAssignments = new Repository<CrmAssignment>(_context);
@@ -91,6 +109,8 @@ public class UnitOfWork : IUnitOfWork
         Invoices = new Repository<Invoice>(_context);
         InvoiceItems = new Repository<InvoiceItem>(_context);
         OwnerPayouts = new Repository<OwnerPayout>(_context);
+        RentableCapacityLedgers = new Repository<RentableCapacityLedger>(_context);
+        UnitRentabilityPeriods = new Repository<UnitRentabilityPeriod>(_context);
         Reviews = new Repository<Review>(_context);
         ReviewStatusHistories = new Repository<ReviewStatusHistory>(_context);
         UnitReviewSummaries = new Repository<UnitReviewSummary>(_context);
@@ -137,6 +157,16 @@ public class UnitOfWork : IUnitOfWork
             .SqlQuery<bool>(
                 $"SELECT pg_try_advisory_xact_lock(hashtextextended({resourceKey}, 0)) AS \"Value\"")
             .SingleAsync(cancellationToken);
+    }
+
+    public async Task AcquireSharedTransactionAdvisoryLockAsync(
+        string resourceKey,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureActiveTransaction();
+        await _context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock_shared(hashtextextended({resourceKey}, 0))",
+            cancellationToken);
     }
 
     public Task ReloadAsync<TEntity>(TEntity entity, CancellationToken cancellationToken = default)

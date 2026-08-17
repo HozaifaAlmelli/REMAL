@@ -2,7 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { reportsService } from "../api/services/reports.service";
 import { unitsService } from "../api/services/units.service";
 import { queryKeys } from "./query-keys";
-import { ReportDateFilters, ReportDailyFilters } from "../types/report.types";
+import {
+  HistoricalDailyFilters,
+  HistoricalReconciliationFilters,
+  OccupancyAnalyticsFilters,
+  ReportDateFilters,
+  ReportDailyFilters,
+} from "../types/report.types";
 
 // Callers gate each query with the permission that guards its endpoint.
 interface ReportQueryOptions {
@@ -69,6 +75,50 @@ export const useReports = () => {
           const d = data as Record<string, unknown>;
           return (Array.isArray(d?.items) ? d.items : Array.isArray(data) ? data : []) as import("../types/report.types").FinanceAnalyticsDailySummaryResponse[];
         },
+      }),
+
+    useBookingsStayDaily: (
+      filters: HistoricalDailyFilters,
+      options?: ReportQueryOptions
+    ) =>
+      useQuery({
+        queryKey: queryKeys.reports.bookingsStayDaily(filters),
+        queryFn: () => reportsService.getBookingsStayDaily(filters),
+        enabled: options?.enabled !== false,
+        staleTime: 1000 * 60 * 10,
+      }),
+
+    useFinanceStayDaily: (
+      filters: HistoricalDailyFilters,
+      options?: ReportQueryOptions
+    ) =>
+      useQuery({
+        queryKey: queryKeys.reports.financeStayDaily(filters),
+        queryFn: () => reportsService.getFinanceStayDaily(filters),
+        enabled: options?.enabled !== false,
+        staleTime: 1000 * 60 * 10,
+      }),
+
+    useHistoricalReconciliation: (
+      filters: HistoricalReconciliationFilters,
+      options?: ReportQueryOptions
+    ) =>
+      useQuery({
+        queryKey: queryKeys.reports.historicalReconciliation(filters),
+        queryFn: () => reportsService.getHistoricalReconciliation(filters),
+        enabled: options?.enabled !== false,
+        staleTime: 1000 * 60 * 10,
+      }),
+
+    useOccupancy: (
+      filters: OccupancyAnalyticsFilters,
+      options?: ReportQueryOptions
+    ) =>
+      useQuery({
+        queryKey: queryKeys.reports.occupancy(filters),
+        queryFn: () => reportsService.getOccupancy(filters),
+        enabled: options?.enabled !== false,
+        staleTime: 1000 * 60 * 10,
       }),
 
     useActiveUnitsCount: (options?: ReportQueryOptions) =>

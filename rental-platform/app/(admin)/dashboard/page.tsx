@@ -118,7 +118,7 @@ export default function AdminDashboardPage() {
 
         {canViewFinance && canViewReports && (
           <StatCard
-            title="Paid revenue"
+            title="Platform paid revenue"
             value={formatCurrency(totalRevenue)}
             icon={DollarSign}
             isLoading={financeLoading}
@@ -144,7 +144,7 @@ export default function AdminDashboardPage() {
 
       {/* Occupancy + Top Units Widgets */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(280px,0.72fr)_minmax(360px,1.28fr)]">
-        {canViewUnits && canViewReports && <OccupancyWidget />}
+        {canViewReports && <OccupancyWidget />}
         {canViewUnits && <TopUnitsWidget />}
       </div>
     </div>

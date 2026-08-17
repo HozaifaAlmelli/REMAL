@@ -17,6 +17,7 @@ Start here. This page routes you to the right doc for what you're doing.
 | Topic | Doc |
 |---|---|
 | Branching & release flow | [`branching.md`](branching.md) |
+| Final RC evidence gates | [`operations/final-rc-gates.md`](operations/final-rc-gates.md) |
 | API reference | [`api/KAZA_BOOKING_API_Reference.md`](api/KAZA_BOOKING_API_Reference.md) · [`api/KAZA_BOOKING_MASTER_API_REFERENCE.md`](api/KAZA_BOOKING_MASTER_API_REFERENCE.md) |
 | Auth & environment configuration | [`auth_config.md`](auth_config.md) |
 | Architecture decisions | [`architecture/`](architecture/) · [`decisions/`](decisions/) |

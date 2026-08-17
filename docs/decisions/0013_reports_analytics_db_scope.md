@@ -209,3 +209,38 @@ This decision supersedes any implicit assumption that Reports & Analytics requir
 - Decision 0010 — Owner Portal Business Scope
 
 All future Reports & Analytics tickets at every tier must reference this note as the governing scope constraint.
+
+---
+
+## 10. HB-08A2 Additive Extension — Final Owner-Ratified Dictionary
+
+Migration `0063_add_historical_reporting_read_models.sql` preserves the exact original eight-column prefix of
+both `reporting_booking_daily_summary` and `reporting_finance_daily_summary`. The owner froze the exact
+physical contract on 2026-08-11 before the final implementation correction. The five ordered dictionaries
+contain exactly `14 / 14 / 16 / 9 / 25` columns. The existing views append only:
+
+- booking recorded view: `historical_bookings_count`, `historical_agreed_amount`, and the four fixed
+  `original_source` provenance counts;
+- finance recorded view: Historical booking/agreed/invoice count and amount, ordinary unlinked paid
+  count/amount, and booking-recorded Historical Payment Evidence count/amount.
+
+The same migration creates three non-materialized, keyless read-only views:
+
+| View | Grain and bounded dictionary |
+|---|---|
+| `reporting_booking_stay_daily_summary` | 14 columns at `(check_in_date, booking_source)` grain with mixed totals plus Historical count/agreed/provenance components |
+| `reporting_finance_stay_daily_summary` | 9 columns at `check_in_date` grain with booking/contracted/active-invoice value only, including `stay_bookings_count` and `historical_bookings_with_invoice_count`; no cash or remaining measures |
+| `reporting_historical_entry_reconciliation` | 25 columns, one PII-free row per Historical `booking_id`, including explicit `recorded_date`, recorded/actual/stay facts, entry lag, finance/evidence facts and owner-correction facts |
+
+Historical provenance uses `original_source`; the fourth fixed provenance count is a catch-all remainder.
+Historical Payment Evidence is identified only by `is_historical_record = true AND invoice_id IS NULL AND
+payment_status = 'paid'`, uses `paid_at` for its evidence dates, and never enters ordinary/invoice-linked paid
+or remaining totals. Recorded Finance cannot create a `paid_at`-only date row. The payout prefix measures are
+intentionally corrected by pre-aggregating payouts per booking so active-invoice fan-out cannot multiply them.
+No write-side table, materialized view, ETL object or per-night allocation is introduced.
+
+The original PR implementation and first correction used rejected `19 / 15 / 19 / 9 / 24` alternative
+dictionaries. Those implementation-authored shapes were never owner-ratified. The final normalization removes
+every extra field and restores the exact owner-frozen contract. Separately, the owner ratified the reporting
+correction that aggregates a booking payout once before invoice joins, preventing active-invoice fan-out from
+multiplying payout values.

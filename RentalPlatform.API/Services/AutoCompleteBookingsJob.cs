@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
+using RentalPlatform.Business.Services;
+using RentalPlatform.Business.Time;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Constants;
@@ -15,16 +17,18 @@ public class AutoCompleteBookingsJob : BackgroundService
     private const string SweepLockKey = "job:auto-complete-bookings";
     private const string FinanceManagePermission = "finance:manage";
     private static readonly TimeSpan RunAtUtcTime = TimeSpan.FromHours(2);
-    private static readonly TimeZoneInfo CairoTimeZone = ResolveCairoTimeZone();
 
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IBusinessClock _clock;
     private readonly ILogger<AutoCompleteBookingsJob> _logger;
 
     public AutoCompleteBookingsJob(
         IServiceScopeFactory scopeFactory,
+        IBusinessClock clock,
         ILogger<AutoCompleteBookingsJob> logger)
     {
         _scopeFactory = scopeFactory;
+        _clock = clock;
         _logger = logger;
     }
 
@@ -66,8 +70,9 @@ public class AutoCompleteBookingsJob : BackgroundService
         var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
 
         var now = DateTime.UtcNow;
-        var cairoNow = TimeZoneInfo.ConvertTimeFromUtc(now, CairoTimeZone);
-        var completedAfterCheckoutCutoff = DateOnly.FromDateTime(cairoNow).AddDays(-1);
+        // One Cairo business-date definition for the whole application (HB-01 §11.2.1), so the
+        // completed-stay boundary here and the REQ-16 past-date rule cannot drift apart.
+        var completedAfterCheckoutCutoff = _clock.CairoToday().AddDays(-1);
 
         await using var transaction = await unitOfWork.BeginTransactionAsync(cancellationToken);
         var ownsSweep = await unitOfWork.TryAcquireTransactionAdvisoryLockAsync(
@@ -83,6 +88,7 @@ public class AutoCompleteBookingsJob : BackgroundService
         var bookings = await unitOfWork.Bookings.Query()
             .Include(b => b.Client)
             .Include(b => b.Unit)
+            .Where(HistoricalBookingAutomationPolicy.AutomaticSideEffectsEligible)
             .Where(b => b.BookingStatus == BookingStatus.CheckIn)
             .Where(b => b.CheckOutDate <= completedAfterCheckoutCutoff)
             .ToListAsync(cancellationToken);
@@ -130,24 +136,15 @@ public class AutoCompleteBookingsJob : BackgroundService
             bookings.Count);
     }
 
-    private static TimeZoneInfo ResolveCairoTimeZone()
-    {
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo");
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById("Egypt Standard Time");
-        }
-    }
-
     private async Task NotifyAdminsIfOutstandingBalanceAsync(
         IUnitOfWork unitOfWork,
         INotificationService notificationService,
         Booking booking,
         CancellationToken cancellationToken)
     {
+        if (!HistoricalBookingAutomationPolicy.AllowsAutomaticSideEffects(booking))
+            return;
+
         var activeInvoice = await unitOfWork.Invoices.Query()
             .Where(i => i.BookingId == booking.Id)
             .Where(i => i.InvoiceStatus != "cancelled" && i.InvoiceStatus != "superseded")

@@ -15,6 +15,7 @@ import { BookingInvoice } from "@/components/admin/bookings/BookingInvoice";
 import { BookingNotes } from "@/components/admin/bookings/BookingNotes";
 import { BookingAssignment } from "@/components/admin/bookings/BookingAssignment";
 import { BookingStatusHistory } from "@/components/admin/bookings/BookingStatusHistory";
+import { HistoricalBookingContext } from "@/components/admin/bookings/HistoricalBookingContext";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FileQuestion, AlertCircle } from "lucide-react";
@@ -92,6 +93,7 @@ export default function BookingDetailPage() {
   return (
     <div className="space-y-6">
       <BookingHeader booking={booking} />
+      <HistoricalBookingContext booking={booking} />
 
       {/* Booking summary */}
       <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
@@ -171,7 +173,10 @@ export default function BookingDetailPage() {
             <Skeleton className="h-32 w-full" />
           </div>
         ) : snapshot ? (
-          <BookingFinancialSummary snapshot={snapshot} />
+          <BookingFinancialSummary
+            snapshot={snapshot}
+            isHistorical={booking.isHistorical}
+          />
         ) : (
           <div className="flex items-center justify-center rounded-lg border border-neutral-200 bg-white p-4 text-sm text-red-500">
             Finance data is not available for this booking yet.

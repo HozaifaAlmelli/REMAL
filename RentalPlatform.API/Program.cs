@@ -17,6 +17,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.StaticFiles;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using RentalPlatform.Business.Time;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -76,17 +77,8 @@ builder.Services.AddControllers(options =>
     })
     .ConfigureApiBehaviorOptions(options =>
     {
-        options.InvalidModelStateResponseFactory = context =>
-        {
-            var errors = context.ModelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage)
-                .Where(e => !string.IsNullOrEmpty(e))
-                .ToArray();
-
-            var response = RentalPlatform.API.Models.ApiResponse.CreateFailure("Validation failed", errors);
-            return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(response);
-        };
+        options.InvalidModelStateResponseFactory =
+            RentalPlatform.API.Models.ApiValidationResponseFactory.Create;
     })
     .AddJsonOptions(options =>
     {
@@ -281,6 +273,14 @@ builder.Services.AddScoped<IDateBlockService, DateBlockService>();
 builder.Services.AddScoped<IDateBlockApprovalService, DateBlockApprovalService>();
 builder.Services.AddScoped<IUnitAvailabilityService, UnitAvailabilityService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<IHistoricalIdempotencyStore, HistoricalIdempotencyStore>();
+builder.Services.AddScoped<IHistoricalConflictService, HistoricalConflictService>();
+builder.Services.AddScoped<IHistoricalBookingService, HistoricalBookingService>();
+builder.Services.AddScoped<IHistoricalPaymentService, HistoricalPaymentService>();
+builder.Services.AddScoped<IHistoricalOwnerAttributionService, HistoricalOwnerAttributionService>();
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton<IBusinessClock, CairoBusinessClock>();
+builder.Services.AddScoped<IRentableCapacityLedgerService, RentableCapacityLedgerService>();
 builder.Services.AddScoped<IGuestBookingService, GuestBookingService>();
 builder.Services.AddScoped<IBookingLifecycleService, BookingLifecycleService>();
 builder.Services.AddScoped<ICrmLeadService, CrmLeadService>();
@@ -308,6 +308,7 @@ builder.Services.AddScoped<IReportingBookingAnalyticsService, ReportingBookingAn
 builder.Services.AddScoped<IReportingFinanceAnalyticsService, ReportingFinanceAnalyticsService>();
 builder.Services.AddScoped<IReportingReviewsAnalyticsService, ReportingReviewsAnalyticsService>();
 builder.Services.AddScoped<IReportingNotificationsAnalyticsService, ReportingNotificationsAnalyticsService>();
+builder.Services.AddScoped<IOccupancyAnalyticsService, OccupancyAnalyticsService>();
 builder.Services.AddHostedService<AutoCompleteBookingsJob>();
 
 var app = builder.Build();

@@ -52,6 +52,18 @@ public static class BookingStatusTransitions
         BookingStatus.CheckIn
     };
 
+    // Real occupancy states used only by historical booking conflict evaluation.
+    // Keep this separate from storefront availability sets so past completed stays
+    // never suppress future inventory.
+    public static readonly BookingStatus[] HistoricalConflictStatuses =
+    {
+        BookingStatus.Booked,
+        BookingStatus.Confirmed,
+        BookingStatus.CheckIn,
+        BookingStatus.Completed,
+        BookingStatus.LeftEarly
+    };
+
     public const int AgedSoftHoldThresholdDays = 2;
 
     // Booking statuses for which financial documents (invoices) and payments may be created.

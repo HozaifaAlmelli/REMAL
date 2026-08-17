@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using RentalPlatform.API.Models;
 using RentalPlatform.Business.Exceptions;
+using RentalPlatform.Data.Exceptions;
 
 namespace RentalPlatform.API.Middleware;
 
@@ -55,6 +56,21 @@ public class ExceptionHandlingMiddleware
                 message = conflictEx.Message;
                 break;
 
+            case HistoricalFinancialSnapshotImmutableException snapshotEx:
+                statusCode = (int)HttpStatusCode.Conflict; // 409
+                message = snapshotEx.Message;
+                break;
+
+            case HistoricalPaymentImmutableException paymentEx:
+                statusCode = (int)HttpStatusCode.Conflict;
+                message = paymentEx.Message;
+                break;
+
+            case HistoricalOwnerCorrectionAuditImmutableException ownerCorrectionEx:
+                statusCode = (int)HttpStatusCode.Conflict;
+                message = ownerCorrectionEx.Message;
+                break;
+
             case NotFoundException notFoundEx:
                 statusCode = (int)HttpStatusCode.NotFound; // 404
                 message = notFoundEx.Message;
@@ -73,7 +89,12 @@ public class ExceptionHandlingMiddleware
 
         context.Response.StatusCode = statusCode;
 
-        var response = ApiResponse.CreateFailure(message, errors);
+        var code = (exception as IBusinessErrorCode)?.Code
+            ?? (exception as HistoricalFinancialSnapshotImmutableException)?.Code
+            ?? (exception as HistoricalPaymentImmutableException)?.Code
+            ?? (exception as HistoricalOwnerCorrectionAuditImmutableException)?.Code;
+        var metadata = (exception as IBusinessErrorMetadata)?.Metadata;
+        var response = ApiResponse.CreateFailure(message, errors, code, metadata);
         
         var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         return context.Response.WriteAsync(JsonSerializer.Serialize(response, options));

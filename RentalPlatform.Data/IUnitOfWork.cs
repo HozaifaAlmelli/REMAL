@@ -25,6 +25,11 @@ public interface IUnitOfWork
     IRepository<DateBlock> DateBlocks { get; }
     IRepository<Booking> Bookings { get; }
     IRepository<BookingStatusHistory> BookingStatusHistories { get; }
+    IRepository<BookingOriginalSource> BookingOriginalSources { get; }
+    IRepository<IdempotencyKey> IdempotencyKeys { get; }
+    IRepository<HistoricalPaymentIdempotencyKey> HistoricalPaymentIdempotencyKeys { get; }
+    IRepository<HistoricalOwnerAttributionCorrection> HistoricalOwnerAttributionCorrections { get; }
+    IRepository<HistoricalOwnerCorrectionIdempotencyKey> HistoricalOwnerCorrectionIdempotencyKeys { get; }
     IRepository<CrmLead> CrmLeads { get; }
     IRepository<CrmNote> CrmNotes { get; }
     IRepository<CrmAssignment> CrmAssignments { get; }
@@ -32,6 +37,8 @@ public interface IUnitOfWork
     IRepository<Invoice> Invoices { get; }
     IRepository<InvoiceItem> InvoiceItems { get; }
     IRepository<OwnerPayout> OwnerPayouts { get; }
+    IRepository<RentableCapacityLedger> RentableCapacityLedgers { get; }
+    IRepository<UnitRentabilityPeriod> UnitRentabilityPeriods { get; }
 
     // Reviews & Ratings
     IRepository<Review> Reviews { get; }
@@ -53,6 +60,9 @@ public interface IUnitOfWork
     // Reports & Analytics read-model views — IQueryable only, no write path
     IQueryable<ReportingBookingDailySummary> ReportingBookingDailySummaries { get; }
     IQueryable<ReportingFinanceDailySummary> ReportingFinanceDailySummaries { get; }
+    IQueryable<ReportingBookingStayDailySummary> ReportingBookingStayDailySummaries { get; }
+    IQueryable<ReportingFinanceStayDailySummary> ReportingFinanceStayDailySummaries { get; }
+    IQueryable<ReportingHistoricalEntryReconciliation> ReportingHistoricalEntryReconciliations { get; }
     IQueryable<ReportingReviewsDailySummary> ReportingReviewsDailySummaries { get; }
     IQueryable<ReportingNotificationsDailySummary> ReportingNotificationsDailySummaries { get; }
 
@@ -69,6 +79,10 @@ public interface IUnitOfWork
     bool HasActiveTransaction { get; }
 
     Task AcquireTransactionAdvisoryLockAsync(
+        string resourceKey,
+        CancellationToken cancellationToken = default);
+
+    Task AcquireSharedTransactionAdvisoryLockAsync(
         string resourceKey,
         CancellationToken cancellationToken = default);
 

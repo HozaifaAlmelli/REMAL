@@ -16,10 +16,12 @@ using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Enums;
 using RentalPlatform.Shared.Models;
+using RentalPlatform.Tests.Infrastructure;
 using Xunit;
 
 namespace RentalPlatform.Tests;
 
+[Trait(TestCategories.Name, TestCategories.Fast)]
 public sealed class BookingHistoryCreatorTests
 {
     [Fact]
@@ -279,7 +281,11 @@ public sealed class BookingHistoryCreatorTests
 
             var unitOfWork = new UnitOfWork(context);
             var availability = new AvailableUnitService();
-            var bookingService = new BookingService(unitOfWork, availability);
+            var bookingService = new BookingService(
+                unitOfWork,
+                availability,
+                new FixedBusinessClock(new DateOnly(2027, 1, 1)),
+                NullLogger<BookingService>.Instance);
             var lifecycleService = new BookingLifecycleService(
                 unitOfWork,
                 availability,
@@ -392,7 +398,8 @@ public sealed class BookingHistoryCreatorTests
             DateOnly startDate,
             DateOnly endDate,
             Guid? excludeBookingId = null,
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default,
+            bool allowInactiveUnit = false) =>
             Task.FromResult(new UnitAvailabilityResult
             {
                 UnitId = unitId,

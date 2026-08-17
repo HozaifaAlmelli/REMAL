@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
@@ -61,6 +62,7 @@ public class BookingLifecycleService : IBookingLifecycleService
 
         var transitionedBooking = targetStatus switch
         {
+            BookingStatus.Booked => await BookInternalAsync(booking, changedByAdminUserId, notes, cancellationToken),
             BookingStatus.Confirmed => await ConfirmInternalAsync(booking, changedByAdminUserId, notes, cancellationToken),
             BookingStatus.Cancelled => await CancelInternalAsync(booking, changedByAdminUserId, notes, cancellationToken),
             _ => await ApplySimpleTransitionAsync(booking, targetStatus, changedByAdminUserId, notes, cancellationToken),
@@ -119,6 +121,90 @@ public class BookingLifecycleService : IBookingLifecycleService
     // ---------------------------------------------------------------
     //  Internal transition handlers with side effects
     // ---------------------------------------------------------------
+
+    private async Task<Booking> BookInternalAsync(
+        Booking booking,
+        Guid changedByAdminUserId,
+        string? notes,
+        CancellationToken cancellationToken)
+    {
+        IDbContextTransaction? ownedTransaction = null;
+        try
+        {
+            if (!_unitOfWork.HasActiveTransaction)
+                ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                $"booking-unit:{booking.UnitId:N}",
+                cancellationToken);
+            await _unitOfWork.ReloadAsync(booking, cancellationToken);
+
+            if (!BookingStatusTransitions.IsValidTransition(
+                    booking.BookingStatus,
+                    BookingStatus.Booked))
+            {
+                throw new ConflictException(
+                    $"Cannot transition booking {booking.Id} from '{booking.BookingStatus}' to '{BookingStatus.Booked}'.");
+            }
+
+            var unitExists = await _unitOfWork.Units.ExistsAsync(
+                unit => unit.Id == booking.UnitId && unit.IsActive && unit.DeletedAt == null,
+                cancellationToken);
+            if (!unitExists)
+            {
+                throw new ConflictException(
+                    $"Cannot book booking {booking.Id}: unit {booking.UnitId} is no longer active or has been deleted.");
+            }
+
+            var availability = await _availabilityService.CheckOperationalAvailabilityAsync(
+                booking.UnitId,
+                booking.CheckInDate,
+                booking.CheckOutDate.AddDays(-1),
+                booking.Id,
+                cancellationToken);
+            if (!availability.IsAvailable)
+            {
+                throw new ConflictException(
+                    $"Cannot book booking {booking.Id}: unit {booking.UnitId} is not operationally available: {availability.Reason}");
+            }
+
+            await EnsureNoOverlap(
+                booking.UnitId,
+                booking.CheckInDate,
+                booking.CheckOutDate,
+                booking.Id,
+                cancellationToken);
+
+            var oldStatus = booking.BookingStatus;
+            booking.BookingStatus = BookingStatus.Booked;
+            booking.UpdatedAt = DateTime.UtcNow;
+            _unitOfWork.Bookings.Update(booking);
+            await AppendStatusHistoryAsync(
+                booking.Id,
+                oldStatus,
+                BookingStatus.Booked,
+                changedByAdminUserId,
+                notes,
+                cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction is not null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.DisposeAsync();
+        }
+
+        return booking;
+    }
 
     private async Task<Booking> ConfirmInternalAsync(
         Booking booking,
@@ -180,23 +266,26 @@ public class BookingLifecycleService : IBookingLifecycleService
             await AppendStatusHistoryAsync(booking.Id, oldStatus, BookingStatus.Confirmed, changedByAdminUserId, notes, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            // Only create an invoice if one does not already exist for this booking.
-            // This handles cases where the booking was previously confirmed and the
-            // status was rolled back manually while the invoice remained active.
-            var existingInvoice = await _unitOfWork.Invoices.FirstOrDefaultAsync(
-                i => i.BookingId == booking.Id
-                    && i.InvoiceStatus != "cancelled"
-                    && i.InvoiceStatus != "superseded",
-                cancellationToken);
-
-            if (existingInvoice == null)
+            if (HistoricalBookingAutomationPolicy.AllowsAutomaticSideEffects(booking))
             {
-                var draftInvoice = await _invoiceService.CreateDraftFromBookingAsync(
-                    booking.Id,
-                    invoiceNumber: null,
-                    notes: "Auto-generated on confirmation",
+                // Only create an invoice if one does not already exist for this booking.
+                // This handles cases where the booking was previously confirmed and the
+                // status was rolled back manually while the invoice remained active.
+                var existingInvoice = await _unitOfWork.Invoices.FirstOrDefaultAsync(
+                    i => i.BookingId == booking.Id
+                        && i.InvoiceStatus != "cancelled"
+                        && i.InvoiceStatus != "superseded",
                     cancellationToken);
-                await _invoiceService.IssueAsync(draftInvoice.Id, cancellationToken);
+
+                if (existingInvoice == null)
+                {
+                    var draftInvoice = await _invoiceService.CreateDraftFromBookingAsync(
+                        booking.Id,
+                        invoiceNumber: null,
+                        notes: "Auto-generated on confirmation",
+                        cancellationToken);
+                    await _invoiceService.IssueAsync(draftInvoice.Id, cancellationToken);
+                }
             }
 
             await tx.CommitAsync(cancellationToken);
@@ -313,6 +402,9 @@ public class BookingLifecycleService : IBookingLifecycleService
         BookingStatus targetStatus,
         CancellationToken cancellationToken)
     {
+        if (!HistoricalBookingAutomationPolicy.AllowsAutomaticSideEffects(booking))
+            return;
+
         var templateCode = targetStatus == BookingStatus.Confirmed
             ? BookingConfirmedTemplateCode
             : BookingStatusChangedTemplateCode;

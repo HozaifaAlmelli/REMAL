@@ -1,6 +1,7 @@
 import type { OwnerPortalBookingResponse } from "@/lib/types/owner-portal.types";
 import { formatCurrency, referenceCode } from "@/lib/utils/format";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { HistoricalBadge } from "@/components/ui/HistoricalBadge";
 
 interface OwnerBookingRowProps {
   booking: OwnerPortalBookingResponse;
@@ -31,9 +32,12 @@ export function OwnerBookingRow({
       className="cursor-pointer border-b border-neutral-200 transition-colors hover:bg-neutral-50"
     >
       <td className="px-4 py-3 text-sm">
-        <span className="font-mono text-xs font-medium text-neutral-500">
-          {referenceCode("BKG", booking.bookingId)}
-        </span>
+        <div className="flex flex-col items-start gap-1">
+          <span className="font-mono text-xs font-medium text-neutral-500">
+            {referenceCode("BKG", booking.bookingId)}
+          </span>
+          {booking.isHistorical && <HistoricalBadge />}
+        </div>
       </td>
       <td className="px-4 py-3 text-sm font-medium text-neutral-900">
         {unitName ?? referenceCode("UNIT", booking.unitId)}
@@ -53,7 +57,9 @@ export function OwnerBookingRow({
       <td className="px-4 py-3 text-sm font-medium text-neutral-900">
         {formatCurrency(booking.finalAmount)}
       </td>
-      <td className="px-4 py-3 text-sm text-neutral-500">{booking.source}</td>
+      <td className="px-4 py-3 text-sm text-neutral-500">
+        {booking.isHistorical ? "Recorded by KAZA admin" : booking.source}
+      </td>
     </tr>
   );
 }

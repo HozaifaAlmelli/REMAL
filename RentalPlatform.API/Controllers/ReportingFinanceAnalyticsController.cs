@@ -63,6 +63,33 @@ public class ReportingFinanceAnalyticsController : ControllerBase
         return Ok(ApiResponse<FinanceAnalyticsSummaryResponse>.CreateSuccess(MapToSummaryResponse(result)));
     }
 
+    // GET /api/internal/reports/finance/stay-daily
+    [HttpGet("api/internal/reports/finance/stay-daily")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<FinanceAnalyticsStayDailySummaryResponse>>>> GetStayDailySummary(
+        [FromQuery] GetHistoricalReportingDailyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _service.GetStayDailySummaryAsync(
+            request.DateFrom,
+            request.DateTo,
+            request.IncludeHistorical,
+            request.HistoricalOnly,
+            cancellationToken);
+
+        var totalCount = rows.Count;
+        var paged = rows
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .Select(MapToStayDailyResponse)
+            .ToList();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)request.PageSize));
+        var pagination = new PaginationMeta(totalCount, request.Page, request.PageSize, totalPages);
+
+        return Ok(ApiResponse<IReadOnlyList<FinanceAnalyticsStayDailySummaryResponse>>.CreateSuccess(
+            paged,
+            pagination: pagination));
+    }
+
     // -----------------------------------------------------------------------
     // Private mappers — no read-model properties exposed directly
     // -----------------------------------------------------------------------
@@ -79,6 +106,14 @@ public class ReportingFinanceAnalyticsController : ControllerBase
             TotalPendingPayoutAmount    = row.TotalPendingPayoutAmount,
             TotalScheduledPayoutAmount  = row.TotalScheduledPayoutAmount,
             TotalPaidPayoutAmount       = row.TotalPaidPayoutAmount,
+            HistoricalBookingsCount = row.HistoricalBookingsCount,
+            HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+            HistoricalBookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
+            HistoricalInvoicedAmount = row.HistoricalInvoicedAmount,
+            OrdinaryUnlinkedPaidCount = row.OrdinaryUnlinkedPaidCount,
+            OrdinaryUnlinkedPaidAmount = row.OrdinaryUnlinkedPaidAmount,
+            HistoricalEvidenceRecordedCount = row.HistoricalEvidenceRecordedCount,
+            HistoricalEvidenceRecordedAmount = row.HistoricalEvidenceRecordedAmount,
         };
 
     private static FinanceAnalyticsSummaryResponse MapToSummaryResponse(
@@ -91,8 +126,31 @@ public class ReportingFinanceAnalyticsController : ControllerBase
             TotalInvoicedAmount             = result.TotalInvoicedAmount,
             TotalPaidAmount                 = result.TotalPaidAmount,
             TotalRemainingAmount            = result.TotalRemainingAmount,
+            HistoricalPaymentEvidenceCount  = result.HistoricalPaymentEvidenceCount,
+            HistoricalPaymentEvidenceAmount = result.HistoricalPaymentEvidenceAmount,
             TotalPendingPayoutAmount        = result.TotalPendingPayoutAmount,
             TotalScheduledPayoutAmount      = result.TotalScheduledPayoutAmount,
             TotalPaidPayoutAmount           = result.TotalPaidPayoutAmount,
+            HistoricalBookingsCount = result.HistoricalBookingsCount,
+            HistoricalAgreedAmount = result.HistoricalAgreedAmount,
+            HistoricalBookingsWithInvoiceCount = result.HistoricalBookingsWithInvoiceCount,
+            HistoricalInvoicedAmount = result.HistoricalInvoicedAmount,
+            OrdinaryUnlinkedPaidCount = result.OrdinaryUnlinkedPaidCount,
+            OrdinaryUnlinkedPaidAmount = result.OrdinaryUnlinkedPaidAmount,
+        };
+
+    private static FinanceAnalyticsStayDailySummaryResponse MapToStayDailyResponse(
+        RentalPlatform.Data.ReadModels.ReportingFinanceStayDailySummary row) =>
+        new()
+        {
+            StayStartDate = row.StayStartDate,
+            StayBookingsCount = row.StayBookingsCount,
+            BookingsWithInvoiceCount = row.BookingsWithInvoiceCount,
+            TotalInvoicedAmount = row.TotalInvoicedAmount,
+            TotalFinalAmount = row.TotalFinalAmount,
+            HistoricalBookingsCount = row.HistoricalBookingsCount,
+            HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+            HistoricalBookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
+            HistoricalInvoicedAmount = row.HistoricalInvoicedAmount,
         };
 }

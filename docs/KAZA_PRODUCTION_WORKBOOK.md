@@ -404,17 +404,21 @@ docker logs --tail=200 kaza-prod-api
 
 ```bash
 # المفضّل: سكربت المستودع المُتحقَّق منه
-sh /opt/apps/kaza-booking/scripts/backup-postgres.sh
+bash /opt/apps/kaza-booking/scripts/backup-postgres.sh
 
 # البديل اليدوي (dump مضغوط بصيغة custom في ملف محميّ للجذر فقط):
 BACKUP_DIR="/opt/kaza/backups/postgres"; mkdir -p "$BACKUP_DIR"
-TS="$(date +%F_%H-%M-%S)"
-BACKUP_FILE="$BACKUP_DIR/kaza-prod-$TS.dump"
-docker exec kaza-prod-db sh -lc '
+PARTIAL="$(mktemp "$BACKUP_DIR/kaza-prod-$(date -u +%F_%H-%M-%S)_XXXXXXXX.dump.partial")"
+BACKUP_FILE="${PARTIAL%.partial}"
+if ! docker exec kaza-prod-db sh -lc '
   set -e
   pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc
-' > "$BACKUP_FILE"
-test -s "$BACKUP_FILE" || { echo "FATAL: backup empty — do NOT proceed"; exit 1; }
+' > "$PARTIAL"; then rm -f -- "$PARTIAL"; exit 1; fi
+test -s "$PARTIAL" || { rm -f -- "$PARTIAL"; echo "FATAL: backup empty — do NOT proceed"; exit 1; }
+docker exec -i kaza-prod-db pg_restore --list < "$PARTIAL" >/dev/null || {
+  rm -f -- "$PARTIAL"; echo "FATAL: backup metadata invalid — do NOT proceed"; exit 1; }
+ln -- "$PARTIAL" "$BACKUP_FILE" || { rm -f -- "$PARTIAL"; exit 1; }
+rm -f -- "$PARTIAL"
 chmod 600 "$BACKUP_FILE"
 ```
 

@@ -172,141 +172,273 @@ public class InvoiceService : IInvoiceService
         decimal unitAmount,
         CancellationToken cancellationToken = default)
     {
-        var invoice = await _unitOfWork.Invoices.Query()
-            .Include(i => i.InvoiceItems)
-            .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken);
-
-        if (invoice == null)
+        var invoiceIdentity = await _unitOfWork.Invoices.Query()
+            .AsNoTracking()
+            .Where(invoice => invoice.Id == invoiceId)
+            .Select(invoice => new { invoice.BookingId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (invoiceIdentity == null)
             throw new NotFoundException($"Invoice with ID {invoiceId} not found");
 
-        if (invoice.InvoiceStatus != "draft")
-            throw new ConflictException(
-                $"Cannot add items to invoice {invoiceId}: current status is '{invoice.InvoiceStatus}'. Only draft invoices can be modified.");
+        IDbContextTransaction? ownedTransaction = null;
+        if (!_unitOfWork.HasActiveTransaction)
+            ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        var lineTotal = quantity * unitAmount;
-
-        var item = new InvoiceItem
+        try
         {
-            Id = Guid.NewGuid(),
-            InvoiceId = invoiceId,
-            LineType = "manual_adjustment",
-            Description = description.Trim(),
-            Quantity = quantity,
-            UnitAmount = unitAmount,
-            LineTotal = lineTotal,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
+            // Canonical recomputation can lower a legacy inconsistent total. Serialize that
+            // possibility with ordinary payment reservations before taking the invoice lock.
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                $"payment-booking:{invoiceIdentity.BookingId:N}",
+                cancellationToken);
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                InvoiceMutationLocks.ForInvoice(invoiceId),
+                cancellationToken);
 
-        await _unitOfWork.InvoiceItems.AddAsync(item, cancellationToken);
+            var invoice = await _unitOfWork.Invoices.GetByIdAsync(invoiceId, cancellationToken);
+            if (invoice == null)
+                throw new NotFoundException($"Invoice with ID {invoiceId} not found");
 
-        // Recalculate totals including new item
-        var allItems = invoice.InvoiceItems.ToList();
-        allItems.Add(item);
-        invoice.SubtotalAmount = allItems.Sum(ii => ii.LineTotal);
-        invoice.TotalAmount = invoice.SubtotalAmount;
-        invoice.UpdatedAt = DateTime.UtcNow;
+            await _unitOfWork.ReloadAsync(invoice, cancellationToken);
+            if (invoice.InvoiceStatus != "draft")
+                throw new ConflictException(
+                    $"Cannot add items to invoice {invoiceId}: current status is '{invoice.InvoiceStatus}'. Only draft invoices can be modified.");
 
-        _unitOfWork.Invoices.Update(invoice);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+            var lineTotal = quantity * unitAmount;
+            var persistedItemTotal = await _unitOfWork.InvoiceItems.Query()
+                .Where(item => item.InvoiceId == invoiceId)
+                .SumAsync(item => item.LineTotal, cancellationToken);
+            var proposedTotal = persistedItemTotal + lineTotal;
+            if (proposedTotal < invoice.TotalAmount)
+            {
+                await EnsureOrdinaryCommitmentsFitCapacityAsync(
+                    invoice.BookingId,
+                    proposedTotal,
+                    cancellationToken);
+            }
 
-        // Reload with persisted items
-        return await _unitOfWork.Invoices.Query()
-            .Include(i => i.InvoiceItems)
-            .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken) ?? invoice;
+            var now = DateTime.UtcNow;
+            var item = new InvoiceItem
+            {
+                Id = Guid.NewGuid(),
+                InvoiceId = invoiceId,
+                LineType = "manual_adjustment",
+                Description = description.Trim(),
+                Quantity = quantity,
+                UnitAmount = unitAmount,
+                LineTotal = lineTotal,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            await _unitOfWork.InvoiceItems.AddAsync(item, cancellationToken);
+
+            invoice.SubtotalAmount = proposedTotal;
+            invoice.TotalAmount = invoice.SubtotalAmount;
+            invoice.UpdatedAt = now;
+
+            _unitOfWork.Invoices.Update(invoice);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+
+            return await _unitOfWork.Invoices.Query()
+                .Include(i => i.InvoiceItems)
+                .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken) ?? invoice;
+        }
+        catch
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
+        }
     }
 
     public async Task<Invoice> IssueAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var invoice = await _unitOfWork.Invoices.Query()
-            .Include(i => i.InvoiceItems)
-            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+        IDbContextTransaction? ownedTransaction = null;
+        if (!_unitOfWork.HasActiveTransaction)
+            ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        if (invoice == null)
-            throw new NotFoundException($"Invoice with ID {id} not found");
-
-        if (invoice.InvoiceStatus != "draft")
-            throw new ConflictException(
-                $"Invoice {id} cannot be issued: current status is '{invoice.InvoiceStatus}'. Only draft invoices can be issued.");
-
-        if (!invoice.InvoiceItems.Any())
-            throw new ConflictException($"Invoice {id} cannot be issued: invoice has no line items.");
-
-        invoice.InvoiceStatus = "issued";
-        invoice.IssuedAt ??= DateTime.UtcNow;
-        invoice.UpdatedAt = DateTime.UtcNow;
-
-        _unitOfWork.Invoices.Update(invoice);
-
-        // Link ALL payments for this booking to this invoice (not just unlinked ones)
-        // This ensures all payments (pending, paid, failed, cancelled) are associated with the invoice
-        var allBookingPayments = await _unitOfWork.Payments.Query()
-            .Where(p => p.BookingId == invoice.BookingId && p.InvoiceId == null)
-            .ToListAsync(cancellationToken);
-
-        foreach (var payment in allBookingPayments)
+        try
         {
-            payment.InvoiceId = invoice.Id;
-            payment.UpdatedAt = DateTime.UtcNow;
-            _unitOfWork.Payments.Update(payment);
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                InvoiceMutationLocks.ForInvoice(id),
+                cancellationToken);
+
+            var invoice = await _unitOfWork.Invoices.Query()
+                .Include(i => i.InvoiceItems)
+                .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+            if (invoice == null)
+                throw new NotFoundException($"Invoice with ID {id} not found");
+
+            await _unitOfWork.ReloadAsync(invoice, cancellationToken);
+            if (invoice.InvoiceStatus != "draft")
+                throw new ConflictException(
+                    $"Invoice {id} cannot be issued: current status is '{invoice.InvoiceStatus}'. Only draft invoices can be issued.");
+
+            if (!invoice.InvoiceItems.Any())
+                throw new ConflictException($"Invoice {id} cannot be issued: invoice has no line items.");
+
+            invoice.InvoiceStatus = "issued";
+            invoice.IssuedAt ??= DateTime.UtcNow;
+            invoice.UpdatedAt = DateTime.UtcNow;
+
+            _unitOfWork.Invoices.Update(invoice);
+
+            // Historical evidence remains standalone and is never invoice-linked.
+            var allBookingPayments = await _unitOfWork.Payments.Query()
+                .Where(p => p.BookingId == invoice.BookingId
+                    && p.InvoiceId == null
+                    && !p.IsHistoricalRecord)
+                .ToListAsync(cancellationToken);
+
+            foreach (var payment in allBookingPayments)
+            {
+                payment.InvoiceId = invoice.Id;
+                payment.UpdatedAt = DateTime.UtcNow;
+                _unitOfWork.Payments.Update(payment);
+            }
+
+            // Check if invoice should be marked as paid based on existing paid payments
+            var totalPaid = await _unitOfWork.Payments.Query()
+                .Where(p => p.InvoiceId == invoice.Id
+                    && p.PaymentStatus == "paid"
+                    && !p.IsHistoricalRecord)
+                .SumAsync(p => p.Amount, cancellationToken);
+
+            if (totalPaid >= invoice.TotalAmount)
+            {
+                invoice.InvoiceStatus = "paid";
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+
+            return invoice;
         }
-
-        // Check if invoice should be marked as paid based on existing paid payments
-        var totalPaid = await _unitOfWork.Payments.Query()
-            .Where(p => p.InvoiceId == invoice.Id && p.PaymentStatus == "paid")
-            .SumAsync(p => p.Amount, cancellationToken);
-
-        if (totalPaid >= invoice.TotalAmount)
+        catch
         {
-            invoice.InvoiceStatus = "paid";
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
         }
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return invoice;
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
+        }
     }
 
     public async Task<Invoice> CancelAsync(Guid id, string? notes, CancellationToken cancellationToken = default)
     {
-        var invoice = await _unitOfWork.Invoices.Query()
-            .Include(i => i.InvoiceItems)
-            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
-
-        if (invoice == null)
+        var invoiceIdentity = await _unitOfWork.Invoices.Query()
+            .AsNoTracking()
+            .Where(invoice => invoice.Id == id)
+            .Select(invoice => new { invoice.BookingId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (invoiceIdentity == null)
             throw new NotFoundException($"Invoice with ID {id} not found");
 
-        if (invoice.InvoiceStatus == "cancelled")
-            throw new ConflictException($"Invoice {id} is already cancelled.");
+        IDbContextTransaction? ownedTransaction = null;
+        if (!_unitOfWork.HasActiveTransaction)
+            ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        if (invoice.InvoiceStatus == "paid")
-            throw new ConflictException($"Invoice {id} cannot be cancelled: invoice is already paid.");
+        try
+        {
+            // Cancellation changes the active-invoice capacity used by ordinary payments.
+            // Share their per-booking lock so capacity and settlement cannot cross in flight.
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                $"payment-booking:{invoiceIdentity.BookingId:N}",
+                cancellationToken);
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                InvoiceMutationLocks.ForInvoice(id),
+                cancellationToken);
 
-        // Check for linked paid payments
-        var hasPaidPayment = await _unitOfWork.Payments.ExistsAsync(
-            p => p.InvoiceId == id && p.PaymentStatus == "paid",
-            cancellationToken);
-        if (hasPaidPayment)
-            throw new ConflictException(
-                $"Invoice {id} cannot be cancelled: there are paid payments linked to this invoice.");
+            var invoice = await _unitOfWork.Invoices.Query()
+                .Include(i => i.InvoiceItems)
+                .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+            if (invoice == null)
+                throw new NotFoundException($"Invoice with ID {id} not found");
 
-        invoice.InvoiceStatus = "cancelled";
+            await _unitOfWork.ReloadAsync(invoice, cancellationToken);
+            if (invoice.InvoiceStatus == "cancelled")
+                throw new ConflictException($"Invoice {id} is already cancelled.");
 
-        if (notes != null)
-            invoice.Notes = notes.Trim();
+            if (invoice.InvoiceStatus == "paid")
+                throw new ConflictException($"Invoice {id} cannot be cancelled: invoice is already paid.");
 
-        invoice.UpdatedAt = DateTime.UtcNow;
+            // Check for linked paid payments
+            var hasPaidPayment = await _unitOfWork.Payments.ExistsAsync(
+                p => p.InvoiceId == id
+                    && p.PaymentStatus == "paid"
+                    && !p.IsHistoricalRecord,
+                cancellationToken);
+            if (hasPaidPayment)
+                throw new ConflictException(
+                    $"Invoice {id} cannot be cancelled: there are paid payments linked to this invoice.");
 
-        _unitOfWork.Invoices.Update(invoice);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+            if (invoice.InvoiceStatus != "superseded")
+            {
+                var fallbackCapacity = await _unitOfWork.Bookings.Query()
+                    .AsNoTracking()
+                    .Where(booking => booking.Id == invoice.BookingId)
+                    .Select(booking => (decimal?)booking.FinalAmount)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (!fallbackCapacity.HasValue)
+                    throw new NotFoundException($"Booking with ID {invoice.BookingId} not found");
 
-        return invoice;
+                if (fallbackCapacity.Value < invoice.TotalAmount)
+                {
+                    await EnsureOrdinaryCommitmentsFitCapacityAsync(
+                        invoice.BookingId,
+                        fallbackCapacity.Value,
+                        cancellationToken);
+                }
+            }
+
+            invoice.InvoiceStatus = "cancelled";
+
+            if (notes != null)
+                invoice.Notes = notes.Trim();
+
+            invoice.UpdatedAt = DateTime.UtcNow;
+
+            _unitOfWork.Invoices.Update(invoice);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+
+            return invoice;
+        }
+        catch
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
+        }
     }
 
     public async Task<int> LinkOrphanedPaymentsAsync(CancellationToken cancellationToken = default)
     {
         // Find all payments that have no invoice_id but belong to bookings with active invoices
         var orphanedPayments = await _unitOfWork.Payments.Query()
-            .Where(p => p.InvoiceId == null)
+            .Where(p => p.InvoiceId == null && !p.IsHistoricalRecord)
             .ToListAsync(cancellationToken);
 
         int linkedCount = 0;
@@ -343,29 +475,12 @@ public class InvoiceService : IInvoiceService
         string? notes,
         CancellationToken cancellationToken = default)
     {
-        var oldInvoice = await _unitOfWork.Invoices.Query()
-            .Include(i => i.InvoiceItems)
-            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+        IDbContextTransaction? ownedTransaction = null;
+        if (!_unitOfWork.HasActiveTransaction)
+            ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        if (oldInvoice == null)
-            throw new NotFoundException($"Invoice with ID {id} not found");
-
-        if (oldInvoice.InvoiceStatus != "issued" && oldInvoice.InvoiceStatus != "paid")
-            throw new ConflictException(
-                $"Invoice {id} cannot be re-issued: current status is '{oldInvoice.InvoiceStatus}'. Only issued or paid invoices can be re-issued.");
-
-        await using var tx = await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
-            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
-                $"invoice-reissue:{id:N}",
-                cancellationToken);
-            await _unitOfWork.ReloadAsync(oldInvoice, cancellationToken);
-
-            if (oldInvoice.InvoiceStatus != "issued" && oldInvoice.InvoiceStatus != "paid")
-                throw new ConflictException(
-                    $"Invoice {id} cannot be re-issued: current status is '{oldInvoice.InvoiceStatus}'. Only issued or paid invoices can be re-issued.");
-
             var shouldGenerateNumber = string.IsNullOrWhiteSpace(newInvoiceNumber);
             if (shouldGenerateNumber)
             {
@@ -373,6 +488,22 @@ public class InvoiceService : IInvoiceService
                     "invoice-number-generation",
                     cancellationToken);
             }
+
+            await _unitOfWork.AcquireTransactionAdvisoryLockAsync(
+                InvoiceMutationLocks.ForInvoice(id),
+                cancellationToken);
+
+            var oldInvoice = await _unitOfWork.Invoices.Query()
+                .Include(i => i.InvoiceItems)
+                .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+            if (oldInvoice == null)
+                throw new NotFoundException($"Invoice with ID {id} not found");
+
+            await _unitOfWork.ReloadAsync(oldInvoice, cancellationToken);
+            if (oldInvoice.InvoiceStatus != "issued" && oldInvoice.InvoiceStatus != "paid")
+                throw new ConflictException(
+                    $"Invoice {id} cannot be re-issued: current status is '{oldInvoice.InvoiceStatus}'. Only issued or paid invoices can be re-issued.");
 
             var normalizedNumber = shouldGenerateNumber
                 ? await GenerateInvoiceNumberAsync(cancellationToken)
@@ -390,7 +521,6 @@ public class InvoiceService : IInvoiceService
                 ? $"Superseded by {normalizedNumber}"
                 : $"{oldInvoice.Notes}\n\nSuperseded by {normalizedNumber}";
             oldInvoice.UpdatedAt = DateTime.UtcNow;
-            _unitOfWork.Invoices.Update(oldInvoice);
 
             // Create new draft invoice with same structure
             var newInvoice = new Invoice
@@ -430,9 +560,9 @@ public class InvoiceService : IInvoiceService
                 await _unitOfWork.InvoiceItems.AddAsync(newItem, cancellationToken);
             }
 
-            // Transfer ALL payments from old invoice to new invoice (including paid, pending, failed, cancelled)
+            // Historical evidence is never transferred or counted as invoice-linked payment.
             var paymentsToTransfer = await _unitOfWork.Payments.Query()
-                .Where(p => p.InvoiceId == oldInvoice.Id)
+                .Where(p => p.InvoiceId == oldInvoice.Id && !p.IsHistoricalRecord)
                 .ToListAsync(cancellationToken);
 
             decimal totalPaidFromTransferred = 0m;
@@ -449,7 +579,9 @@ public class InvoiceService : IInvoiceService
 
             // Also link any unlinked payments for this booking
             var unlinkedPayments = await _unitOfWork.Payments.Query()
-                .Where(p => p.BookingId == oldInvoice.BookingId && p.InvoiceId == null)
+                .Where(p => p.BookingId == oldInvoice.BookingId
+                    && p.InvoiceId == null
+                    && !p.IsHistoricalRecord)
                 .ToListAsync(cancellationToken);
 
             foreach (var payment in unlinkedPayments)
@@ -478,7 +610,8 @@ public class InvoiceService : IInvoiceService
             _unitOfWork.Invoices.Update(newInvoice);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await tx.CommitAsync(cancellationToken);
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(cancellationToken);
 
             // Reload with items
             return await _unitOfWork.Invoices.Query()
@@ -487,13 +620,20 @@ public class InvoiceService : IInvoiceService
         }
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
-            await tx.RollbackAsync(cancellationToken);
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
             throw new ConflictException("Invoice number collision detected. Retry the operation.");
         }
         catch
         {
-            await tx.RollbackAsync(cancellationToken);
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
             throw;
+        }
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
         }
     }
 
@@ -515,6 +655,45 @@ public class InvoiceService : IInvoiceService
         }
 
         throw new ConflictException("Could not generate a unique invoice number. Try again.");
+    }
+
+    private async Task EnsureOrdinaryCommitmentsFitCapacityAsync(
+        Guid bookingId,
+        decimal proposedCapacity,
+        CancellationToken cancellationToken)
+    {
+        var commitments = await _unitOfWork.Payments.Query()
+            .Where(payment => payment.BookingId == bookingId
+                && !payment.IsHistoricalRecord
+                && (payment.PaymentStatus == "paid" || payment.PaymentStatus == "pending"))
+            .GroupBy(_ => 1)
+            .Select(group => new
+            {
+                Paid = group.Sum(payment =>
+                    payment.PaymentStatus == "paid" ? payment.Amount : 0m),
+                Pending = group.Sum(payment =>
+                    payment.PaymentStatus == "pending" ? payment.Amount : 0m)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var paid = commitments?.Paid ?? 0m;
+        var pending = commitments?.Pending ?? 0m;
+        var total = paid + pending;
+        if (total <= proposedCapacity)
+            return;
+
+        if (paid > proposedCapacity)
+        {
+            throw new ConflictException(
+                $"Cannot reduce settlement capacity to {proposedCapacity:F2} for booking {bookingId}: " +
+                $"already-paid ordinary payments total {paid:F2}, and total ordinary paid and pending " +
+                $"commitments are {total:F2}. Manual review is required.");
+        }
+
+        throw new ConflictException(
+            $"Cannot reduce settlement capacity to {proposedCapacity:F2} for booking {bookingId} " +
+            $"while {total:F2} of ordinary paid and pending payment commitments remain " +
+            $"(paid: {paid:F2}, pending: {pending:F2}).");
     }
 
     private static bool IsUniqueViolation(DbUpdateException exception)

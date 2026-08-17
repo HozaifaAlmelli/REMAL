@@ -61,6 +61,10 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
             .HasColumnType("decimal(12,2)")
             .IsRequired();
 
+        builder.Property(b => b.AgreedAmount)
+            .HasColumnName("agreed_amount")
+            .HasColumnType("decimal(12,2)");
+
         builder.Property(b => b.Source)
             .HasColumnName("source")
             .HasMaxLength(50)
@@ -68,6 +72,26 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
 
         builder.Property(b => b.InternalNotes)
             .HasColumnName("internal_notes");
+
+        builder.Property(b => b.IsHistorical)
+            .HasColumnName("is_historical")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(b => b.ActualBookedAt)
+            .HasColumnName("actual_booked_at");
+
+        builder.Property(b => b.HistoricalEntryReason)
+            .HasColumnName("historical_entry_reason")
+            .HasMaxLength(50);
+
+        builder.Property(b => b.OriginalSource)
+            .HasColumnName("original_source")
+            .HasMaxLength(50);
+
+        builder.Property(b => b.ExternalReference)
+            .HasColumnName("external_reference")
+            .HasMaxLength(100);
 
         builder.Property(b => b.CreatedAt)
             .HasColumnName("created_at")

@@ -5,6 +5,7 @@ import { Check, Copy } from "lucide-react";
 import type { OwnerPortalBookingResponse } from "@/lib/types/owner-portal.types";
 import { formatCurrency, referenceCode } from "@/lib/utils/format";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { HistoricalBadge } from "@/components/ui/HistoricalBadge";
 
 interface OwnerBookingDetailProps {
   booking: OwnerPortalBookingResponse;
@@ -49,9 +50,16 @@ export function OwnerBookingDetail({
   return (
     <div className="space-y-6">
       {/* Status badge */}
-      <div>
+      <div className="flex flex-wrap items-center gap-2">
         <StatusBadge status={booking.bookingStatus} />
+        {booking.isHistorical && <HistoricalBadge />}
       </div>
+
+      {booking.isHistorical && (
+        <div className="border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          This Historical Booking records a past stay in KAZA. Owner payout status remains available only in the finance ledger.
+        </div>
+      )}
 
       {/* Stay details */}
       <div className="rounded-lg border border-neutral-200 bg-white p-6">
@@ -142,8 +150,10 @@ export function OwnerBookingDetail({
             </dd>
           </div>
           <div className="flex justify-between text-sm">
-            <dt className="text-neutral-500">Source</dt>
-            <dd className="font-medium text-neutral-900">{booking.source}</dd>
+            <dt className="text-neutral-500">KAZA entry channel</dt>
+            <dd className="font-medium text-neutral-900">
+              {booking.isHistorical ? "Admin recording" : booking.source}
+            </dd>
           </div>
         </dl>
       </div>

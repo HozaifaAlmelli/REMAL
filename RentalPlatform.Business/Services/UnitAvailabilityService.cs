@@ -21,7 +21,7 @@ public class UnitAvailabilityService : IUnitAvailabilityService
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<UnitAvailabilityResult> CheckOperationalAvailabilityAsync(Guid unitId, DateOnly startDate, DateOnly endDate, Guid? excludeBookingId = null, CancellationToken cancellationToken = default)
+    public async Task<UnitAvailabilityResult> CheckOperationalAvailabilityAsync(Guid unitId, DateOnly startDate, DateOnly endDate, Guid? excludeBookingId = null, CancellationToken cancellationToken = default, bool allowInactiveUnit = false)
     {
         if (startDate > endDate)
             throw new BusinessValidationException("Start date cannot be after end date");
@@ -30,7 +30,7 @@ public class UnitAvailabilityService : IUnitAvailabilityService
         if (unit == null)
             throw new NotFoundException($"Unit {unitId} not found");
 
-        if (!unit.IsActive)
+        if (!allowInactiveUnit && !unit.IsActive)
             throw new BusinessValidationException($"Unit {unitId} is inactive and cannot be checked for availability");
 
         // Find operational blocks that overlap the requested range.

@@ -19,6 +19,17 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["next-env.d.ts", "global.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": [
+    "next-env.d.ts",
+    "global.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next-playwright-crm/types/**/*.ts",
+    ".next-playwright-historical-booking/types/**/*.ts",
+    ".next-playwright-booking-history/types/**/*.ts",
+    ".next-playwright-historical-reporting/types/**/*.ts",
+    ".next-playwright-occupancy/types/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }

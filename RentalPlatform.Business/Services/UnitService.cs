@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Business.Models;
@@ -17,12 +18,16 @@ namespace RentalPlatform.Business.Services;
 public class UnitService : IUnitService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IRentableCapacityLedgerService _rentableCapacityLedger;
     private static readonly string[] AllowedUnitTypes = { "apartment", "villa", "chalet", "studio" };
     private const int MaxPublicPageSize = 100;
 
-    public UnitService(IUnitOfWork unitOfWork)
+    public UnitService(
+        IUnitOfWork unitOfWork,
+        IRentableCapacityLedgerService rentableCapacityLedger)
     {
         _unitOfWork = unitOfWork;
+        _rentableCapacityLedger = rentableCapacityLedger;
     }
 
     public async Task<PagedResult<Unit>> GetPublicCatalogAsync(PublicUnitCatalogFilter filter, CancellationToken cancellationToken = default)
@@ -279,16 +284,9 @@ public class UnitService : IUnitService
     {
         ValidateUnitData(name, unitType, bedrooms, bathrooms, maxGuests, basePricePerNight);
 
-        var ownerExists = await _unitOfWork.Owners.ExistsAsync(o => o.Id == ownerId, cancellationToken);
-        if (!ownerExists)
-            throw new NotFoundException($"Owner with ID {ownerId} not found");
-
-        var projectExists = await _unitOfWork.Projects.ExistsAsync(a => a.Id == projectId, cancellationToken);
-        if (!projectExists)
-            throw new NotFoundException($"Project with ID {projectId} not found");
-
         var unit = new Unit
         {
+            Id = Guid.NewGuid(),
             OwnerId = ownerId,
             ProjectId = projectId,
             Name = name.Trim(),
@@ -303,8 +301,45 @@ public class UnitService : IUnitService
             IsVisibleInPortfolio = isVisibleInPortfolio
         };
 
-        await _unitOfWork.Units.AddAsync(unit, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        IDbContextTransaction? ownedTransaction = null;
+        try
+        {
+            if (!_unitOfWork.HasActiveTransaction)
+                ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
+            await _rentableCapacityLedger.EnterUnitMutationBoundaryAsync(unit.Id, cancellationToken);
+
+            var ownerExists = await _unitOfWork.Owners.ExistsAsync(o => o.Id == ownerId, cancellationToken);
+            if (!ownerExists)
+                throw new NotFoundException($"Owner with ID {ownerId} not found");
+
+            var projectExists = await _unitOfWork.Projects.ExistsAsync(a => a.Id == projectId, cancellationToken);
+            if (!projectExists)
+                throw new NotFoundException($"Project with ID {projectId} not found");
+
+            await _unitOfWork.Units.AddAsync(unit, cancellationToken);
+            await _rentableCapacityLedger.RebuildCurrentAndFutureAsync(
+                unit,
+                unitIsDeleted: false,
+                isNewUnit: true,
+                new RentabilitySourceChange("unit_create", unit.Id),
+                cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction is not null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.DisposeAsync();
+        }
 
         return unit;
     }
@@ -325,64 +360,143 @@ public class UnitService : IUnitService
         bool isVisibleInPortfolio,
         CancellationToken cancellationToken = default)
     {
-        var unit = await _unitOfWork.Units.GetByIdAsync(id, cancellationToken);
-        if (unit == null)
-            throw new NotFoundException($"Unit with ID {id} not found");
-
         ValidateUnitData(name, unitType, bedrooms, bathrooms, maxGuests, basePricePerNight);
 
-        if (unit.OwnerId != ownerId)
+        Unit unit;
+        IDbContextTransaction? ownedTransaction = null;
+        try
         {
-            var ownerExists = await _unitOfWork.Owners.ExistsAsync(o => o.Id == ownerId, cancellationToken);
-            if (!ownerExists)
+            if (!_unitOfWork.HasActiveTransaction)
+                ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
+            await _rentableCapacityLedger.EnterUnitMutationBoundaryAsync(id, cancellationToken);
+            unit = await _unitOfWork.Units.GetByIdAsync(id, cancellationToken)
+                ?? throw new NotFoundException($"Unit with ID {id} not found");
+            await _unitOfWork.ReloadAsync(unit, cancellationToken);
+
+            if (unit.OwnerId != ownerId &&
+                !await _unitOfWork.Owners.ExistsAsync(o => o.Id == ownerId, cancellationToken))
                 throw new NotFoundException($"Owner with ID {ownerId} not found");
-        }
 
-        if (unit.ProjectId != projectId)
-        {
-            var projectExists = await _unitOfWork.Projects.ExistsAsync(a => a.Id == projectId, cancellationToken);
-            if (!projectExists)
+            if (unit.ProjectId != projectId &&
+                !await _unitOfWork.Projects.ExistsAsync(a => a.Id == projectId, cancellationToken))
                 throw new NotFoundException($"Project with ID {projectId} not found");
+
+            unit.OwnerId = ownerId;
+            unit.ProjectId = projectId;
+            unit.Name = name.Trim();
+            unit.Description = description?.Trim();
+            unit.Address = address?.Trim();
+            unit.UnitType = unitType.Trim().ToLower();
+            unit.Bedrooms = bedrooms;
+            unit.Bathrooms = bathrooms;
+            unit.MaxGuests = maxGuests;
+            unit.BasePricePerNight = basePricePerNight;
+            unit.IsActive = isActive;
+            unit.IsVisibleInPortfolio = isVisibleInPortfolio;
+
+            _unitOfWork.Units.Update(unit);
+            await _rentableCapacityLedger.RebuildCurrentAndFutureAsync(
+                unit,
+                unitIsDeleted: false,
+                isNewUnit: false,
+                new RentabilitySourceChange("unit_update", unit.Id),
+                cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction is not null)
+                await ownedTransaction.CommitAsync(cancellationToken);
         }
-
-        unit.OwnerId = ownerId;
-        unit.ProjectId = projectId;
-        unit.Name = name.Trim();
-        unit.Description = description?.Trim();
-        unit.Address = address?.Trim();
-        unit.UnitType = unitType.Trim().ToLower();
-        unit.Bedrooms = bedrooms;
-        unit.Bathrooms = bathrooms;
-        unit.MaxGuests = maxGuests;
-        unit.BasePricePerNight = basePricePerNight;
-        unit.IsActive = isActive;
-        unit.IsVisibleInPortfolio = isVisibleInPortfolio;
-
-        _unitOfWork.Units.Update(unit);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        catch
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.DisposeAsync();
+        }
 
         return unit;
     }
 
     public async Task SoftDeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var unit = await _unitOfWork.Units.GetByIdAsync(id, cancellationToken);
-        if (unit == null)
-            throw new NotFoundException($"Unit with ID {id} not found");
+        IDbContextTransaction? ownedTransaction = null;
+        try
+        {
+            if (!_unitOfWork.HasActiveTransaction)
+                ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        _unitOfWork.Units.Delete(unit);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _rentableCapacityLedger.EnterUnitMutationBoundaryAsync(id, cancellationToken);
+            var unit = await _unitOfWork.Units.GetByIdAsync(id, cancellationToken)
+                ?? throw new NotFoundException($"Unit with ID {id} not found");
+            await _unitOfWork.ReloadAsync(unit, cancellationToken);
+
+            _unitOfWork.Units.Delete(unit);
+            await _rentableCapacityLedger.RebuildCurrentAndFutureAsync(
+                unit,
+                unitIsDeleted: true,
+                isNewUnit: false,
+                new RentabilitySourceChange("unit_delete", unit.Id),
+                cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction is not null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.DisposeAsync();
+        }
     }
 
     public async Task SetActiveAsync(Guid id, bool isActive, CancellationToken cancellationToken = default)
     {
-        var unit = await _unitOfWork.Units.GetByIdAsync(id, cancellationToken);
-        if (unit == null)
-            throw new NotFoundException($"Unit with ID {id} not found");
+        IDbContextTransaction? ownedTransaction = null;
+        try
+        {
+            if (!_unitOfWork.HasActiveTransaction)
+                ownedTransaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        unit.IsActive = isActive;
-        _unitOfWork.Units.Update(unit);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _rentableCapacityLedger.EnterUnitMutationBoundaryAsync(id, cancellationToken);
+            var unit = await _unitOfWork.Units.GetByIdAsync(id, cancellationToken)
+                ?? throw new NotFoundException($"Unit with ID {id} not found");
+            await _unitOfWork.ReloadAsync(unit, cancellationToken);
+
+            unit.IsActive = isActive;
+            _unitOfWork.Units.Update(unit);
+            await _rentableCapacityLedger.RebuildCurrentAndFutureAsync(
+                unit,
+                unitIsDeleted: false,
+                isNewUnit: false,
+                new RentabilitySourceChange("unit_status", unit.Id),
+                cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (ownedTransaction is not null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction is not null)
+                await ownedTransaction.DisposeAsync();
+        }
     }
 
     public async Task SetPortfolioVisibilityAsync(Guid id, bool isVisibleInPortfolio, CancellationToken cancellationToken = default)
@@ -391,8 +505,9 @@ public class UnitService : IUnitService
         if (unit == null)
             throw new NotFoundException($"Unit with ID {id} not found");
 
+        // Portfolio visibility is not a physical-capacity input. Keep this targeted
+        // tracked-property update outside the rentability ledger boundary.
         unit.IsVisibleInPortfolio = isVisibleInPortfolio;
-        _unitOfWork.Units.Update(unit);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 

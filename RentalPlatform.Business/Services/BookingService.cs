@@ -4,8 +4,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using RentalPlatform.Business.Exceptions;
 using RentalPlatform.Business.Interfaces;
+using RentalPlatform.Business.Models;
+using RentalPlatform.Business.Time;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Constants;
@@ -16,16 +19,30 @@ namespace RentalPlatform.Business.Services;
 
 public class BookingService : IBookingService
 {
+    // REQ-16 / HB-08B. Fixed wording (AC-HB01-09) so the API, the portal and the operator
+    // documentation cannot diverge. It names the Historical Booking flow as the correct route.
+    public const string StayDatesInPastMessage =
+        "Check-in date cannot be earlier than the current business date in Cairo. "
+        + "A stay that has already happened must be recorded through the Historical Booking flow.";
+
     private static readonly TimeSpan RecentDuplicateWindow = TimeSpan.FromSeconds(30);
     private readonly IUnitOfWork _unitOfWork;
     private readonly IUnitAvailabilityService _availabilityService;
+    private readonly IBusinessClock _clock;
+    private readonly ILogger<BookingService> _logger;
 
     private static readonly string[] AllowedSources = { "direct", "admin", "phone", "whatsapp", "website" };
 
-    public BookingService(IUnitOfWork unitOfWork, IUnitAvailabilityService availabilityService)
+    public BookingService(
+        IUnitOfWork unitOfWork,
+        IUnitAvailabilityService availabilityService,
+        IBusinessClock clock,
+        ILogger<BookingService> logger)
     {
         _unitOfWork = unitOfWork;
         _availabilityService = availabilityService;
+        _clock = clock;
+        _logger = logger;
     }
 
     public async Task<PagedResult<Booking>> GetAllAsync(
@@ -39,6 +56,7 @@ public class BookingService : IBookingService
         int page = 1,
         int pageSize = 20,
         bool agedSoftHoldsOnly = false,
+        bool? isHistorical = null,
         CancellationToken cancellationToken = default)
     {
         IQueryable<Booking> query = _unitOfWork.Bookings.Query()
@@ -98,6 +116,9 @@ public class BookingService : IBookingService
         if (checkInTo.HasValue)
             query = query.Where(b => b.CheckInDate <= checkInTo.Value);
 
+        if (isHistorical.HasValue)
+            query = query.Where(b => b.IsHistorical == isHistorical.Value);
+
         if (agedSoftHoldsOnly)
         {
             var softHoldStatuses = BookingStatusTransitions.SoftHoldStatuses;
@@ -140,10 +161,16 @@ public class BookingService : IBookingService
         BookingStatus? initialStatus = null,
         bool requirePortfolioVisibility = false,
         bool rejectSoftHoldOverlaps = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        BookingCreationOptions? creationOptions = null)
     {
         // --- Input validation ---
-        ValidateStayDates(checkInDate, checkOutDate);
+        ValidateStayDates(
+            checkInDate,
+            checkOutDate,
+            creationOptions?.AvailabilityPolicy == BookingAvailabilityPolicy.HistoricalAuthoritative,
+            operation: "create",
+            actorAdminUserId: createdByAdminUserId);
         ValidateGuestCount(guestCount);
         var normalizedSource = ValidateAndNormalizeSource(source);
 
@@ -151,25 +178,39 @@ public class BookingService : IBookingService
         var client = await _unitOfWork.Clients.FirstOrDefaultAsync(
             c => c.Id == clientId && c.IsActive && c.DeletedAt == null, cancellationToken);
         if (client == null)
-            throw new NotFoundException($"Active client with ID {clientId} not found");
+            throw creationOptions?.ClientNotFoundErrorCode is null
+                ? new NotFoundException($"Active client with ID {clientId} not found")
+                : new NotFoundException(
+                    $"Active client with ID {clientId} not found",
+                    creationOptions.ClientNotFoundErrorCode);
 
+        var allowInactiveUnit = creationOptions?.AllowInactiveUnit == true;
         var unit = await _unitOfWork.Units.FirstOrDefaultAsync(
             u => u.Id == unitId
-                && u.IsActive
+                && (u.IsActive || allowInactiveUnit)
                 && (!requirePortfolioVisibility || u.IsVisibleInPortfolio)
                 && u.DeletedAt == null,
             cancellationToken);
         if (unit == null)
-            throw new NotFoundException(requirePortfolioVisibility
+        {
+            var message = requirePortfolioVisibility
                 ? $"Public unit with ID {unitId} not found"
-                : $"Active unit with ID {unitId} not found");
+                : $"Active unit with ID {unitId} not found";
+            throw creationOptions?.UnitNotFoundErrorCode is null
+                ? new NotFoundException(message)
+                : new NotFoundException(message, creationOptions.UnitNotFoundErrorCode);
+        }
 
         if (assignedAdminUserId.HasValue)
         {
             var adminExists = await _unitOfWork.AdminUsers.ExistsAsync(
                 a => a.Id == assignedAdminUserId.Value && a.IsActive, cancellationToken);
             if (!adminExists)
-                throw new NotFoundException($"Active admin user with ID {assignedAdminUserId.Value} not found");
+                throw creationOptions?.AdminUserNotFoundErrorCode is null
+                    ? new NotFoundException($"Active admin user with ID {assignedAdminUserId.Value} not found")
+                    : new NotFoundException(
+                        $"Active admin user with ID {assignedAdminUserId.Value} not found",
+                        creationOptions.AdminUserNotFoundErrorCode);
         }
 
         if (createdByAdminUserId.HasValue)
@@ -177,24 +218,51 @@ public class BookingService : IBookingService
             var creatorExists = await _unitOfWork.AdminUsers.ExistsAsync(
                 a => a.Id == createdByAdminUserId.Value && a.IsActive, cancellationToken);
             if (!creatorExists)
-                throw new NotFoundException($"Active admin user with ID {createdByAdminUserId.Value} not found");
+                throw creationOptions?.AdminUserNotFoundErrorCode is null
+                    ? new NotFoundException($"Active admin user with ID {createdByAdminUserId.Value} not found")
+                    : new NotFoundException(
+                        $"Active admin user with ID {createdByAdminUserId.Value} not found",
+                        creationOptions.AdminUserNotFoundErrorCode);
         }
 
         // --- Guest count vs unit capacity ---
         if (guestCount > unit.MaxGuests)
-            throw new BusinessValidationException(
-                $"Guest count ({guestCount}) exceeds unit maximum capacity ({unit.MaxGuests})");
+        {
+            var message = $"Guest count ({guestCount}) exceeds unit maximum capacity ({unit.MaxGuests})";
+            throw creationOptions?.GuestCapacityErrorCode is null
+                ? new BusinessValidationException(message)
+                : new BusinessValidationException(message, creationOptions.GuestCapacityErrorCode);
+        }
 
         // --- Translate booking dates to pricing range (checkout - 1 day) ---
         var pricingStartDate = checkInDate;
         var pricingEndDate = checkOutDate.AddDays(-1);
 
-        // --- Operational availability check (date blocks) ---
-        var availability = await _availabilityService.CheckOperationalAvailabilityAsync(
-            unitId, pricingStartDate, pricingEndDate, cancellationToken: cancellationToken);
-        if (!availability.IsAvailable)
-            throw new ConflictException(
-                $"Unit {unitId} is not operationally available for the requested dates: {availability.Reason}");
+        if (creationOptions?.AvailabilityPolicy != BookingAvailabilityPolicy.HistoricalAuthoritative)
+        {
+            // --- Operational availability check (date blocks) ---
+            UnitAvailabilityResult availability;
+            try
+            {
+                availability = await _availabilityService.CheckOperationalAvailabilityAsync(
+                    unitId,
+                    pricingStartDate,
+                    pricingEndDate,
+                    cancellationToken: cancellationToken,
+                    allowInactiveUnit: creationOptions?.AllowInactiveUnit == true);
+            }
+            catch (NotFoundException exception) when (creationOptions?.UnitNotFoundErrorCode is not null)
+            {
+                throw new NotFoundException(exception.Message, creationOptions.UnitNotFoundErrorCode);
+            }
+            if (!availability.IsAvailable)
+            {
+                var message = $"Unit {unitId} is not operationally available for the requested dates: {availability.Reason}";
+                throw creationOptions?.OperationalConflictErrorCode is null
+                    ? new ConflictException(message)
+                    : new ConflictException(message, creationOptions.OperationalConflictErrorCode);
+            }
+        }
 
         if (rejectSoftHoldOverlaps)
         {
@@ -206,8 +274,17 @@ public class BookingService : IBookingService
                 cancellationToken);
         }
 
-        // --- Confirmed booking overlap check ---
-        await EnsureNoConfirmedOverlap(unitId, checkInDate, checkOutDate, excludeBookingId: null, cancellationToken);
+        if (creationOptions?.AvailabilityPolicy != BookingAvailabilityPolicy.HistoricalAuthoritative)
+        {
+            // --- Confirmed booking overlap check ---
+            await EnsureNoConfirmedOverlap(
+                unitId,
+                checkInDate,
+                checkOutDate,
+                excludeBookingId: null,
+                cancellationToken,
+                creationOptions?.ConfirmedOverlapErrorCode);
+        }
 
         // --- Pricing snapshot ---
         var pricing = await _availabilityService.CalculatePricingAsync(
@@ -382,12 +459,26 @@ public class BookingService : IBookingService
         if (booking == null)
             throw new NotFoundException($"Booking with ID {id} not found");
 
+        if (booking.IsHistorical)
+        {
+            throw new ConflictException(
+                "Historical booking financial snapshots cannot be recalculated or replaced.",
+                HistoricalErrorCodes.HistoricalFinancialSnapshotImmutable);
+        }
+
         if (booking.BookingStatus != BookingStatus.Prospecting && booking.BookingStatus != BookingStatus.Relevant)
             throw new ConflictException(
                 $"Booking {id} cannot be updated because its status is '{booking.BookingStatus}'. Only prospecting or relevant bookings can be updated.");
 
         // --- Input validation ---
-        ValidateStayDates(checkInDate, checkOutDate);
+        // D-03: the same past-date rule applies to date-changing updates. Historical bookings
+        // are exempt, and are already refused outright a few lines above.
+        ValidateStayDates(
+            checkInDate,
+            checkOutDate,
+            historicalAuthoritative: false,
+            operation: "update",
+            actorAdminUserId: null);
         ValidateGuestCount(guestCount);
         var normalizedSource = ValidateAndNormalizeSource(source);
 
@@ -460,10 +551,44 @@ public class BookingService : IBookingService
     //  Private helpers
     // ---------------------------------------------------------------
 
-    private static void ValidateStayDates(DateOnly checkInDate, DateOnly checkOutDate)
+    /// <summary>
+    /// The single choke point every creation path and every date-changing update funnels through
+    /// (REQ-16 / HB-08B, D-02 and D-03). <paramref name="historicalAuthoritative"/> is never
+    /// client-supplied: it is set only by <see cref="HistoricalBookingService"/>, which is gated by
+    /// the <c>bookings:record_historical</c> permission, so there is no request-level bypass.
+    /// </summary>
+    private void ValidateStayDates(
+        DateOnly checkInDate,
+        DateOnly checkOutDate,
+        bool historicalAuthoritative,
+        string operation,
+        Guid? actorAdminUserId)
     {
         if (checkOutDate <= checkInDate)
             throw new BusinessValidationException("Check-out date must be after check-in date");
+
+        // The Historical Booking flow remains the explicit authorized path for completed past stays.
+        if (historicalAuthoritative)
+            return;
+
+        // D-02: reject check-in before the current Cairo business date; same-day check-in stays legal.
+        var cairoBusinessDate = _clock.CairoToday();
+        if (checkInDate >= cairoBusinessDate)
+            return;
+
+        BookingCreationTelemetry.RecordRejected(HistoricalErrorCodes.StayDatesInPast, operation);
+        _logger.LogInformation(
+            "booking.create.rejected Reason={Reason} Operation={Operation} ActorAdminUserId={ActorAdminUserId} CheckInDate={CheckInDate} CheckOutDate={CheckOutDate} CairoBusinessDate={CairoBusinessDate}",
+            HistoricalErrorCodes.StayDatesInPast,
+            operation,
+            actorAdminUserId,
+            checkInDate,
+            checkOutDate,
+            cairoBusinessDate);
+
+        throw new BusinessValidationException(
+            StayDatesInPastMessage,
+            HistoricalErrorCodes.StayDatesInPast);
     }
 
     private static void ValidateGuestCount(int guestCount)
@@ -490,7 +615,8 @@ public class BookingService : IBookingService
         DateOnly checkInDate,
         DateOnly checkOutDate,
         Guid? excludeBookingId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? errorCode = null)
     {
         var holdingStatuses = BookingStatusTransitions.HoldingStatuses;
         var query = _unitOfWork.Bookings.Query()
@@ -506,8 +632,12 @@ public class BookingService : IBookingService
 
         var hasOverlap = await query.AnyAsync(cancellationToken);
         if (hasOverlap)
-            throw new ConflictException(
-                $"The requested dates overlap with an existing booking on unit {unitId}");
+        {
+            var message = $"The requested dates overlap with an existing booking on unit {unitId}";
+            throw errorCode is null
+                ? new ConflictException(message)
+                : new ConflictException(message, errorCode);
+        }
     }
 
     private async Task EnsureNoActiveAvailabilityHoldOverlap(

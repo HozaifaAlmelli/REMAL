@@ -4,6 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Linq;
 using FluentValidation;
 using RentalPlatform.Business.Exceptions;
+using RentalPlatform.Shared.Constants;
+using Microsoft.Extensions.Logging;
+using RentalPlatform.API.DTOs.Requests.ReportsAnalytics;
 
 namespace RentalPlatform.API.Filters;
 
@@ -26,11 +29,32 @@ public class ValidationActionFilter : IAsyncActionFilter
 
                 if (!validationResult.IsValid)
                 {
+                    if (argument is GetHistoricalReportingDailyRequest
+                        or GetHistoricalReconciliationRequest)
+                    {
+                        var logger = context.HttpContext.RequestServices
+                            .GetRequiredService<ILogger<ValidationActionFilter>>();
+                        logger.LogWarning(
+                            "reporting.historical.range_rejected Route={Route} ErrorCount={ErrorCount}",
+                            context.HttpContext.Request.Path.Value,
+                            validationResult.Errors.Count);
+                    }
+
                     var errors = validationResult.Errors.Select(e => e.ErrorMessage).ToList();
                     var errorMessage = string.Join(" | ", errors);
                     
                     // Throw our standard business validation exception to be caught by the middleware
-                    throw new BusinessValidationException(errorMessage);
+                    var historicalCodes = validationResult.Errors
+                        .Select(error => error.ErrorCode)
+                        .Where(HistoricalErrorCodes.All.Contains)
+                        .ToArray();
+                    var code = historicalCodes.Contains(HistoricalErrorCodes.ClientReferenceInvalid)
+                        ? HistoricalErrorCodes.ClientReferenceInvalid
+                        : historicalCodes.FirstOrDefault();
+
+                    throw code is null
+                        ? new BusinessValidationException(errorMessage)
+                        : new BusinessValidationException(errorMessage, code);
                 }
             }
         }

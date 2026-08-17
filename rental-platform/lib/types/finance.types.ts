@@ -51,15 +51,23 @@ export interface OwnerPayoutSummaryResponse {
 
 // â”€â”€ Finance Analytics â€” Summary â”€â”€
 export interface FinanceAnalyticsSummaryResponse {
-  dateFrom: string;
-  dateTo: string;
+  dateFrom: string | null;
+  dateTo: string | null;
   totalBookingsWithInvoiceCount: number;
   totalInvoicedAmount: number;
   totalPaidAmount: number;
   totalRemainingAmount: number;
+  historicalPaymentEvidenceCount: number;
+  historicalPaymentEvidenceAmount: number;
   totalPendingPayoutAmount: number;
   totalScheduledPayoutAmount: number;
   totalPaidPayoutAmount: number;
+  historicalBookingsCount: number;
+  historicalAgreedAmount: number;
+  historicalBookingsWithInvoiceCount: number;
+  historicalInvoicedAmount: number;
+  ordinaryUnlinkedPaidCount: number;
+  ordinaryUnlinkedPaidAmount: number;
 }
 
 // â”€â”€ Finance Analytics â€” Daily â”€â”€
@@ -72,6 +80,14 @@ export interface FinanceAnalyticsDailySummaryResponse {
   totalPendingPayoutAmount: number;
   totalScheduledPayoutAmount: number;
   totalPaidPayoutAmount: number;
+  historicalBookingsCount: number;
+  historicalAgreedAmount: number;
+  historicalBookingsWithInvoiceCount: number;
+  historicalInvoicedAmount: number;
+  ordinaryUnlinkedPaidCount: number;
+  ordinaryUnlinkedPaidAmount: number;
+  historicalEvidenceRecordedCount: number;
+  historicalEvidenceRecordedAmount: number;
 }
 
 // â”€â”€ Booking Analytics â€” Daily â”€â”€
@@ -84,19 +100,31 @@ export interface BookingAnalyticsDailySummaryResponse {
   cancelledBookingsCount: number;
   completedBookingsCount: number;
   totalFinalAmount: number;
+  historicalBookingsCount: number;
+  historicalAgreedAmount: number;
+  historicalLegacySystemBookingsCount: number;
+  historicalExternalPlatformBookingsCount: number;
+  historicalOfflineRecordBookingsCount: number;
+  historicalOtherSourceBookingsCount: number;
 }
 
 // â”€â”€ Booking Analytics â€” Summary â”€â”€
 export interface BookingAnalyticsSummaryResponse {
-  dateFrom: string;
-  dateTo: string;
-  bookingSource: string;
+  dateFrom: string | null;
+  dateTo: string | null;
+  bookingSource: string | null;
   totalBookingsCreatedCount: number;
   totalProspectingBookingsCount: number;
   totalConfirmedBookingsCount: number;
   totalCancelledBookingsCount: number;
   totalCompletedBookingsCount: number;
   totalFinalAmount: number;
+  historicalBookingsCount: number;
+  historicalAgreedAmount: number;
+  historicalLegacySystemBookingsCount: number;
+  historicalExternalPlatformBookingsCount: number;
+  historicalOfflineRecordBookingsCount: number;
+  historicalOtherSourceBookingsCount: number;
 }
 
 // â”€â”€ Payments List â”€â”€

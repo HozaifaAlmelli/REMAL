@@ -171,5 +171,28 @@
 \echo '=== Running migration 0056: add unit portfolio visibility ==='
 \i /docker-entrypoint-initdb.d/migrations/0056_add_unit_portfolio_visibility.sql
 
-\echo '=== All migrations completed successfully ==='
+\echo '=== Running migration 0057: add owner contact fields ==='
+\i /docker-entrypoint-initdb.d/migrations/0057_add_owner_contact_fields.sql
 
+\echo '=== Running migration 0058: add historical booking domain ==='
+\i /docker-entrypoint-initdb.d/migrations/0058_add_historical_booking_domain.sql
+
+\echo '=== Running migration 0059: add historical booking external reference index ==='
+\i /docker-entrypoint-initdb.d/migrations/0059_add_historical_booking_external_reference_index.sql
+
+\echo '=== Running migration 0060: add historical financial snapshot ==='
+\i /docker-entrypoint-initdb.d/migrations/0060_add_historical_financial_snapshot.sql
+
+\echo '=== Running migration 0061: add historical payment recording ==='
+\i /docker-entrypoint-initdb.d/migrations/0061_add_historical_payment_recording.sql
+
+\echo '=== Running migration 0062: add historical owner attribution corrections ==='
+\i /docker-entrypoint-initdb.d/migrations/0062_add_historical_owner_attribution_corrections.sql
+
+\echo '=== Running migration 0063: add historical reporting read models ==='
+\i /docker-entrypoint-initdb.d/migrations/0063_add_historical_reporting_read_models.sql
+
+\echo '=== Running migration 0064: add rentable capacity history ==='
+\i /docker-entrypoint-initdb.d/migrations/0064_add_rentable_capacity_history.sql
+
+\echo '=== All migrations completed successfully ==='

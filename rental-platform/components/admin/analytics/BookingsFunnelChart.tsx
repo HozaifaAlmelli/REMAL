@@ -2,6 +2,7 @@
 
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { BookingAnalyticsSummaryResponse } from "@/lib/types/report.types";
+import { getOperationalFunnel } from "@/lib/historical-reporting/presentation";
 
 interface BookingsFunnelChartProps {
   data: BookingAnalyticsSummaryResponse | undefined;
@@ -27,31 +28,31 @@ export function BookingsFunnelChart({
     );
   }
 
-  // CORRECTED: use API field names per Section 34 / P28
+  const operational = getOperationalFunnel(data);
   const funnelSteps = [
     {
       label: "Created",
-      value: data.totalBookingsCreatedCount,
+      value: operational.created,
       color: "var(--color-primary-500)",
     },
     {
       label: "Prospecting",
-      value: data.totalProspectingBookingsCount,
+      value: operational.prospecting,
       color: "var(--color-accent-amber)",
     },
     {
       label: "Confirmed",
-      value: data.totalConfirmedBookingsCount,
+      value: operational.confirmed,
       color: "var(--color-primary-300)",
     },
     {
       label: "Completed",
-      value: data.totalCompletedBookingsCount,
+      value: operational.completed,
       color: "var(--color-accent-green)",
     },
     {
       label: "Cancelled",
-      value: data.totalCancelledBookingsCount,
+      value: operational.cancelled,
       color: "var(--color-error)",
     },
   ];
@@ -61,6 +62,9 @@ export function BookingsFunnelChart({
   return (
     <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
       <h3 className="mb-4 font-medium text-neutral-700">Bookings Funnel</h3>
+      <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+        Operational acquisition and conversion only. Historical records entered: {operational.historicalExcluded}; not included in this funnel.
+      </p>
       <div className="space-y-3">
         {funnelSteps.map((step) => (
           <div key={step.label} className="flex items-center gap-3">

@@ -1,0 +1,189 @@
+# HB-06 — Historical Booking Wizard UI
+
+> Navigation: [README](README.md) · [Master](00_MASTER_PLAN.md) · [HB-05](05_TICKET_OWNER_ACCOUNTING_AND_SETTLEMENT_ADJUSTMENTS.md) · [Scenarios](99_RELIABILITY_TEST_SCENARIOS.md)
+
+## 1. Ticket metadata
+
+| Field | Value |
+|---|---|
+| Ticket | HB-06 |
+| Status | **OWNER APPROVED — READY FOR IMPLEMENTATION** |
+| Depends on | HB-02 through HB-05; dependencies are merged |
+| Migration ownership | None |
+| Route | `/admin/bookings/historical/new` |
+
+This is the final HB-06 contract. It adds frontend code only and does not alter backend contracts, schema,
+permissions, or deployment configuration.
+
+**OWNER APPROVED CONTRACT AMENDMENT (2026-08-03):** the step-5/post-create sequencing in sections 3, 5 and
+6 supersedes the earlier pre-create owner-preview wording. The approved substance is informational policy in
+step 5, booking creation in step 6, and non-blocking persisted owner review after commit. No endpoint,
+migration, schema object or stable error is added.
+
+## 2. Product shape
+
+The wizard is a full page at `/admin/bookings/historical/new`, reached by a secondary action from the booking
+list. It is not a modal and is not the normal create/edit form. Route and action visibility require
+`bookings:record_historical`; server policy remains authoritative.
+
+The page follows the portal's existing layout and component conventions. It is keyboard accessible,
+responsive, and preserves entered state while moving backward and forward.
+
+## 3. Six-step flow
+
+1. Provenance: `originalSource`, `actualBookedAt`, historical-entry reason, optional external reference.
+2. Unit and occupied dates: inactive units may be selected; deleted units never appear.
+3. Client and stay details: exact `clientId` XOR `newClient` contract.
+4. Financial truth: required `agreedAmount`; current unit price is reference-only.
+5. Owner review: present the owner-attribution policy only. Explain that persisted server truth is reviewed
+   after creation and that current unit ownership is not historical attribution truth. This step performs no
+   lookup or API call, displays no owner data, and persists no acknowledgement or request field.
+6. Review and create: warnings, exact command summary, and a single booking submission.
+
+After step 6 returns or idempotently recovers the authoritative booking ID, the wizard irreversibly enters
+`BookingCreated` and calls HB-05's existing read-only
+`GET /api/internal/bookings/{bookingId:guid}/owner-attribution-review`. The result appears inside the
+post-create state; it is not a seventh step. Review-required, forbidden, not-found and transport/server
+failures preserve booking success and permit only a GET retry where appropriate. No pre-create preview
+endpoint exists in v1, no current-owner inference is permitted, and privileged correction is never invoked
+automatically.
+
+## 4. Conflict and duplicate handling
+
+Machine-readable `Code` drives UI behavior. Conflict metadata is limited to the fields the backend contract
+approves: booking ID, status, check-in/check-out dates, date-block IDs and capability booleans. Client name,
+phone, amount, notes and owner PII are never shown from a conflict response.
+
+Probable-duplicate acknowledgement uses the exact request field `acknowledgedDuplicateOf`. Approved date
+blocks are acknowledged by exact ID. The page does not invent a boolean blanket override and does not
+generate lock or identity values. Acknowledgements belong to the exact semantic booking command and exact
+server candidate set. Changes to unit, occupied dates, client selection or duplicate-identity input clear the
+acknowledgements and require a new server response. Hard overlaps are never acknowledgeable.
+
+## 5. Two-phase booking and payment UX
+
+Booking creation and historical-payment recording are two separate commands:
+
+1. Submit `POST /api/internal/bookings/historical` with a booking idempotency key.
+2. On `200`, freeze the returned booking identity and show booking success.
+3. Only when the user also holds `payments:record_historical`, offer optional payment evidence using one of
+   `cash`, `bank_transfer`, `card`, or `wallet`.
+4. Submit `POST /api/internal/bookings/{bookingId:guid}/historical-payments` with a separate payment idempotency
+   key.
+
+Payment failure preserves the successfully created booking and shows a payment-only retry. Retry never
+reposts the historical-booking command. The user may leave payment unrecorded. Historical evidence remains
+standalone and never invoice-linked. Optional payment availability is independent of every post-create owner
+review outcome and depends only on the HB-04B contract and payment permission.
+
+## 6. Request lifecycle and recovery
+
+- Create and payment submit buttons are stable-sized and disabled only while their own command is in flight.
+- Every command generates and retains its own idempotency key until a terminal result.
+- A transport failure during booking submission enters an honest unknown-outcome state. The draft is frozen
+  and the identical command is retried with the identical key until the original result is recovered or an
+  authoritative business rejection is received.
+- Validation errors focus the first invalid control and preserve all other values.
+- 409s render persistent inline surfaces, not transient toasts.
+- A booking success cannot be visually rolled back by a later payment failure.
+- A booking success becomes authoritative before owner review starts; owner review failure never returns the
+  wizard to an uncommitted draft.
+- Owner review retries call only the HB-05 GET with the persisted booking ID.
+- Same-tab recovery treats `history.state` as an untrusted hint. A retained booking ID is GUID-validated and
+  verified through the HB-05 GET before confirmed booking controls are shown; a 403, 404, malformed response
+  or transport failure cannot fabricate success.
+- An in-page unknown payment outcome retains the original key and command for idempotent retry. Across reload,
+  only opaque pending metadata may remain; no payment payload or PII is persisted, and a second payment command
+  is blocked pending manual reconciliation because v1 owns no payment lookup endpoint.
+- Explicit Cancel asks for confirmation when dirty.
+- Browser navigation/refresh uses `beforeunload` while dirty.
+- No autosave, draft booking, local-storage persistence or browser analytics is introduced in v1.
+
+## 7. Warnings
+
+Before booking submission, the page states that the record is historical, the stay is already complete,
+audit timestamps remain current, reporting and owner accounting are affected, no automatic notifications are
+sent, and no invoice is created automatically. It also states that a manual invoice may still be drafted and
+issued later under existing policy, while historical payment evidence remains standalone.
+
+## 8. Frontend validation
+
+Frontend validation mirrors but never replaces server validation: required IDs, client XOR, date range,
+Cairo completed-stay explanation, nonnegative agreed amount, bounded text, allowed source/reason values,
+acknowledgement IDs, and payment-command fields. Unknown backend codes fall back to a safe generic inline
+error. Checkout today or later in Cairo is invalid. `paidAt` is interpreted as an `Africa/Cairo` wall-clock
+value independently of browser timezone. Irreversible-write responses are runtime shape-validated before
+their values enable later actions.
+
+## 9. Testing contract
+
+Use the repository's existing `tsx --test` convention for frontend unit/contract tests and Playwright for
+integrated browser behavior. Do not introduce Vitest, Jest or React Testing Library.
+
+Required coverage includes permission gating, full-page routing, state preservation, safe conflict metadata,
+exact acknowledgement fields, zero pre-create owner calls, post-create owner-review states, booking
+idempotency, two-phase payment, payment retry without a second booking call, all four payment methods,
+warnings, cancellation, accessibility, responsive layouts and long-text containment.
+
+The shared combobox follows the ARIA combobox/listbox pattern and supports keyboard-only opening, search,
+active-option traversal, selection, clearing and escape. Submit-time validation navigates to and focuses the
+first invalid control with stable `aria-describedby` error linkage.
+
+## 10. Acceptance criteria
+
+| ID | Criterion |
+|---|---|
+| AC-HB06-01 | The secondary booking-list action opens `/admin/bookings/historical/new`. |
+| AC-HB06-02 | Unauthorized users neither see the action nor gain backend access. |
+| AC-HB06-03 | The experience is a full page, not a modal or normal booking form. |
+| AC-HB06-04 | Six steps preserve values through Back/Next. |
+| AC-HB06-05 | Provenance uses canonical source/reason vocabularies. |
+| AC-HB06-06 | Unit selection includes inactive and excludes deleted units. |
+| AC-HB06-07 | Client entry enforces exact `clientId` XOR `newClient`. |
+| AC-HB06-08 | Agreed amount is explicit and current price is reference-only. |
+| AC-HB06-09 | Step 5 is policy-only with zero owner calls or data; after commit, owner review uses the returned booking ID and approved server fields without client calculation. |
+| AC-HB06-10 | Conflict surfaces use stable codes and approved safe metadata only; acknowledgement state is invalidated by every duplicate/overlap-relevant edit. |
+| AC-HB06-11 | Probable duplicates use `acknowledgedDuplicateOf`. |
+| AC-HB06-12 | Date-block acknowledgement is exact-ID based. |
+| AC-HB06-13 | Booking creation submits exactly once with its retained idempotency key; an unknown outcome retries the identical frozen command. |
+| AC-HB06-14 | Booking success is final before owner review or optional payment begins; neither later outcome can invalidate it. |
+| AC-HB06-15 | Payment controls appear only with `payments:record_historical`. |
+| AC-HB06-16 | All four canonical payment methods are supported. |
+| AC-HB06-17 | Payment uses a separate idempotency key and endpoint. |
+| AC-HB06-18 | Payment failure preserves booking success and offers payment-only retry; an unknown outcome after reload blocks a second command pending reconciliation. |
+| AC-HB06-19 | Retry never reposts booking creation. |
+| AC-HB06-20 | Review shows notification, invoice, audit, reporting and owner warnings. |
+| AC-HB06-21 | Dirty explicit Cancel and browser unload both warn. |
+| AC-HB06-22 | Validation/error recovery preserves non-offending input. |
+| AC-HB06-23 | Keyboard, focus, labels, combobox semantics and error announcements meet portal accessibility conventions. |
+| AC-HB06-24 | Desktop, tablet and mobile layouts have no incoherent overflow or overlap. |
+
+## 11. Negative acceptance criteria
+
+| ID | Prohibited outcome |
+|---|---|
+| NAC-HB06-01 | No route alias, modal, or reuse of normal create as the historical flow. |
+| NAC-HB06-02 | No client-side permission check as the sole control. |
+| NAC-HB06-03 | No pre-create owner-review call and no owner, actor, lock or privileged field invented by the browser. |
+| NAC-HB06-04 | No PII or amount rendered from conflict/duplicate metadata. |
+| NAC-HB06-05 | No fuzzy duplicate matching or blanket acknowledgement. |
+| NAC-HB06-06 | No browser-side owner split calculation. |
+| NAC-HB06-07 | No automatic price default into agreed amount. |
+| NAC-HB06-08 | No payment embedded in the booking request. |
+| NAC-HB06-09 | No booking rollback message after payment-command failure. |
+| NAC-HB06-10 | No booking resubmit during payment retry. |
+| NAC-HB06-11 | No automatic invoice, payment, notification or payout claim. |
+| NAC-HB06-12 | No autosave, draft, local-storage or analytics transport in v1. |
+| NAC-HB06-13 | No new frontend test framework. |
+| NAC-HB06-14 | No schema, migration or backend contract change. |
+| NAC-HB06-15 | No automatic HB-05 correction call or correction controls in the wizard or normal booking editor. |
+
+The implementation must also never treat client-writable recovery metadata as authoritative booking truth,
+persist payment/client payloads in browser storage, reuse stale conflict acknowledgement IDs after a semantic
+edit, or describe a transport-unknown write as an authoritative failure.
+
+## 12. Readiness
+
+Contract readiness is complete and implementation status is **READY**. HB-02 through HB-05 are merged
+foundations. The owner policy step is pre-create and informational; the existing HB-05 read-only review runs
+only after booking commit with the authoritative returned booking ID.

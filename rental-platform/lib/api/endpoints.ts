@@ -116,6 +116,11 @@ export const endpoints = {
     update: (id: string) => `/api/internal/bookings/${id}`,
     statusHistory: (id: string) =>
       `/api/internal/bookings/${id}/status-history`,
+    historical: "/api/internal/bookings/historical",
+    ownerAttributionReview: (id: string) =>
+      `/api/internal/bookings/${id}/owner-attribution-review`,
+    historicalPayments: (id: string) =>
+      `/api/internal/bookings/${id}/historical-payments`,
   },
 
   clientBookings: {
@@ -232,12 +237,20 @@ export const endpoints = {
   reportsBookings: {
     daily: "/api/internal/reports/bookings/daily",
     summary: "/api/internal/reports/bookings/summary",
+    stayDaily: "/api/internal/reports/bookings/stay-daily",
+    historicalReconciliation:
+      "/api/internal/reports/bookings/historical-reconciliation",
   },
 
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ REPORTS â€” FINANCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   reportsFinance: {
     daily: "/api/internal/reports/finance/daily",
     summary: "/api/internal/reports/finance/summary",
+    stayDaily: "/api/internal/reports/finance/stay-daily",
+  },
+
+  reportsOccupancy: {
+    summary: "/api/internal/reports/occupancy",
   },
 
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ OWNERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

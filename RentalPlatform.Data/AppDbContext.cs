@@ -2,7 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using RentalPlatform.Data.Entities;
+using RentalPlatform.Data.Exceptions;
 using RentalPlatform.Data.ReadModels;
 
 namespace RentalPlatform.Data;
@@ -28,6 +30,11 @@ public class AppDbContext : DbContext
     public DbSet<DateBlock> DateBlocks { get; set; } = null!;
     public DbSet<Booking> Bookings { get; set; } = null!;
     public DbSet<BookingStatusHistory> BookingStatusHistories { get; set; } = null!;
+    public DbSet<BookingOriginalSource> BookingOriginalSources { get; set; } = null!;
+    public DbSet<IdempotencyKey> IdempotencyKeys { get; set; } = null!;
+    public DbSet<HistoricalPaymentIdempotencyKey> HistoricalPaymentIdempotencyKeys { get; set; } = null!;
+    public DbSet<HistoricalOwnerAttributionCorrection> HistoricalOwnerAttributionCorrections { get; set; } = null!;
+    public DbSet<HistoricalOwnerCorrectionIdempotencyKey> HistoricalOwnerCorrectionIdempotencyKeys { get; set; } = null!;
     public DbSet<CrmLead> CrmLeads { get; set; } = null!;
     public DbSet<CrmNote> CrmNotes { get; set; } = null!;
     public DbSet<CrmAssignment> CrmAssignments { get; set; } = null!;
@@ -35,6 +42,8 @@ public class AppDbContext : DbContext
     public DbSet<Invoice> Invoices { get; set; } = null!;
     public DbSet<InvoiceItem> InvoiceItems { get; set; } = null!;
     public DbSet<OwnerPayout> OwnerPayouts { get; set; } = null!;
+    public DbSet<RentableCapacityLedger> RentableCapacityLedgers { get; set; } = null!;
+    public DbSet<UnitRentabilityPeriod> UnitRentabilityPeriods { get; set; } = null!;
 
     // Reviews & Ratings
     public DbSet<Review> Reviews { get; set; } = null!;
@@ -56,6 +65,9 @@ public class AppDbContext : DbContext
     // Reports & Analytics read-model views (keyless, read-only)
     public DbSet<ReportingBookingDailySummary> ReportingBookingDailySummaries { get; set; } = null!;
     public DbSet<ReportingFinanceDailySummary> ReportingFinanceDailySummaries { get; set; } = null!;
+    public DbSet<ReportingBookingStayDailySummary> ReportingBookingStayDailySummaries { get; set; } = null!;
+    public DbSet<ReportingFinanceStayDailySummary> ReportingFinanceStayDailySummaries { get; set; } = null!;
+    public DbSet<ReportingHistoricalEntryReconciliation> ReportingHistoricalEntryReconciliations { get; set; } = null!;
     public DbSet<ReportingReviewsDailySummary> ReportingReviewsDailySummaries { get; set; } = null!;
     public DbSet<ReportingNotificationsDailySummary> ReportingNotificationsDailySummaries { get; set; } = null!;
 
@@ -68,14 +80,148 @@ public class AppDbContext : DbContext
 
     public override int SaveChanges()
     {
+        EnforceHistoricalFinancialSnapshotImmutability();
+        EnforceHistoricalPaymentImmutability();
+        EnforceHistoricalOwnerCorrectionAuditImmutability();
+        EnforceHistoricalOwnerAttributionCoherence();
         ApplyTimestampsAndSoftDelete();
         return base.SaveChanges();
     }
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        await EnforceHistoricalFinancialSnapshotImmutabilityAsync(cancellationToken);
+        await EnforceHistoricalPaymentImmutabilityAsync(cancellationToken);
+        EnforceHistoricalOwnerCorrectionAuditImmutability();
+        await EnforceHistoricalOwnerAttributionCoherenceAsync(cancellationToken);
         ApplyTimestampsAndSoftDelete();
-        return base.SaveChangesAsync(cancellationToken);
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void EnforceHistoricalFinancialSnapshotImmutability()
+    {
+        foreach (var entry in ModifiedBookingEntries())
+        {
+            var databaseValues = entry.GetDatabaseValues();
+            EnsureHistoricalFinancialSnapshotUnchanged(entry.Entity, databaseValues);
+        }
+    }
+
+    private async Task EnforceHistoricalFinancialSnapshotImmutabilityAsync(
+        CancellationToken cancellationToken)
+    {
+        foreach (var entry in ModifiedBookingEntries())
+        {
+            var databaseValues = await entry.GetDatabaseValuesAsync(cancellationToken);
+            EnsureHistoricalFinancialSnapshotUnchanged(entry.Entity, databaseValues);
+        }
+    }
+
+    private IEnumerable<EntityEntry<Booking>> ModifiedBookingEntries() =>
+        ChangeTracker.Entries<Booking>()
+            .Where(entry => entry.State == EntityState.Modified);
+
+    private static void EnsureHistoricalFinancialSnapshotUnchanged(
+        Booking current,
+        PropertyValues? databaseValues)
+    {
+        if (databaseValues is null ||
+            !databaseValues.GetValue<bool>(nameof(Booking.IsHistorical)))
+        {
+            return;
+        }
+
+        var unchanged = current.IsHistorical &&
+            current.AgreedAmount == databaseValues.GetValue<decimal?>(nameof(Booking.AgreedAmount)) &&
+            current.BaseAmount == databaseValues.GetValue<decimal>(nameof(Booking.BaseAmount)) &&
+            current.FinalAmount == databaseValues.GetValue<decimal>(nameof(Booking.FinalAmount));
+
+        if (!unchanged)
+        {
+            throw new HistoricalFinancialSnapshotImmutableException();
+        }
+    }
+
+    private void EnforceHistoricalPaymentImmutability()
+    {
+        foreach (var entry in ChangedPaymentEntries())
+        {
+            var databaseValues = entry.GetDatabaseValues();
+            EnsureHistoricalPaymentUnchanged(entry, databaseValues);
+        }
+    }
+
+    private async Task EnforceHistoricalPaymentImmutabilityAsync(CancellationToken cancellationToken)
+    {
+        foreach (var entry in ChangedPaymentEntries())
+        {
+            var databaseValues = await entry.GetDatabaseValuesAsync(cancellationToken);
+            EnsureHistoricalPaymentUnchanged(entry, databaseValues);
+        }
+    }
+
+    private IEnumerable<EntityEntry<Payment>> ChangedPaymentEntries() =>
+        ChangeTracker.Entries<Payment>()
+            .Where(entry => entry.State is EntityState.Modified or EntityState.Deleted);
+
+    private static void EnsureHistoricalPaymentUnchanged(
+        EntityEntry<Payment> entry,
+        PropertyValues? databaseValues)
+    {
+        if (databaseValues?.GetValue<bool>(nameof(Payment.IsHistoricalRecord)) == true)
+            throw new HistoricalPaymentImmutableException();
+    }
+
+    private void EnforceHistoricalOwnerCorrectionAuditImmutability()
+    {
+        if (ChangeTracker.Entries<HistoricalOwnerAttributionCorrection>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new HistoricalOwnerCorrectionAuditImmutableException();
+        }
+    }
+
+    private void EnforceHistoricalOwnerAttributionCoherence()
+    {
+        foreach (var entry in ModifiedBookingEntries())
+        {
+            EnsureHistoricalOwnerAttributionHasAudit(entry, entry.GetDatabaseValues());
+        }
+    }
+
+    private async Task EnforceHistoricalOwnerAttributionCoherenceAsync(
+        CancellationToken cancellationToken)
+    {
+        foreach (var entry in ModifiedBookingEntries())
+        {
+            EnsureHistoricalOwnerAttributionHasAudit(
+                entry,
+                await entry.GetDatabaseValuesAsync(cancellationToken));
+        }
+    }
+
+    private void EnsureHistoricalOwnerAttributionHasAudit(
+        EntityEntry<Booking> entry,
+        PropertyValues? databaseValues)
+    {
+        if (databaseValues is null ||
+            !databaseValues.GetValue<bool>(nameof(Booking.IsHistorical)))
+        {
+            return;
+        }
+
+        var previousOwnerId = databaseValues.GetValue<Guid>(nameof(Booking.OwnerId));
+        if (entry.Entity.OwnerId == previousOwnerId)
+            return;
+
+        var matchingAudit = ChangeTracker.Entries<HistoricalOwnerAttributionCorrection>()
+            .Any(correction =>
+                correction.State == EntityState.Added &&
+                correction.Entity.BookingId == entry.Entity.Id &&
+                correction.Entity.PreviousOwnerId == previousOwnerId &&
+                correction.Entity.TargetOwnerId == entry.Entity.OwnerId);
+        if (!matchingAudit)
+            throw new HistoricalOwnerCorrectionAuditImmutableException();
     }
 
     private void ApplyTimestampsAndSoftDelete()

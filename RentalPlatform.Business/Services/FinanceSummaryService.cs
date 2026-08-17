@@ -28,10 +28,21 @@ public class FinanceSummaryService : IFinanceSummaryService
         if (invoice == null)
             throw new NotFoundException($"Invoice with ID {invoiceId} not found");
 
-        // Count ALL paid payments for this booking (not just invoice-linked ones)
-        // This ensures accurate balance calculation even if payments were made before invoice creation
+        // Ordinary unlinked payments remain settlement-eligible before invoice creation.
+        // Historical payment evidence is external receipt evidence and never settlement.
         var paidAmount = await _unitOfWork.Payments.Query()
-            .Where(p => p.BookingId == invoice.BookingId && p.PaymentStatus == "paid")
+            .Where(p => p.BookingId == invoice.BookingId
+                && p.PaymentStatus == "paid"
+                && !p.IsHistoricalRecord)
+            .SumAsync(p => p.Amount, cancellationToken);
+
+        var historicalEvidenceQuery = _unitOfWork.Payments.Query()
+            .Where(p => p.BookingId == invoice.BookingId
+                && p.PaymentStatus == "paid"
+                && p.IsHistoricalRecord
+                && p.InvoiceId == null);
+        var historicalEvidenceCount = await historicalEvidenceQuery.CountAsync(cancellationToken);
+        var historicalEvidenceAmount = await historicalEvidenceQuery
             .SumAsync(p => p.Amount, cancellationToken);
 
         var remaining = invoice.TotalAmount - paidAmount;
@@ -42,7 +53,9 @@ public class FinanceSummaryService : IFinanceSummaryService
             TotalAmount = invoice.TotalAmount,
             PaidAmount = paidAmount,
             RemainingAmount = remaining,
-            IsFullyPaid = remaining <= 0
+            IsFullyPaid = remaining <= 0,
+            HistoricalPaymentEvidenceCount = historicalEvidenceCount,
+            HistoricalPaymentEvidenceAmount = historicalEvidenceAmount
         };
     }
 
@@ -65,10 +78,20 @@ public class FinanceSummaryService : IFinanceSummaryService
 
         var invoicedAmount = invoice?.TotalAmount ?? 0m;
 
-        // Calculate paid amount from ALL paid payments for this booking (not just invoice-linked ones)
-        // This ensures that payments made before invoice creation are counted
+        // Preserve ordinary pre-invoice settlement while keeping historical evidence separate.
         decimal paidAmount = await _unitOfWork.Payments.Query()
-            .Where(p => p.BookingId == bookingId && p.PaymentStatus == "paid")
+            .Where(p => p.BookingId == bookingId
+                && p.PaymentStatus == "paid"
+                && !p.IsHistoricalRecord)
+            .SumAsync(p => p.Amount, cancellationToken);
+
+        var historicalEvidenceQuery = _unitOfWork.Payments.Query()
+            .Where(p => p.BookingId == bookingId
+                && p.PaymentStatus == "paid"
+                && p.IsHistoricalRecord
+                && p.InvoiceId == null);
+        var historicalEvidenceCount = await historicalEvidenceQuery.CountAsync(cancellationToken);
+        var historicalEvidenceAmount = await historicalEvidenceQuery
             .SumAsync(p => p.Amount, cancellationToken);
 
         // Calculate remaining based on invoice total (if exists) or 0
@@ -82,6 +105,8 @@ public class FinanceSummaryService : IFinanceSummaryService
             InvoicedAmount = invoicedAmount,
             PaidAmount = paidAmount,
             RemainingAmount = remaining,
+            HistoricalPaymentEvidenceCount = historicalEvidenceCount,
+            HistoricalPaymentEvidenceAmount = historicalEvidenceAmount,
             OwnerPayoutStatus = payout?.PayoutStatus.ToString().ToLowerInvariant()
         };
     }

@@ -8,6 +8,9 @@ public class Payment
     public string PaymentStatus { get; set; } = null!;
     public string PaymentMethod { get; set; } = null!;
     public decimal Amount { get; set; }
+    public bool IsHistoricalRecord { get; set; }
+    public Guid? CreatedByAdminUserId { get; set; }
+    public string? RecordedReason { get; set; }
 
     public string? ReferenceNumber { get; set; }
     public string? Notes { get; set; }
@@ -18,4 +21,5 @@ public class Payment
     // Navigation
     public Booking Booking { get; set; } = null!;
     public Invoice? Invoice { get; set; }
+    public AdminUser? CreatedByAdminUser { get; set; }
 }

@@ -44,6 +44,10 @@ export function DailyRevenueTable({ data, isLoading }: DailyRevenueTableProps) {
         acc.totalScheduledPayoutAmount + row.totalScheduledPayoutAmount,
       totalPaidPayoutAmount:
         acc.totalPaidPayoutAmount + row.totalPaidPayoutAmount,
+      historicalEvidenceRecordedCount:
+        acc.historicalEvidenceRecordedCount + row.historicalEvidenceRecordedCount,
+      historicalEvidenceRecordedAmount:
+        acc.historicalEvidenceRecordedAmount + row.historicalEvidenceRecordedAmount,
     }),
     {
       bookingsWithInvoiceCount: 0,
@@ -53,6 +57,8 @@ export function DailyRevenueTable({ data, isLoading }: DailyRevenueTableProps) {
       totalPendingPayoutAmount: 0,
       totalScheduledPayoutAmount: 0,
       totalPaidPayoutAmount: 0,
+      historicalEvidenceRecordedCount: 0,
+      historicalEvidenceRecordedAmount: 0,
     }
   );
 
@@ -61,11 +67,12 @@ export function DailyRevenueTable({ data, isLoading }: DailyRevenueTableProps) {
       <table className="w-full">
         <thead>
           <tr className="border-b text-left text-sm text-neutral-500">
-            <th className="p-3">Date</th>
+            <th className="p-3">Recorded date</th>
             <th className="p-3">Invoices</th>
             <th className="p-3">Invoiced</th>
-            <th className="p-3">Paid</th>
+            <th className="p-3">Platform paid</th>
             <th className="p-3">Remaining</th>
+            <th className="p-3">Historical Payment Evidence</th>
             <th className="p-3">Pending Payout</th>
             <th className="p-3">Scheduled Payout</th>
             <th className="p-3">Paid Payout</th>
@@ -84,6 +91,9 @@ export function DailyRevenueTable({ data, isLoading }: DailyRevenueTableProps) {
               </td>
               <td className="p-3 text-sm">
                 {formatCurrency(row.totalRemainingAmount)}
+              </td>
+              <td className="p-3 text-sm text-amber-800">
+                {formatCurrency(row.historicalEvidenceRecordedAmount)} ({row.historicalEvidenceRecordedCount})
               </td>
               <td className="p-3 text-sm">
                 {formatCurrency(row.totalPendingPayoutAmount)}
@@ -108,6 +118,9 @@ export function DailyRevenueTable({ data, isLoading }: DailyRevenueTableProps) {
             </td>
             <td className="p-3 text-sm">
               {formatCurrency(totals.totalRemainingAmount)}
+            </td>
+            <td className="p-3 text-sm">
+              {formatCurrency(totals.historicalEvidenceRecordedAmount)} ({totals.historicalEvidenceRecordedCount})
             </td>
             <td className="p-3 text-sm">
               {formatCurrency(totals.totalPendingPayoutAmount)}

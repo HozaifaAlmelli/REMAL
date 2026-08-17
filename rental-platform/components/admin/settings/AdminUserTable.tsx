@@ -12,7 +12,7 @@ interface AdminUserTableProps {
   users: AdminUserResponse[];
   isLoading: boolean;
   onChangeRole: (id: string, roleTemplateId: string, roleName: string) => void;
-  onEditOverrides: (id: string, name: string) => void;
+  onEditOverrides: (id: string, name: string, roleTemplateId: string) => void;
   onToggleStatus: (id: string, currentIsActive: boolean) => void;
 }
 
@@ -116,7 +116,13 @@ export function AdminUserTable({
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => onEditOverrides(adminUser.id, adminUser.name)}
+                      onClick={() =>
+                        onEditOverrides(
+                          adminUser.id,
+                          adminUser.name,
+                          adminUser.roleTemplateId
+                        )
+                      }
                       disabled={isSelf}
                       title={isSelf ? "Cannot edit your own overrides" : "Edit overrides"}
                     >

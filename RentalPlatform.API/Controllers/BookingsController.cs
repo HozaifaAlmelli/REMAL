@@ -40,6 +40,7 @@ public class BookingsController : ControllerBase
         [FromQuery] DateOnly? checkInFrom = null,
         [FromQuery] DateOnly? checkInTo = null,
         [FromQuery] bool agedSoftHoldsOnly = false,
+        [FromQuery] bool? isHistorical = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
@@ -53,7 +54,8 @@ public class BookingsController : ControllerBase
             checkInTo,
             page,
             pageSize,
-            agedSoftHoldsOnly);
+            agedSoftHoldsOnly,
+            isHistorical);
 
         int totalPages = (int)Math.Ceiling(result.Total / (double)pageSize);
         if (totalPages == 0) totalPages = 1;
@@ -176,6 +178,7 @@ public class BookingsController : ControllerBase
             FinalAmount = booking.FinalAmount,
             Source = booking.Source,
             CreatedAt = booking.CreatedAt,
+            IsHistorical = booking.IsHistorical,
             IsAgedSoftHold = IsAgedSoftHold(booking),
             SoftHoldAgeDays = GetSoftHoldAgeDays(booking)
         };
@@ -204,6 +207,11 @@ public class BookingsController : ControllerBase
             InternalNotes = booking.InternalNotes,
             CreatedAt = booking.CreatedAt,
             UpdatedAt = booking.UpdatedAt,
+            IsHistorical = booking.IsHistorical,
+            ActualBookedAt = booking.ActualBookedAt,
+            OriginalSource = booking.OriginalSource,
+            HistoricalEntryReason = booking.HistoricalEntryReason,
+            AgreedAmount = booking.AgreedAmount,
             IsAgedSoftHold = IsAgedSoftHold(booking),
             SoftHoldAgeDays = GetSoftHoldAgeDays(booking)
         };
@@ -264,11 +272,16 @@ public class BookingsController : ControllerBase
 
         var isCreationEntry =
             history.OldStatus == null &&
-            string.Equals(
-                history.Notes,
-                BookingHistoryEvents.BookingCreated,
-                StringComparison.Ordinal);
+            (string.Equals(
+                 history.Notes,
+                 BookingHistoryEvents.BookingCreated,
+                 StringComparison.Ordinal) ||
+             string.Equals(
+                 history.Notes,
+                 BookingHistoryEvents.HistoricalBookingRecorded,
+                 StringComparison.Ordinal));
         if (isCreationEntry &&
+            string.Equals(history.Notes, BookingHistoryEvents.BookingCreated, StringComparison.Ordinal) &&
             string.Equals(history.Booking?.Source, "website", StringComparison.OrdinalIgnoreCase))
         {
             return ("Online booking", "online");

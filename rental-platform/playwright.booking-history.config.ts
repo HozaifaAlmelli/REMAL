@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { createIsolatedNextWebServer } from "./playwright.next-server";
 
 const isProductionMode = process.env.BOOKING_HISTORY_TEST_PRODUCTION === "1";
 
@@ -18,8 +19,9 @@ export default defineConfig({
       },
     ],
   ],
+  outputDir: "test-results/booking-history",
   use: {
-    baseURL: "http://localhost:3103",
+    baseURL: "http://localhost:3104",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -30,16 +32,5 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    command: isProductionMode
-      ? "npm exec next start -- -p 3103"
-      : "npm exec next dev -- -p 3103",
-    url: "http://localhost:3103/auth/admin/login",
-    reuseExistingServer: false,
-    timeout: 120_000,
-    env: {
-      ...process.env,
-      NEXT_PUBLIC_API_URL: "http://booking-history-fixture.local",
-    },
-  },
+  webServer: createIsolatedNextWebServer("bookingHistory", isProductionMode),
 });

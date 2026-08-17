@@ -9,6 +9,7 @@ using RentalPlatform.Business.Interfaces;
 using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Enums;
+using RentalPlatform.Shared.Constants;
 using BCrypt.Net;
 
 namespace RentalPlatform.Business.Services;
@@ -81,6 +82,11 @@ public class AdminUserService : IAdminUserService
         var adminUser = await _unitOfWork.AdminUsers.GetByIdAsync(id, cancellationToken)
             ?? throw new NotFoundException($"Admin user with ID {id} not found.");
 
+        await ValidateOwnerCorrectionOverrideForRoleChangeAsync(
+            adminUser.Id,
+            roleTemplate.Id,
+            cancellationToken);
+
         adminUser.RoleTemplateId = roleTemplate.Id;
         adminUser.Role = LegacyRoleForTemplate(roleTemplate.Name);
         adminUser.RoleTemplate = roleTemplate;
@@ -120,5 +126,30 @@ public class AdminUserService : IAdminUserService
         return Enum.TryParse<AdminRole>(roleTemplateName, ignoreCase: false, out var legacyRole)
             ? legacyRole
             : null;
+    }
+
+    private async Task ValidateOwnerCorrectionOverrideForRoleChangeAsync(
+        Guid adminUserId,
+        Guid targetRoleTemplateId,
+        CancellationToken cancellationToken)
+    {
+        var correctionOverride = await _unitOfWork.RbacAdminUserPermissionOverrides.Query()
+            .AsNoTracking()
+            .Where(entry =>
+                entry.AdminUserId == adminUserId &&
+                entry.PermissionKey == RbacPermissionKeys.BookingsCorrectOwnerAttribution)
+            .Select(entry => entry.ModifierType)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        var invalid =
+            targetRoleTemplateId == RbacSystemRoleTemplates.SuperAdminId
+                ? correctionOverride == "deny"
+                : correctionOverride == "grant";
+        if (invalid)
+        {
+            throw new BusinessValidationException(
+                "Clear the historical owner-correction override before changing this role.",
+                RbacErrorCodes.OwnerCorrectionSuperAdminOnly);
+        }
     }
 }

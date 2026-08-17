@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,9 +39,11 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
     {
         ValidateDateRange(dateFrom, dateTo);
 
-        return await BuildQuery(dateFrom, dateTo)
+        var rows = await BuildQuery(dateFrom, dateTo)
             .OrderBy(r => r.MetricDate)
             .ToListAsync(cancellationToken);
+
+        return rows;
     }
 
     public async Task<FinanceAnalyticsSummaryResult> GetSummaryAsync(
@@ -53,44 +56,67 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
         // FIXED: Don't filter by booking date - count ALL paid payments in the system
         // The finance summary should show total paid regardless of when booking was created
         
-        // Get ALL active invoices (exclude cancelled AND superseded)
+        var bookingsQuery = _unitOfWork.Bookings.Query();
+
+        if (dateFrom.HasValue)
+        {
+            var dateFromDateTime = dateFrom.Value.ToDateTime(TimeOnly.MinValue);
+            bookingsQuery = bookingsQuery.Where(b => b.CreatedAt >= dateFromDateTime);
+        }
+
+        if (dateTo.HasValue)
+        {
+            var dateToDateTime = dateTo.Value.ToDateTime(TimeOnly.MaxValue);
+            bookingsQuery = bookingsQuery.Where(b => b.CreatedAt <= dateToDateTime);
+        }
+
+        var bookingRows = await bookingsQuery
+            .Select(b => new { b.Id, b.IsHistorical, b.AgreedAmount })
+            .ToListAsync(cancellationToken);
+        var bookingIds = bookingRows.Select(b => b.Id).ToList();
+        var historicalBookingIds = bookingRows.Where(b => b.IsHistorical).Select(b => b.Id).ToHashSet();
+
         var activeInvoicesQuery = _unitOfWork.Invoices.Query()
+            .Where(i => bookingIds.Contains(i.BookingId))
             .Where(i => i.InvoiceStatus != "cancelled" && i.InvoiceStatus != "superseded");
 
-        // Get ALL paid payments in the system
+        // Platform paid revenue excludes immutable evidence of money received outside KAZA.
         var paidPaymentsQuery = _unitOfWork.Payments.Query()
-            .Where(p => p.PaymentStatus == "paid");
+            .Where(p => bookingIds.Contains(p.BookingId))
+            .Where(p => p.PaymentStatus == "paid" && !p.IsHistoricalRecord);
+
+        var historicalEvidenceQuery = _unitOfWork.Payments.Query()
+            .Where(p => p.PaymentStatus == "paid"
+                && p.IsHistoricalRecord
+                && p.InvoiceId == null);
 
         // Get ALL payouts
-        var payoutsQuery = _unitOfWork.OwnerPayouts.Query();
+        var payoutsQuery = _unitOfWork.OwnerPayouts.Query()
+            .Where(p => bookingIds.Contains(p.BookingId));
 
         // Apply date filters if provided (filter by booking creation date)
         if (dateFrom.HasValue || dateTo.HasValue)
         {
-            var bookingsQuery = _unitOfWork.Bookings.Query();
-            
             if (dateFrom.HasValue)
             {
                 var dateFromDateTime = dateFrom.Value.ToDateTime(TimeOnly.MinValue);
-                bookingsQuery = bookingsQuery.Where(b => b.CreatedAt >= dateFromDateTime);
+                historicalEvidenceQuery = historicalEvidenceQuery
+                    .Where(p => p.PaidAt >= dateFromDateTime);
             }
             
             if (dateTo.HasValue)
             {
                 var dateToDateTime = dateTo.Value.ToDateTime(TimeOnly.MaxValue);
-                bookingsQuery = bookingsQuery.Where(b => b.CreatedAt <= dateToDateTime);
+                historicalEvidenceQuery = historicalEvidenceQuery
+                    .Where(p => p.PaidAt <= dateToDateTime);
             }
-
-            var bookingIds = await bookingsQuery.Select(b => b.Id).ToListAsync(cancellationToken);
-
-            // Filter invoices, payments, and payouts by booking IDs
-            activeInvoicesQuery = activeInvoicesQuery.Where(i => bookingIds.Contains(i.BookingId));
-            paidPaymentsQuery = paidPaymentsQuery.Where(p => bookingIds.Contains(p.BookingId));
-            payoutsQuery = payoutsQuery.Where(op => bookingIds.Contains(op.BookingId));
         }
 
         var activeInvoices = await activeInvoicesQuery.ToListAsync(cancellationToken);
         var paidPayments = await paidPaymentsQuery.ToListAsync(cancellationToken);
+        var historicalEvidenceCount = await historicalEvidenceQuery.CountAsync(cancellationToken);
+        var historicalEvidenceAmount = await historicalEvidenceQuery
+            .SumAsync(p => p.Amount, cancellationToken);
         var payouts = await payoutsQuery.ToListAsync(cancellationToken);
 
         // Debug logging
@@ -108,6 +134,11 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
         var totalInvoiced = activeInvoices.Sum(i => i.TotalAmount);
         var totalPaid = paidPayments.Sum(p => p.Amount);
         var totalRemaining = totalInvoiced - totalPaid;
+        var historicalInvoices = activeInvoices
+            .Where(i => historicalBookingIds.Contains(i.BookingId))
+            .ToList();
+        var ordinaryUnlinkedPayments = paidPayments.Where(p => !p.InvoiceId.HasValue).ToList();
+        var historicalInvoiced = historicalInvoices.Sum(i => i.TotalAmount);
 
         _logger.LogDebug("[FinanceAnalytics] RESULT - Invoiced: {Invoiced}, Paid: {Paid}, Remaining: {Remaining}", totalInvoiced, totalPaid, totalRemaining);
 
@@ -135,21 +166,128 @@ public class ReportingFinanceAnalyticsService : IReportingFinanceAnalyticsServic
             TotalInvoicedAmount             = totalInvoiced,
             TotalPaidAmount                 = totalPaid,
             TotalRemainingAmount            = totalRemaining,
+            HistoricalPaymentEvidenceCount  = historicalEvidenceCount,
+            HistoricalPaymentEvidenceAmount = historicalEvidenceAmount,
             TotalPendingPayoutAmount        = pendingPayouts.Sum(p => p.PayoutAmount),
             TotalScheduledPayoutAmount      = scheduledPayouts.Sum(p => p.PayoutAmount),
             TotalPaidPayoutAmount           = paidPayouts.Sum(p => p.PayoutAmount),
+            HistoricalBookingsCount        = bookingRows.Count(b => b.IsHistorical),
+            HistoricalAgreedAmount          = bookingRows.Where(b => b.IsHistorical).Sum(b => b.AgreedAmount ?? 0m),
+            HistoricalBookingsWithInvoiceCount = historicalInvoices.Select(i => i.BookingId).Distinct().Count(),
+            HistoricalInvoicedAmount        = historicalInvoiced,
+            OrdinaryUnlinkedPaidCount       = ordinaryUnlinkedPayments.Count,
+            OrdinaryUnlinkedPaidAmount      = ordinaryUnlinkedPayments.Sum(p => p.Amount),
         };
+    }
+
+    public async Task<IReadOnlyList<ReportingFinanceStayDailySummary>> GetStayDailySummaryAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        bool includeHistorical = true,
+        bool historicalOnly = false,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredDateRange(dateFrom, dateTo, includeHistorical, historicalOnly);
+        var started = Stopwatch.GetTimestamp();
+
+        var rows = await _unitOfWork.ReportingFinanceStayDailySummaries
+            .Where(row => row.StayStartDate >= dateFrom && row.StayStartDate <= dateTo)
+            .OrderBy(row => row.StayStartDate)
+            .ToListAsync(cancellationToken);
+
+        var projected = ApplyStayHistoricalFilter(rows, includeHistorical, historicalOnly);
+
+        _logger.LogInformation(
+            "reporting.historical.query Route={Route} IncludeHistorical={IncludeHistorical} HistoricalOnly={HistoricalOnly} RowCount={RowCount} ElapsedMs={ElapsedMs}",
+            "finance/stay-daily",
+            includeHistorical,
+            historicalOnly,
+            projected.Count,
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+
+        return projected;
     }
 
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
 
-    private static void ValidateDateRange(DateOnly? dateFrom, DateOnly? dateTo)
+    private static void ValidateDateRange(
+        DateOnly? dateFrom,
+        DateOnly? dateTo)
     {
         if (dateFrom.HasValue && dateTo.HasValue && dateFrom.Value > dateTo.Value)
             throw new BusinessValidationException(
                 $"dateFrom ({dateFrom.Value}) must not be later than dateTo ({dateTo.Value}).");
+
+    }
+
+    private static void ValidateRequiredDateRange(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        bool includeHistorical,
+        bool historicalOnly)
+    {
+        if (dateFrom > dateTo)
+            throw new BusinessValidationException("dateFrom must be on or before dateTo.");
+
+        if (!IsWithinInclusive24Months(dateFrom, dateTo))
+            throw new BusinessValidationException("Date range must not exceed 24 inclusive months.");
+
+        ValidateHistoricalFilter(includeHistorical, historicalOnly);
+    }
+
+    private static void ValidateHistoricalFilter(bool includeHistorical, bool historicalOnly)
+    {
+        if (historicalOnly && !includeHistorical)
+            throw new BusinessValidationException(
+                "historicalOnly=true cannot be combined with includeHistorical=false.");
+    }
+
+    private static bool IsWithinInclusive24Months(DateOnly from, DateOnly to)
+    {
+        if (from > DateOnly.MaxValue.AddMonths(-24).AddDays(1))
+            return true;
+
+        return to <= from.AddMonths(24).AddDays(-1);
+    }
+
+    private static IReadOnlyList<ReportingFinanceStayDailySummary> ApplyStayHistoricalFilter(
+        IReadOnlyList<ReportingFinanceStayDailySummary> rows,
+        bool includeHistorical,
+        bool historicalOnly)
+    {
+        if (includeHistorical && !historicalOnly)
+            return rows;
+
+        return rows
+            .Select(row => historicalOnly
+                ? new ReportingFinanceStayDailySummary
+                {
+                    StayStartDate = row.StayStartDate,
+                    StayBookingsCount = row.HistoricalBookingsCount,
+                    BookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
+                    TotalInvoicedAmount = row.HistoricalInvoicedAmount,
+                    TotalFinalAmount = row.HistoricalAgreedAmount,
+                    HistoricalBookingsCount = row.HistoricalBookingsCount,
+                    HistoricalAgreedAmount = row.HistoricalAgreedAmount,
+                    HistoricalInvoicedAmount = row.HistoricalInvoicedAmount,
+                    HistoricalBookingsWithInvoiceCount = row.HistoricalBookingsWithInvoiceCount,
+                }
+                : new ReportingFinanceStayDailySummary
+                {
+                    StayStartDate = row.StayStartDate,
+                    StayBookingsCount = row.StayBookingsCount - row.HistoricalBookingsCount,
+                    BookingsWithInvoiceCount = row.BookingsWithInvoiceCount - row.HistoricalBookingsWithInvoiceCount,
+                    TotalInvoicedAmount = row.TotalInvoicedAmount - row.HistoricalInvoicedAmount,
+                    TotalFinalAmount = row.TotalFinalAmount - row.HistoricalAgreedAmount,
+                })
+            .Where(row =>
+                row.StayBookingsCount > 0
+                || row.TotalInvoicedAmount != 0
+                || row.TotalFinalAmount != 0
+                || row.HistoricalBookingsCount > 0)
+            .ToList();
     }
 
     private IQueryable<ReportingFinanceDailySummary> BuildQuery(DateOnly? dateFrom, DateOnly? dateTo)

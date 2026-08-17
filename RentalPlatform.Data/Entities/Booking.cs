@@ -17,8 +17,14 @@ public class Booking
     public int GuestCount { get; set; }
     public decimal BaseAmount { get; set; }
     public decimal FinalAmount { get; set; }
+    public decimal? AgreedAmount { get; set; }
     public string Source { get; set; } = null!;
     public string? InternalNotes { get; set; }
+    public bool IsHistorical { get; set; }
+    public DateOnly? ActualBookedAt { get; set; }
+    public string? HistoricalEntryReason { get; set; }
+    public string? OriginalSource { get; set; }
+    public string? ExternalReference { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
