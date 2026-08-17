@@ -41,8 +41,9 @@ RUN_ID="${RANDOM}_$$"
 DB_SAME="${DATABASE_PREFIX}_${RUN_ID}_same"
 DB_OTHER="${DATABASE_PREFIX}_${RUN_ID}_other"
 DB_CRASH="${DATABASE_PREFIX}_${RUN_ID}_crash"
+DB_KILL="${DATABASE_PREFIX}_${RUN_ID}_kill"
 DB_RESTORE="${DATABASE_PREFIX}_${RUN_ID}_restore"
-DATABASES=("$DB_SAME" "$DB_OTHER" "$DB_CRASH" "$DB_RESTORE")
+DATABASES=("$DB_SAME" "$DB_OTHER" "$DB_CRASH" "$DB_KILL" "$DB_RESTORE")
 
 cleanup() {
   local database
@@ -62,6 +63,22 @@ set -euo pipefail
 
 printf '%q ' "$@" >> "$DOCKER_CALLS_FILE"
 printf '\n' >> "$DOCKER_CALLS_FILE"
+
+# The compose-agreement preflight resolves one key from a throwaway probe
+# project. Hand that straight to the real docker compose: it is the authority
+# this harness is checking the parser against, and the probe touches nothing.
+if [[ "$*" == *kaza-env-probe.yml* ]]; then
+  exec "$REAL_DOCKER" "$@"
+fi
+
+# `docker compose config --quiet` is the runner's env-file preflight: it
+# validates and prints nothing. There is no compose project in this harness, so
+# accept it. COMPOSE_CONFIG_STATUS simulates an unparseable deployment config.
+for arg in "$@"; do
+  if [ "$arg" = "config" ]; then
+    exit "${COMPOSE_CONFIG_STATUS:-0}"
+  fi
+done
 
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "exec" ]; then
@@ -233,17 +250,35 @@ assert_contains "$TMP/runner-after.log" "Up to date"
 
 create_database "$DB_OTHER" 1
 create_database "$DB_CRASH"
+create_database "$DB_KILL"
 
+# Two independent episodes, each with its own migration-applying window. They
+# used to share one: the cross-database check had to finish inside the same
+# pg_sleep as the lock termination, so anything that slowed a runner down — the
+# compose-agreement preflight, a loaded CI host — turned this into a race.
+#
+# Episode 1: a real runner holding DB_CRASH's lock must not block a runner
+# targeting the different DB_OTHER database in the same PostgreSQL cluster.
 run_runner "$DB_CRASH" > "$TMP/runner-crash.log" 2>&1 &
 runner_crash=$!
 wait_for_log "$TMP/runner-crash.log" "--- applying 0002_serialized_change.sql"
 
-# A real runner holding DB_CRASH's lock must not block a runner targeting the
-# different DB_OTHER database in the same PostgreSQL cluster.
 run_runner "$DB_OTHER" > "$TMP/runner-other.log" 2>&1
 assert_contains "$TMP/runner-other.log" "Up to date"
 
-lock_backend_pid="$(docker exec "$CONTAINER" psql -X -qAt -U postgres -d "$DB_CRASH" -c \
+if ! wait "$runner_crash"; then
+  echo "--- captured crash-database runner log" >&2
+  cat "$TMP/runner-crash.log" >&2 || true
+  fail "the cross-database runner did not complete on its own database"
+fi
+
+# Episode 2: killing the connection that owns the lock must fail the runner.
+# Nothing slow runs between the log line and the termination.
+run_runner "$DB_KILL" > "$TMP/runner-kill.log" 2>&1 &
+runner_crash=$!
+wait_for_log "$TMP/runner-kill.log" "--- applying 0002_serialized_change.sql"
+
+lock_backend_pid="$(docker exec "$CONTAINER" psql -X -qAt -U postgres -d "$DB_KILL" -c \
   "SELECT l.pid
    FROM pg_locks l
    JOIN pg_stat_activity a ON a.pid = l.pid
@@ -261,7 +296,7 @@ crash_status=$?
 set -e
 [ "$crash_status" -ne 0 ] || fail "runner with a terminated lock connection unexpectedly reported success"
 
-lock_reacquired="$(docker exec "$CONTAINER" psql -X -qAt -U postgres -d "$DB_CRASH" -c \
+lock_reacquired="$(docker exec "$CONTAINER" psql -X -qAt -U postgres -d "$DB_KILL" -c \
   "SELECT pg_try_advisory_lock(1263092295, (SELECT oid::integer FROM pg_database WHERE datname=current_database()));")"
 [ "$lock_reacquired" = "t" ] || fail "connection close orphaned the migration advisory lock"
 

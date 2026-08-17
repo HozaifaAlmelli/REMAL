@@ -2,6 +2,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# The stubbed docker binary answers the compose-agreement probe from these
+# literals — the values this suite's fixture declares — so the oracle stays
+# independent of the parser under test.
+export KAZA_PROBE_STUB_LIB="$ROOT/scripts/tests/lib/compose-probe-stub.sh"
+export KAZA_PROBE_POSTGRES_USER="postgres"
+export KAZA_PROBE_POSTGRES_DB="kaza_test_backup"
 # shellcheck source=scripts/lib/postgres-backup.sh
 source "$ROOT/scripts/lib/postgres-backup.sh"
 
@@ -62,6 +69,7 @@ expect_failure \
 mkdir -p "$TMP/runner/lib" "$TMP/bin" "$TMP/backups"
 cp "$ROOT/scripts/backup-postgres.sh" "$TMP/runner/backup-postgres.sh"
 cp "$ROOT/scripts/lib/postgres-backup.sh" "$TMP/runner/lib/postgres-backup.sh"
+cp "$ROOT/scripts/lib/env-file.sh" "$TMP/runner/lib/env-file.sh"
 cat > "$TMP/test.env" <<'ENV'
 POSTGRES_DB=kaza_test_backup
 POSTGRES_USER=postgres
@@ -70,6 +78,10 @@ ENV
 cat > "$TMP/bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+
+# shellcheck source=scripts/tests/lib/compose-probe-stub.sh
+source "$KAZA_PROBE_STUB_LIB"
+respond_to_compose_probe "$@"
 
 case "${BACKUP_TEST_MODE:-success}" in
   success)

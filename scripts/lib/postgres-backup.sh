@@ -41,3 +41,46 @@ publish_postgres_backup_artifact() {
   }
   rm -f -- "$partial"
 }
+
+# Retention pruning that can never delete quietly.
+#   - RETENTION_DAYS=0 disables pruning outright (use it during a rollout).
+#   - The newest $min_retained artifacts are always kept, whatever their age, so
+#     a long-lived reference backup cannot disappear because the clock moved.
+#   - Every candidate is named on stdout before it is removed.
+prune_postgres_backup_artifacts() {
+  local backup_dir="$1"
+  local retention_days="$2"
+  local min_retained="${3:-3}"
+
+  if [ "$retention_days" -le 0 ] 2>/dev/null; then
+    echo "$(date -Is) retention pruning disabled (RETENTION_DAYS=$retention_days); no artifact removed"
+    return 0
+  fi
+
+  local all=()
+  mapfile -t all < <(
+    find "$backup_dir" -maxdepth 1 -name 'kaza_postgres_*.sql.gz' -type f -printf '%T@\t%p\n' 2>/dev/null |
+      sort -rn |
+      cut -f2-
+  )
+
+  if [ "${#all[@]}" -le "$min_retained" ]; then
+    echo "$(date -Is) retention: ${#all[@]} artifact(s) present, minimum retained is $min_retained; nothing pruned"
+    return 0
+  fi
+
+  local removed=0
+  local index=0
+  local artifact
+  for artifact in "${all[@]}"; do
+    index=$((index + 1))
+    [ "$index" -gt "$min_retained" ] || continue
+    if [ -n "$(find "$artifact" -maxdepth 0 -mtime +"$retention_days" -print -quit 2>/dev/null)" ]; then
+      echo "$(date -Is) retention: removing $artifact (older than ${retention_days} days)"
+      rm -f -- "$artifact"
+      removed=$((removed + 1))
+    fi
+  done
+
+  echo "$(date -Is) retention: removed ${removed} artifact(s); kept $(( ${#all[@]} - removed ))"
+}

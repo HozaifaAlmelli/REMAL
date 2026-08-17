@@ -16,6 +16,7 @@ using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Constants;
 using RentalPlatform.Shared.Enums;
 using RentalPlatform.Shared.Models;
+using RentalPlatform.Tests.Infrastructure;
 using Xunit;
 
 namespace RentalPlatform.Tests;
@@ -280,7 +281,11 @@ public sealed class BookingHistoryCreatorTests
 
             var unitOfWork = new UnitOfWork(context);
             var availability = new AvailableUnitService();
-            var bookingService = new BookingService(unitOfWork, availability);
+            var bookingService = new BookingService(
+                unitOfWork,
+                availability,
+                new FixedBusinessClock(new DateOnly(2027, 1, 1)),
+                NullLogger<BookingService>.Instance);
             var lifecycleService = new BookingLifecycleService(
                 unitOfWork,
                 availability,

@@ -2,6 +2,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# The stubbed docker binary answers the compose-agreement probe from these
+# literals — the values this suite's fixture declares — so the oracle stays
+# independent of the parser under test.
+export KAZA_PROBE_STUB_LIB="$ROOT/scripts/tests/lib/compose-probe-stub.sh"
+export KAZA_PROBE_POSTGRES_USER="test"
+export KAZA_PROBE_POSTGRES_DB="test"
 # shellcheck source=scripts/lib/production-migrations.sh
 source "$ROOT/scripts/lib/production-migrations.sh"
 
@@ -134,6 +141,7 @@ trap 'rm -rf -- "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/migrations" "$TMP/runner/lib"
 cp "$ROOT/scripts/apply-migrations.sh" "$TMP/runner/apply-migrations.sh"
 cp "$ROOT/scripts/lib/production-migrations.sh" "$TMP/runner/lib/production-migrations.sh"
+cp "$ROOT/scripts/lib/env-file.sh" "$TMP/runner/lib/env-file.sh"
 
 mkdir -p "$TMP/completeness-migrations"
 cp -a "$ROOT/db/migrations/." "$TMP/completeness-migrations/"
@@ -276,8 +284,17 @@ cat > "$TMP/bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=scripts/tests/lib/compose-probe-stub.sh
+source "$KAZA_PROBE_STUB_LIB"
+respond_to_compose_probe "$@"
+
 joined="$*"
 echo "$joined" >> "$DB_CALLS_FILE"
+# `docker compose config --quiet` is the env-file preflight: it validates and
+# prints nothing. COMPOSE_CONFIG_STATUS simulates an unparseable env file.
+if [[ "$joined" == *" config --quiet"* ]]; then
+  exit "${COMPOSE_CONFIG_STATUS:-0}"
+fi
 if [[ "$joined" == *" -qAt "* ]]; then
   while IFS= read -r sql; do
     if [[ "$sql" == *"pg_try_advisory_lock"* ]]; then

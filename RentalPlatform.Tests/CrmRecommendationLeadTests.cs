@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using RentalPlatform.API.Controllers;
 using RentalPlatform.API.DTOs.Requests.CrmLeads;
 using RentalPlatform.API.DTOs.Responses.CrmLeads;
@@ -13,6 +14,7 @@ using RentalPlatform.Data;
 using RentalPlatform.Data.Entities;
 using RentalPlatform.Shared.Enums;
 using RentalPlatform.Shared.Models;
+using RentalPlatform.Tests.Infrastructure;
 using Xunit;
 
 namespace RentalPlatform.Tests;
@@ -338,7 +340,11 @@ public sealed class CrmRecommendationLeadTests
 
             var unitOfWork = new UnitOfWork(context);
             var availability = new AvailableUnitService();
-            var bookingService = new BookingService(unitOfWork, availability);
+            var bookingService = new BookingService(
+                unitOfWork,
+                availability,
+                new FixedBusinessClock(new DateOnly(2027, 1, 1)),
+                NullLogger<BookingService>.Instance);
             var service = new CrmLeadService(unitOfWork, bookingService, availability);
             var controller = new CrmLeadsController(service);
 

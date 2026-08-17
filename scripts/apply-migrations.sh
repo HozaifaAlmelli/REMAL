@@ -28,6 +28,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=scripts/lib/production-migrations.sh
 source "$SCRIPT_DIR/lib/production-migrations.sh"
+# shellcheck source=scripts/lib/env-file.sh
+source "$SCRIPT_DIR/lib/env-file.sh"
 
 # Validate and materialize the complete production list before any database or
 # backup command. Invalid deployment metadata must fail closed without writes.
@@ -35,10 +37,17 @@ PRODUCTION_MIGRATION_OUTPUT="$(list_production_migrations "$PRODUCTION_MANIFEST"
 mapfile -t MIGRATION_FILES <<< "$PRODUCTION_MIGRATION_OUTPUT"
 validate_production_migration_checksums "$MIGRATION_CHECKSUMS" "$MIG_DIR" "${MIGRATION_FILES[@]}"
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# Fail-fast environment preflight. This runs before the migration lock, before
+# the pre-migration backup and before any migration SQL: an unreadable or
+# incomplete env file stops the rollout here, with nothing written. The env file
+# is never sourced — see scripts/lib/env-file.sh.
+env_file_preflight "$ENV_FILE" POSTGRES_USER POSTGRES_DB POSTGRES_PASSWORD
+compose_env_preflight "$COMPOSE_FILE" "$ENV_FILE"
+# The identifiers must be exactly what docker compose resolves from the same
+# file. A duplicate assignment, an interpolation or an escape this reader does
+# not model would otherwise silently point the migration at another database.
+compose_identifier_agreement_preflight "$ENV_FILE" POSTGRES_USER POSTGRES_DB
+load_db_connection_identifiers "$ENV_FILE"
 
 db_exec() {
   docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db "$@"
@@ -158,7 +167,11 @@ read_and_validate_ledger
 
 echo "### Taking a pre-migration backup ..."
 assert_migration_lock_alive
-bash "$SCRIPT_DIR/backup-postgres.sh"
+# RETENTION_DAYS=0 — the pre-migration safety backup must never prune. A rollout
+# may not remove a pre-existing artifact as a side effect of protecting itself.
+# set -e aborts here if the backup fails, so no migration SQL can follow a bad backup.
+ENV_FILE="$ENV_FILE" COMPOSE_FILE="$COMPOSE_FILE" RETENTION_DAYS=0 \
+  bash "$SCRIPT_DIR/backup-postgres.sh"
 assert_migration_lock_alive
 
 echo "### Scanning for pending migrations in $MIG_DIR ..."
