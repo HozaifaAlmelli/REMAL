@@ -86,7 +86,7 @@ When in doubt, prefer the safer row and hand back to a human.
 |---|---|
 | Change is verified and a deploy is wanted + a human will approve the gate | **Merge** (squash) and monitor |
 | You are unsure whether the SHA needs migrations | **Compare before dispatching**: `release-state.sh ledger-head` vs `MIG_DIR=<tree> release-state.sh tree-level` |
-| Docs-only change | Usually **leave open** — it still queues a (gated) deploy |
+| Docs-only change | Merge when reviewed; it does not queue a deploy because production is manual-only |
 
 ## 7. Temporary SSH key vs manual command execution
 

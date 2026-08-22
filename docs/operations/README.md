@@ -27,7 +27,7 @@ duplicating content.
 
 ## Non-negotiables (full list in the workbook §2)
 
-Never `docker compose down` · never a bare `docker compose up -d` (service-scoped
-`up -d --no-deps <service>` only) · never start Kaza nginx/certbot on 80/443 · never
+Never `docker compose down` · never use direct Compose recreation as a deployment path
+(the trusted runner scopes each internal recreate) · never start Kaza nginx/certbot on 80/443 · never
 restart `novatova-*` · never touch the DB without a verified backup · always `nginx -t`
 before reload · promote every live fix to `main` · never print secrets.

@@ -42,17 +42,19 @@ command can take Novatova down or wipe the Kaza DB. Slow down and use the playbo
 
 ## Non-negotiables (full detail in the skills)
 
-- **Never** `docker compose down`. **Never** a bare `docker compose up -d`. Recreate
-  one service only: `"${COMPOSE[@]}" up -d --no-deps <service>`.
+- **Never** `docker compose down`. **Never** a bare `docker compose up -d`. Application
+  recreation runs only through the trusted current-`main` control plane, whose internal
+  recreates are service-scoped with `--no-deps`.
 - **Never** touch, restart, or reconfigure Novatova. `novatova-nginx` may only be
   inspected, `nginx -t`-tested, and **reloaded** (never restarted), and only after
   `nginx -t` passes.
 - **Kaza must never bind 80/443** — the `nginx`/`certbot` services are `profiles: ["edge"]`
   and stay OFF on this host.
 - **Back up before any DB write** (`scripts/backup-postgres.sh`); migrations are
-  additive, gated, and never run during deploy.
-- **The VPS is not durable** — production deploy force-checks-out `main`; promote every
-  verified live fix to `main` or it is wiped.
+  additive, gated, and run only through the release path, never code-only deploy.
+- **The VPS is not a deployment authority.** Current `main` supplies the trusted control
+  plane and a separate reviewed Git candidate supplies application code. Promote every
+  verified live fix to `main`; uncommitted host edits are never deployable evidence.
 - **Never print secrets.** Pipe anything that might contain them through `redact`.
 - **Remove any temporary SSH key** at the end and verify access is denied.
 

@@ -1,128 +1,86 @@
-# Rollback & recovery — Kaza Booking production
+# Kaza Production Rollback and Failure Recovery
 
-Rollback always targets a **specific commit SHA** — never a vague "previous version."
-The deploy script records the live SHA at `/opt/kaza/releases/current-sha.txt`, copies
-the prior one to `/opt/kaza/releases/previous-sha.txt` before each release, and appends
-an immutable record to `/opt/kaza/releases/deployments.jsonl`
-(`scripts/deploy-production.sh`).
+Rollback always identifies a full reviewed commit and exact image identities. There is no
+automatic rollback: an automatic multi-service or database reversal would make a partial
+failure less observable and could destroy newer data.
 
-> ⚠️ **There is no automatic rollback in the current pipeline.** The deploy runs
-> post-deploy health checks and fails loudly, but it does **not** roll back on its own.
-> (An earlier runbook claimed it did — that doc is archived. Rollback is a deliberate,
-> manual decision.)
+## Evidence created before mutation
 
-## Policy — what "rollback" means here
+Before recreating the first application service, the trusted runner writes
+`/opt/kaza/releases/recovery-<run-id>.json`. It contains:
 
-| Failure | Roll back | Do NOT roll back |
+- target and control SHA;
+- candidate path;
+- previous and target content-addressed image IDs;
+- temporary rollback image tags;
+- services changed so far;
+- status (`PREPARED`, `IN_PROGRESS`, `FAILED`, or `DEPLOYED`).
+
+The runner durably updates this manifest before each service mutation. The service list is
+therefore conservative: a listed service was attempted and may have changed. Every attempt also requires a
+strict terminal record in `deployments.jsonl`. `current-sha.txt` changes only after all
+service, provenance, database-container, migration-ledger, proxy, health, and auth-smoke
+checks pass.
+
+## Failure classification
+
+| Failure point | Durable state | Operator action |
 |---|---|---|
-| Deploy succeeded, smoke/health failed | **application containers only**, to `previous-sha.txt` | the database |
-| Migration failed mid-release | nothing was deployed — the old code is still live | — restore from the release backup only if the ledger is not at a clean boundary |
-| Data corruption found after release | — | never automatically; a restore is a deliberate, owner-authorised decision |
+| Before first service recreate | Existing application remains live | Fix the cause in Git or host configuration and rerun through the workflow. |
+| After one or more service recreates | Mixed application state is possible; database state is explicit in the audit | Stop. Preserve candidate and recovery manifest. Inspect exact changed services and image IDs. Do not rerun blindly. |
+| Migration fails before deployment | Old application remains live; ledger is at the runner's last verified transaction boundary | Investigate ledger and exact release backup. Do not deploy code and do not automatically restore. |
+| Post-deploy verification fails | Changed-service list and previous image IDs are recorded | Decide explicitly whether to complete the deployment or roll back only recorded changed application services. |
+| Data corruption suspected | Application rollback is not a database recovery | Stop for owner-authorized restore planning using the exact release backup in an isolated restore rehearsal first. |
 
-**Production migrations are forward-only.** A mistake in `0064` is fixed by `0065`, not
-by rolling `0064` back. Every migration still ships a `*_rollback.sql`, and those exist
-to (a) prove reversibility in the rehearsal harness, (b) serve as the break-glass path
-during the rollout window, before any new data exists. They are **not** the production
-recovery path — restore-from-backup is.
+## Supported code rollback
 
-**Application rollback is safe without a database rollback** because migrations
-`0058`–`0064` are additive: they add tables and nullable columns, so older code runs
-unchanged against the newer schema. `release-state.sh schema-guard` allows exactly this
-direction (database ahead of code) and warns; it refuses the opposite.
+The normal rollback is the same protected workflow:
 
-Automatic database rollback is never acceptable once users have written data — the
-down-migration would destroy those writes. `0060_rollback` already refuses itself once
-`agreed_amount` values stop being reconstructable; treat that as the model.
+1. Read `previous-sha.txt` and confirm `deployments.jsonl` contains a successful trusted
+   deployment for that exact SHA.
+2. Dispatch **Deploy Production** from `main` with that full SHA and `mode=deploy`.
+3. The current-main control plane validates the complete database ledger. Database-ahead
+   is allowed only for this recorded previous release.
+4. Verify running content image IDs, revision labels, health, audit, and state files.
+5. Create and merge a reviewed revert so `main` reflects the desired durable application.
 
-This doc replaces the superseded `docs/rollback.md`. Deep playbooks:
-[docker-compose-scoped-deploy](../ai-deployment-skills/docker-compose-scoped-deploy.md) ·
-[github-actions-production-deploy-safety](../ai-deployment-skills/github-actions-production-deploy-safety.md) ·
-[deployment-decision-matrix](../ai-deployment-skills/deployment-decision-matrix.md).
+Historical arbitrary ancestors are refused. Release mode can never target an old SHA.
 
-## Option 0 — Redeploy the previous SHA (fastest full rollback)
+For a reviewed application-only recovery after a partial trusted run, dispatch the
+current `main` workflow in `deploy` mode with `deploy_sha` set to the failed manifest's
+`previous_sha` and `recovery_run_id` set to that failed run's exact ID. The control plane
+reads `/opt/kaza/releases/recovery-<run-id>.json` and refuses unless it is a regular,
+non-symlink JSON manifest with status `FAILED`, the exact run ID, and the exact requested
+previous SHA. The historical application revision never supplies deployment scripts.
+Before rebuilding, the runner also proves that every live application container still
+matches either its recorded previous image ID or, for an attempted service, the failed
+run's recorded target image ID. Any unrelated image blocks recovery. This authorization
+does not restore a database or reverse a migration.
 
-The previous release is already reviewed, already on `main`, and already proven to have
-deployed. Dispatch **Deploy Production** with:
+The one-time `approve_legacy_provenance_baseline` input is not a rollback mechanism. It
+exists only to establish the first trusted image-ID record from the pre-hardening `prod`
+containers under the deployment playbook's strict first-run checks. It is refused after
+any successful trusted deployment.
 
-- `deploy_sha` = the contents of `/opt/kaza/releases/previous-sha.txt`
-- `mode` = `deploy`
+## Recovery when GitHub Actions cannot reach the host
 
-The schema guard will warn that the database is ahead of the code — that is the expected
-signature of a rollback, and it is allowed. Use this when the current release is bad and
-the previous one was good. Then still do Option 1, so `main` reflects reality.
+Do not run a candidate's `deploy-production.sh` and do not improvise `docker compose`
+commands. A break-glass operator must first obtain the current `origin/main` control SHA,
+use its reviewed `bootstrap-production-control.sh` / `production-dispatch.sh`, and allow
+the same host lock, target authorization, ledger, audit, provenance, and smoke gates to
+run. If that trusted control plane cannot be established, stop rather than downgrade.
 
-## Option 1 — Git revert through the pipeline (preferred, durable)
+## Database boundary
 
-Revert the bad commit on a branch → PR → merge to `main` → **dispatch** Deploy Production
-against the revert SHA. Slowest, but auditable, reviewed, and `main` stays the source of
-truth. Note the merge alone deploys nothing; the dispatch is the release.
+Additive migrations normally remain during application rollback. Never automatically run
+rollback SQL or restore a backup over the live database. A restore requires a separate
+owner decision, a disposable restore proof, and the database operations runbook. The
+release audit's exact backup path is authoritative; do not choose the newest file by time.
 
-Use when: production is degraded but not down, and the bad change is identifiable.
+## Stop conditions
 
-## Option 2 — Image-tag rollback (fastest, one service)
-
-If a rollback image tag was captured before the bad build
-([command-templates §10](../ai-deployment-skills/command-templates.md)):
-
-```bash
-APP_DIR="/opt/apps/kaza-booking"
-ENV_FILE="/opt/kaza/env/.env.production"
-COMPOSE=(docker compose -p kaza-prod -f "$APP_DIR/docker-compose.prod.yml" \
-  --env-file "$ENV_FILE" --project-directory "$APP_DIR")
-
-docker image tag "$ROLLBACK_TAG" kaza-api:prod     # example: the api image
-"${COMPOSE[@]}" up -d --no-deps api
-docker exec novatova-nginx nginx -t && docker exec novatova-nginx nginx -s reload
-```
-
-Use when: one service just broke and its previous image is still tagged. Then still do
-Option 1 so `main` matches what is running.
-
-## Option 3 — Manual SHA rollback on the VPS (last resort)
-
-```bash
-cd /opt/apps/kaza-booking     # the live repo path — NOT the stale /opt/kaza/app
-git status --short            # STOP if the working tree has unexpected local changes
-
-TARGET="$(cat /opt/kaza/releases/previous-sha.txt)"   # or paste a known-good SHA
-git fetch --all --prune
-git checkout --force "$TARGET"
-
-# Service-scoped rebuild ONLY (never a bare up -d, never `down`):
-"${COMPOSE[@]}" build api demo portal
-"${COMPOSE[@]}" up -d --no-deps api demo portal
-
-# Recreates can drop proxy-network — reattach, then reload (never restart) the shared edge:
-for c in kaza-prod-api kaza-prod-demo kaza-prod-portal; do
-  docker inspect -f '{{json .NetworkSettings.Networks}}' "$c" | grep -q '"proxy-network"' \
-    || docker network connect proxy-network "$c"
-done
-docker exec novatova-nginx nginx -t && docker exec novatova-nginx nginx -s reload
-
-# Verify (workbook §8), then record the rolled-back SHA as current:
-echo "$TARGET" > /opt/kaza/releases/current-sha.txt
-```
-
-> The VPS is now on a detached/older commit. Since there is no `push` deploy trigger,
-> nothing will silently overwrite it — but `current-sha.txt`, the container revision
-> labels and `main` now disagree with each other. Follow up with Option 1 (revert in
-> `main`, then dispatch) so git, the labels and production agree again.
-
-> Prefer **Option 0** over this. Option 3 exists for when GitHub Actions itself cannot
-> reach the host — which has happened (a `dial tcp … i/o timeout` from the runner while
-> the host was reachable from elsewhere).
-
-## Database & uploads during a code rollback
-
-- **Do NOT restore the database during a code rollback** unless a migration corrupted
-  data AND a restore is explicitly approved. Code rollbacks are independent of DB state.
-- If a restore is required: [database-operations.md](database-operations.md) — restore
-  goes to a scratch DB by default; overwriting the live DB requires the real DB name +
-  `CONFIRM=1`.
-- Uploads live on the VPS-local uploads path and are unaffected by a code rollback.
-
-## When to stop
-
-Stop and hand to a human if: the live working tree is dirty, `nginx -t` fails,
-`previous-sha.txt` is missing/empty, the rollback would touch Novatova, or a DB restore
-over the live database is being considered.
+Stop if the recovery manifest is missing/malformed, the previous SHA has neither a
+successful trusted audit record nor an exact failed-run recovery authorization, image
+identity cannot be resolved, the ledger is inconsistent, the
+host production lock is held, a database restore is being considered, or any recovery
+would touch Novatova, the database container, or Kaza edge services.

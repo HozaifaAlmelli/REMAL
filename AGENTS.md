@@ -30,17 +30,20 @@ open for copy-paste-safe, scoped commands. The full documentation map is
 ## Kaza / Novatova production — non-negotiable rules
 
 - **Never** run `docker compose down`.
-- **Never** run a bare `docker compose up -d` (no service scope). Recreate one service
-  only: `docker compose ... up -d --no-deps <service>`.
+- **Never** run a bare `docker compose up -d` (no service scope). Application service
+  recreation is performed only by the trusted current-`main` deployment control plane,
+  which scopes each internal recreate with `--no-deps <service>`.
 - **Never** start Kaza's `nginx`/`certbot` on 80/443 — they are `profiles: ["edge"]`
   and must stay OFF (the shared `novatova-nginx` owns those ports).
 - **Never** restart Novatova containers (`novatova-*`). `novatova-nginx` may only be
   inspected, `nginx -t`-tested, and reloaded — never restarted.
 - **Never** touch the database without a verified backup first.
-- **Never** leave a VPS-only hotfix without a PR to `main` — the production deploy
-  force-checks-out `main`, so any VPS-only edit is wiped.
+- **Never** leave a VPS-only hotfix without a PR to `main`. The trusted deploy control
+  plane and application candidate are always sourced from reviewed Git commits; an
+  uncommitted VPS edit is never part of a supported release.
 - **Always** use the repo path `/opt/apps/kaza-booking` (never the stale `/opt/kaza/app`).
-- **Always** use **service-scoped** compose commands (`--no-deps <service>`).
+- **Always** route application deploy/recovery through the trusted current-`main` control
+  plane; do not use a direct Compose recreate as a deployment shortcut.
 - **Always** run `nginx -t` before any `nginx -s reload` (reload, never restart).
 - **Never** print secrets (passwords/tokens/JWTs/connection strings); redact all output.
 

@@ -61,22 +61,24 @@ docker run --rm -v /opt/kaza/uploads:/data -v /opt/kaza/backups/uploads:/backup 
 2. Run `scripts/backup-uploads.sh`.
 3. Confirm both artifacts are non-empty.
 
-## Migrations (tracked, gated — never during deploy)
+## Migrations (tracked and gated; release mode only)
 
 Schema changes go through `scripts/apply-migrations.sh`. The runner:
 
 1. Validates the ordered production manifest and LF-normalized SHA-256 identities in
    `infra/db/production-migrations.sha256` before connecting.
-2. Acquires the dedicated, database-scoped PostgreSQL migration-runner advisory lock. A concurrent runner for
-   the same database fails immediately with a clear refusal; other databases remain independent.
+2. Acquires the host-wide production-operation `flock`, then the dedicated database-scoped PostgreSQL
+   migration advisory lock. The host lock prevents overlap with deploy/release/manual production operations;
+   the database lock also protects the target if another host invokes the runner.
 3. Validates `schema_migrations` as a non-empty, ordered registry prefix. Missing, malformed, duplicate,
    unknown, out-of-order, gapped or conflicting-name state fails before backup or migration SQL. The runner
    never creates or rewrites ledger truth and never blesses changed historical migration content.
-4. Creates and validates a unique pre-migration backup. Any backup failure stops execution.
+4. Creates and validates a unique pre-migration backup and returns its exact path through an exclusive result
+   handoff. Release mode consumes that artifact, never a "newest backup" lookup. Any failure stops execution.
 5. Applies only the pending suffix, runs each `*_verify.sql`, records each success strictly, then validates the
    resulting ledger at the registry head before releasing the session lock.
 
-The runner still **refuses destructive changes** unless `APPROVE_DESTRUCTIVE=1`. The session lock is held from
+The runner still **refuses destructive changes** unless `APPROVE_DESTRUCTIVE=1`. Both locks are held from
 the first database inspection through backup, apply, verification and final ledger validation. Connection loss
 releases the PostgreSQL advisory lock automatically.
 
@@ -90,11 +92,11 @@ that checksum to legitimize edits to an already-applied migration; create a new 
 runner materializes and verifies the registry before querying the ledger, so database commands cannot consume or
 truncate migration discovery input.
 
-```bash
-cd /opt/apps/kaza-booking
-bash ./scripts/apply-migrations.sh                        # safe, additive only
-APPROVE_DESTRUCTIVE=1 bash ./scripts/apply-migrations.sh  # only after explicit human approval
-```
+Normal production execution never invokes the low-level runner directly. Dispatch the
+current-`main` **Deploy Production** workflow with the exact reviewed SHA and
+`mode=release`; set its explicit destructive approval input only when the reviewed
+migration requires it. This keeps migration and matching application deployment under
+one host lock and one audit/recovery sequence.
 
 Prefer additive, nullable migrations with unique numbers. (Incident history: a duplicated
 migration number broke owner login — see

@@ -140,9 +140,11 @@ Kaza Booking يعمل على **VPS إنتاج مشترك (shared live VPS)** م�
    **Run workflow**، وأدخل `deploy_sha` و `mode`.
 2. يتوقف التشغيل عند بوابة `environment: production` بانتظار موافقتك اليدوية.
 3. بعد الموافقة، النظام يتحقق تلقائيًا من:
-   - أن الـ SHA موجود على `origin/main` (لا يمكن نشر كود غير مُراجَع)
+   - أن سير عمل `main` الحالي هو مصدر أدوات النشر الموثوقة، وليس الـ SHA المراد نشره
+   - أن الـ SHA موجود على `origin/main`؛ والرجوع مسموح فقط للإصدار السابق المُسجَّل نجاحه
    - أن شجرة العمل على الـ VPS نظيفة
-   - **أن قاعدة البيانات ليست متأخرة عن الكود** (فحص `schema-guard`)
+   - **أن سجل قاعدة البيانات يطابق ترتيب الـ migrations والـ checksums بالكامل**
+   - أن حاوية قاعدة البيانات الحالية موجودة وتبقى بنفس الهوية؛ نشر الكود لا يعيد إنشاءها
 4. في وضع `release` فقط: نسخة احتياطية مُتحقَّقة → migrations → تحقّق من الـ ledger →
    ثم النشر. لا يتحرك الكود الحيّ قبل نجاح قاعدة البيانات.
 
@@ -244,33 +246,18 @@ redact() {
 }
 ```
 
-**إعادة بناء البوابة (portal) فقط:**
+**Application deployment:**
 
 ```bash
-"${COMPOSE[@]}" build portal
-"${COMPOSE[@]}" up -d --no-deps portal
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<full-reviewed-main-sha> -f mode=deploy
 ```
 
-**إعادة بناء الـ API فقط:**
-
-```bash
-"${COMPOSE[@]}" build api
-"${COMPOSE[@]}" up -d --no-deps api
-```
-
-**إعادة بناء الموقع العام (demo) فقط:**
-
-```bash
-"${COMPOSE[@]}" build demo
-"${COMPOSE[@]}" up -d --no-deps demo
-```
-
-> ✅ **النتيجة المتوقعة:** إعادة إنشاء الخدمة المستهدفة فقط. `--no-deps` يمنع إعادة إنشاء
-> بقية الخدمات. قد تحدث ثوانٍ قليلة من انقطاع (blip) للخدمة المُعاد إنشاؤها فقط.
-
-> 🚫 **ممنوع (يظهر هنا للتحذير فقط — لا تنفّذه):** أمر `docker compose up -d` المجرّد
-> (بدون خدمة) يُعيد إنشاء المشروع كله، وقد يشغّل بروفايل `edge`، ويُسقط `proxy-network`.
-> وكذلك `docker compose down` ممنوع تمامًا.
+The workflow's current-`main` control plane owns every application recreate. Direct
+Compose rebuild/recreate commands are not a deployment path because they bypass the host
+lock, migration guard, image provenance, recovery manifest, and deployment audit. The
+runner internally uses explicit `--no-deps --no-build` operations and never recreates the
+database.
 
 التفاصيل والقالب الكامل في
 [command-templates.md](ai-deployment-skills/command-templates.md).
@@ -509,12 +496,16 @@ docker exec novatova-nginx nginx -t
 ## القسم 14 — سير عمل GitHub Actions
 
 - سير عمل النشر: `.github/workflows/deploy-production.yml`، ينفّذ
-  `scripts/deploy-production.sh`.
-- يُطلق عند **push إلى `main`** أو `workflow_dispatch`، ومحميّ ببوابة `environment:
+  `scripts/bootstrap-production-control.sh` من `main` الحالي، ثم يشغّل أدوات التحكم
+  الموثوقة على مرشح تطبيق منفصل.
+- يُطلق فقط يدويًا عبر `workflow_dispatch` من `main`، ومحميّ ببوابة `environment:
   production` (موافقة يدوية).
 
 **ما يجب أن يفعله سير العمل الآمن:**
 - **لا** `docker compose up -d` مجرّد أبدًا — نشر **مُقيَّد بالخدمة (service-scoped)**.
+- لا يعيد نشر الكود إنشاء حاوية قاعدة البيانات أو إعادة تشغيلها.
+- تستخدم كل عمليات deploy/release/migration اليدوية قفل `flock` مشتركًا على المضيف.
+- يتم التحقق من هوية الصورة الفعلية (`Docker image ID`) وليس من اسم tag فقط.
 - استخدام المسار الصحيح `/opt/apps/kaza-booking`.
 - استبعاد خدمات الـ edge (`nginx`/`certbot`) عبر بروفايل `edge`.
 - إعادة وصل `proxy-network` بعد إعادة الإنشاء.
@@ -645,7 +636,8 @@ sed -i '/claude-kaza-debug/d' ~/.ssh/authorized_keys
 Task: Fix a Kaza Booking API issue (container kaza-prod-api) on the SHARED VPS that also
 hosts Novatova. Read docs/ai-deployment-skills/api-runtime-and-health-debug.md first.
 Scope: API only. Expected files: RentalPlatform.API/** (e.g. Dockerfile, Program.cs).
-Forbidden: no docker compose down; no bare docker compose up -d (use up -d --no-deps api);
+Forbidden: no docker compose down; no direct Compose rebuild/recreate; use the protected
+current-main deployment workflow;
 never touch Novatova; never start Kaza nginx/certbot on 80/443; never print secrets; never
 edit the DB without a verified backup.
 Verify: api.kaza-booking.com/health = 200, api.kaza-booking.com/ = 200, no libgssapi error
@@ -661,7 +653,8 @@ Task: Fix a portal issue on app.kaza-booking.com (container kaza-prod-portal, so
 rental-platform). Read docs/ai-deployment-skills/portal-auth-and-post-login-debug.md and
 portal-vs-demo-routing-and-build-source.md.
 Scope: portal frontend only. Do NOT touch API or DB unless proven necessary.
-Forbidden: no docker compose down; recreate only with up -d --no-deps portal; never touch
+Forbidden: no docker compose down; no direct Compose recreate; use the protected
+current-main deployment workflow; never touch
 Novatova; never print secrets.
 Verify: login works for Admin/Owner/Client, no post-login freeze/redirect loop, app.
 serves portal (not demo), nginx -t OK, novatova.com still up.
@@ -673,7 +666,8 @@ Final report: root cause, files changed, portal rebuilt, verification, main-dura
 ```
 Task: Apply an ADDITIVE production DB migration for Kaza (container kaza-prod-db). Read
 docs/ai-deployment-skills/database-migration-production-safety.md.
-Scope: one additive, nullable migration with a UNIQUE number, via scripts/apply-migrations.sh.
+Scope: one additive, nullable migration with a UNIQUE number, released through the
+current-main workflow in release mode.
 Forbidden: no DROP/TRUNCATE/DELETE; no editing old migrations; no duplicate numbers; no
 volume deletion; do NOT proceed without a verified backup first.
 Verify: backup exists and is non-empty, migration applied via the gated runner, affected

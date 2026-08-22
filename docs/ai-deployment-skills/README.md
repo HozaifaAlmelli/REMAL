@@ -69,10 +69,10 @@ production DB — open the matching skill first.
    `mode: release` (`scripts/release-production.sh`). The code path refuses to build
    when the live database is behind the tree being deployed.
 7. **A merge is not a release.** There is no push deploy trigger; production changes
-   only via an explicit `workflow_dispatch` with a full 40-character SHA that is
-   reachable from `origin/main`.
-8. **The VPS is not durable.** Any VPS-only edit is lost the next time the checkout
-   moves. Every verified fix must land in `main`.
+   only via an explicit `workflow_dispatch` from `main`. Current `main` supplies the
+   trusted runner; the separate application candidate cannot supply safety logic.
+8. **The VPS is not a deployment authority.** Every verified fix must land in `main`.
+   Direct execution of candidate or historical deployment scripts is unsupported.
 9. **Never print secrets.** Redact passwords/tokens/JWTs/connection strings in every
    log, chat message, and transcript.
 10. **Leave no keys behind.** Remove any temporary SSH key and verify access is denied.
@@ -92,13 +92,14 @@ production DB — open the matching skill first.
 | Shared external Docker network | `proxy-network` (not defined in the compose file; reattached by the deploy script) |
 | Domains → app | `kaza-booking.com`/`www` → **demo**, `app.kaza-booking.com` → **portal**, `api.kaza-booking.com` → **api** |
 | Novatova domain (safety signal only) | `novatova.com` |
-| Authoritative deploy script (code only) | `scripts/deploy-production.sh` |
-| Authoritative release script (schema-changing) | `scripts/release-production.sh` |
+| Trusted dispatch/bootstrap | `scripts/bootstrap-production-control.sh`, then `scripts/production-dispatch.sh` from current `main` |
+| Authoritative deploy script (code only) | current-main control `scripts/deploy-production.sh` with a separate candidate worktree |
+| Authoritative release script (schema-changing) | current-main control `scripts/release-production.sh` with a separate candidate worktree |
 | Release-state single source of truth | `scripts/release-state.sh` (`ledger-head`, `tree-level`, `schema-guard`, `record`) |
-| Only production entry point | `.github/workflows/deploy-production.yml` — `workflow_dispatch` only, inputs `deploy_sha` + `mode` |
+| Normal production entry point | `.github/workflows/deploy-production.yml` — main-only `workflow_dispatch`, inputs `deploy_sha` + `mode` |
 | Live SHA / rollback target / history | `/opt/kaza/releases/current-sha.txt`, `previous-sha.txt`, `deployments.jsonl` (append-only) |
 | DB backup / migrate / restore | `scripts/backup-postgres.sh`, `scripts/apply-migrations.sh`, `scripts/restore-postgres.sh` |
-| Last SUCCESSFUL production deploy | `eb94cb48` (2026-07-27). Production has not been deployed since; migrations `0058`-`0064` are unapplied as of the last read on 2026-08-16. Re-verify before relying on this. |
+| Production release state | Never infer it from this document. Read and reconcile the strict deployment audit, state files, running image IDs, and validated migration ledger. |
 
 ## Order of skill usage during a deployment
 

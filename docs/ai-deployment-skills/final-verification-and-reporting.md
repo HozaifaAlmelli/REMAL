@@ -58,8 +58,11 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.RunningFor}}"
 docker exec novatova-nginx nginx -t
 docker logs --tail=100 kaza-prod-api 2>&1 | grep -i libgssapi && echo "BAD" || echo "no libgssapi"
 
-# 4. Deployed SHA
+# 4. Deployment evidence: state, content image identity, labels, and audit must agree.
 cat /opt/kaza/releases/current-sha.txt 2>/dev/null
+docker inspect -f '{{.Image}}' kaza-prod-api
+docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' kaza-prod-api
+tail -1 /opt/kaza/releases/deployments.jsonl
 ```
 
 ## Report template
@@ -70,6 +73,8 @@ cat /opt/kaza/releases/current-sha.txt 2>/dev/null
 What changed & why: <one paragraph>
 Files changed:       <paths / PR link>
 Deployed Git SHA:    <sha>  (PR: <link>, merged by: <who>)
+Control SHA:         <current main sha>
+Running image IDs:  <api/demo/portal content IDs; reconcile with recovery/audit evidence>
 Containers rebuilt/recreated: <e.g. api, demo, portal>  (via <deploy | scoped recreate>)
 
 Verification:
@@ -85,7 +90,7 @@ Explicitly NOT touched:
 - Env file: not edited
 - Edge (80/443): kaza-prod-nginx/certbot not started
 
-Rollback: <rollback image tag / previous SHA / revert PR>
+Rollback: <previous successful SHA / recovery manifest / revert PR>
 Remaining risks / follow-ups: <e.g. optional cookie-Domain change, deferred>
 Durability: <fix is in main (SHA) / PR open awaiting merge>
 Temporary SSH key: <removed + denial verified / n-a>

@@ -1,7 +1,8 @@
 # ============================================================================
 # KAZA — PRODUCTION stack (Hostinger KVM 4). Single-VPS, prod-only.
 # ----------------------------------------------------------------------------
-#   docker compose -f docker-compose.prod.yml --env-file /opt/kaza/env/.env.production up -d --build api demo portal
+# Production releases use .github/workflows/deploy-production.yml. Do not run this
+# compose file as a stack-level deploy command on the shared host.
 #
 # Rules enforced here:
 #   - Postgres is NOT published to the host (internal network only).
@@ -46,10 +47,9 @@ services:
       labels:
         org.opencontainers.image.revision: "${KAZA_IMAGE_TAG:-prod}"
         org.opencontainers.image.title: "kaza-api"
-    # Immutable, SHA-addressed image. deploy-production.sh sets KAZA_IMAGE_TAG to
-    # the deploy SHA and additionally tags the result :prod, so the running code
-    # is provable from `docker inspect` alone. The :prod default keeps a manual
-    # compose invocation working unchanged.
+    # SHA tags are operator-friendly aliases, not immutable identity. The trusted
+    # deploy captures the built content-addressed image ID, verifies that exact ID
+    # on the running container, and updates :prod only after all gates pass.
     image: kaza-api:${KAZA_IMAGE_TAG:-prod}
     container_name: kaza-prod-api
     restart: unless-stopped

@@ -1,9 +1,9 @@
 ---
 name: live-hotfix-to-main-durability
 description: >
-  Ensure a live hotfix applied directly on the VPS survives the next production deploy by
-  promoting the exact verified change into main. A VPS-only edit is temporary and WILL be
-  wiped, because the deploy force-checks-out main.
+  Ensure a live hotfix applied directly on the VPS becomes a reviewed Git candidate by
+  promoting the exact verified change into main. Host-only edits are never accepted by
+  the trusted deployment control plane.
 risk_level: high
 when_to_use: >
   Any time you edited files or rebuilt an image directly on the VPS to fix production.
@@ -27,19 +27,18 @@ rollback: "Revert the PR/commit on main; the next deploy restores prior behaviou
 stop_conditions: "See 'Global Stop Conditions' below."
 final_report_required: true
 lessons_from_kaza_incident: >
-  Production deploy runs `git fetch/checkout main` + `git pull --ff-only` and FATALs if
-  the live tree has local changes. It force-aligns the VPS to the main SHA, so ANY
-  VPS-only edit is wiped on the next deploy (the portal freeze would have returned). The
-  post-login-freeze hotfix was only durable once it landed in main (PR #20 -> 3e962da).
-  Also: a stray uncommitted edit on the VPS caused a deploy to FATAL on "live repo has
-  local changes" — always restore the live tree to clean after the fix is in main.
+  The trusted production runner accepts only current-main control code and reviewed Git
+  application candidates, and FATALs if the live repository is dirty. A VPS-only edit is
+  therefore not deployable evidence. The post-login-freeze hotfix became durable only
+  after it landed in main. Restore the live tree to clean only after proving the exact
+  hotfix is reviewed in Git.
 ---
 
 # Live hotfix → main durability
 
-A live fix buys you minutes of uptime; **main** is what makes it permanent. The deploy
-pipeline force-aligns the VPS to `main`, so treat every live edit as throwaway until it
-is merged.
+A live fix buys you minutes of uptime; **main** is what makes it reviewable and durable.
+The trusted runner will not consume uncommitted host edits, so treat every live edit as
+temporary until the exact diff is merged.
 
 ## Promote the fix to main
 
@@ -57,8 +56,7 @@ git add <only the files that changed>          # never env files / secrets / cre
 git commit -m "fix(<area>): <what and why>"
 git push -u origin fix/<short-description>
 
-# 3. Open a PR into main (do NOT merge if merge triggers an unwanted deploy — see
-#    github-actions-production-deploy-safety). Let a human approve the environment gate.
+# 3. Open a PR into main. Merging does not deploy; release is a separate manual action.
 gh pr create --base main --title "fix(<area>): <summary>" --body-file <pr-body.md>
 ```
 
@@ -82,7 +80,8 @@ git -C /opt/apps/kaza-booking status --short   # must be clean
   [github-actions-production-deploy-safety](github-actions-production-deploy-safety.md)).
 - Re-check the symptom after the deploy — the fix must still be present (it now comes
   from `main`, not your live edit).
-- `docker ... current-sha.txt` matches the merged SHA.
+- `current-sha.txt`, running content image IDs/revision labels, and the strict audit
+  record all match the merged SHA.
 
 ## Global Stop Conditions — halt and report, do not proceed
 

@@ -1,0 +1,28 @@
+services:
+  api:
+    image: kaza-api:${KAZA_IMAGE_TAG:?KAZA_IMAGE_TAG is required}
+    build:
+      labels:
+        org.opencontainers.image.revision: ${KAZA_IMAGE_TAG}
+        com.kaza.deployment.control-revision: ${KAZA_CONTROL_SHA:?KAZA_CONTROL_SHA is required}
+    labels:
+      org.opencontainers.image.revision: ${KAZA_IMAGE_TAG}
+      com.kaza.deployment.control-revision: ${KAZA_CONTROL_SHA}
+  demo:
+    image: kaza-demo:${KAZA_IMAGE_TAG:?KAZA_IMAGE_TAG is required}
+    build:
+      labels:
+        org.opencontainers.image.revision: ${KAZA_IMAGE_TAG}
+        com.kaza.deployment.control-revision: ${KAZA_CONTROL_SHA:?KAZA_CONTROL_SHA is required}
+    labels:
+      org.opencontainers.image.revision: ${KAZA_IMAGE_TAG}
+      com.kaza.deployment.control-revision: ${KAZA_CONTROL_SHA}
+  portal:
+    image: kaza-portal:${KAZA_IMAGE_TAG:?KAZA_IMAGE_TAG is required}
+    build:
+      labels:
+        org.opencontainers.image.revision: ${KAZA_IMAGE_TAG}
+        com.kaza.deployment.control-revision: ${KAZA_CONTROL_SHA:?KAZA_CONTROL_SHA is required}
+    labels:
+      org.opencontainers.image.revision: ${KAZA_IMAGE_TAG}
+      com.kaza.deployment.control-revision: ${KAZA_CONTROL_SHA}

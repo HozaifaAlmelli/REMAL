@@ -1,53 +1,30 @@
 #!/usr/bin/env bash
-# ============================================================================
-# KAZA — production release state: the single source of truth for
-#   "what schema is live", "what schema does this tree need", and
-#   "what was deployed, when, by whom".
-#
-# Subcommands
-#   ledger-head            print the highest migration_number in schema_migrations
-#   tree-level             print the highest migration number in a source tree
-#   schema-guard           FAIL-CLOSED if the tree needs a migration the DB lacks
-#   record <json-object>   append one immutable line to the deployment ledger
-#
-# The schema guard exists because the code deploy path deliberately does NOT run
-# migrations. Without it, deploying a tree whose application code reads columns
-# the live database does not have produces a runtime-broken production. It is
-# cheap, runs before any build, and refuses rather than guesses.
-#
-# Direction matters and is not symmetric:
-#   db_head  <  tree_level   REFUSE. Code ahead of schema — the failure this guard exists for.
-#   db_head  == tree_level   OK.
-#   db_head  >  tree_level   ALLOW, loudly. This is the rollback case: additive
-#                            migrations leave older code able to run, and refusing
-#                            here would block the emergency path.
-#
-# The env file is parsed, never sourced (scripts/lib/env-file.sh). No secret is
-# read on the host and none is ever printed.
-# ============================================================================
-set -euo pipefail
+# Production release state and audit authority. Migration state is validated
+# against the existing ordered registry/checksum system; max(number) is never a
+# sufficient schema proof.
+set -Eeuo pipefail
 
 ENV_FILE="${ENV_FILE:-/opt/kaza/env/.env.production}"
 COMPOSE_FILE="${COMPOSE_FILE:-/opt/apps/kaza-booking/docker-compose.prod.yml}"
 APP_DIR="${APP_DIR:-/opt/apps/kaza-booking}"
 MIG_DIR="${MIG_DIR:-$APP_DIR/db/migrations}"
+PRODUCTION_MANIFEST="${PRODUCTION_MANIFEST:-$APP_DIR/infra/db/init.prod.sql}"
+MIGRATION_CHECKSUMS="${MIGRATION_CHECKSUMS:-$APP_DIR/infra/db/production-migrations.sha256}"
+MIGRATION_AUTHORITY_DIR="${MIGRATION_AUTHORITY_DIR:-$APP_DIR}"
+AUTHORITY_MIG_DIR="${AUTHORITY_MIG_DIR:-$MIGRATION_AUTHORITY_DIR/db/migrations}"
+AUTHORITY_MANIFEST="${AUTHORITY_MANIFEST:-$MIGRATION_AUTHORITY_DIR/infra/db/init.prod.sql}"
+AUTHORITY_CHECKSUMS="${AUTHORITY_CHECKSUMS:-$MIGRATION_AUTHORITY_DIR/infra/db/production-migrations.sha256}"
 DEPLOYMENT_LEDGER="${DEPLOYMENT_LEDGER:-/opt/kaza/releases/deployments.jsonl}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source=scripts/lib/production-migrations.sh
+source "$SCRIPT_DIR/lib/production-migrations.sh"
+
 usage() {
-  cat >&2 <<'USAGE'
-usage: release-state.sh <ledger-head|tree-level|schema-guard|record>
-  ledger-head          print the live database migration head (4 digits)
-  tree-level           print the migration level MIG_DIR requires (4 digits)
-  schema-guard         exit 0 if the live schema can serve MIG_DIR's code, else exit 1
-  record <json>        append one JSON object to DEPLOYMENT_LEDGER
-USAGE
+  echo "usage: release-state.sh <ledger-head|tree-level|schema-guard|record|successful-deployment|deployed-image-id|no-successful-deployments|recovery-authorizes>" >&2
   exit 64
 }
 
-# --- database identifiers ---------------------------------------------------
-# Sourced lazily: `tree-level` and `record` must work with no database and no
-# env file at all, so a failed deploy can still be recorded.
 load_db_identifiers() {
   # shellcheck source=scripts/lib/env-file.sh
   source "$SCRIPT_DIR/lib/env-file.sh"
@@ -61,109 +38,215 @@ psql_db() {
     psql -X -v ON_ERROR_STOP=1 -qAt -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"
 }
 
-# --- readers ----------------------------------------------------------------
-ledger_head() {
-  # The preflights narrate to stdout. This function's stdout IS its return
-  # value and is captured by callers, so that narration goes to stderr —
-  # otherwise the operator's own preflight banner becomes part of the head.
-  load_db_identifiers >&2
-  local head
-  head="$(psql_db -c 'SELECT coalesce(max(migration_number), '"''"') FROM schema_migrations;' | tr -d '[:space:]')"
-  if [ -z "$head" ]; then
-    echo "ERROR: schema_migrations is empty or unreadable — refusing to report a head" >&2
-    return 1
-  fi
-  printf '%s\n' "$head"
+load_registry() {
+  local root="$1" manifest="$2" checksums="$3" output
+  output="$(list_production_migrations "$manifest" "$root")"
+  mapfile -t MIGRATION_FILES <<< "$output"
+  validate_production_migration_checksums "$checksums" "$root" "${MIGRATION_FILES[@]}"
 }
 
 tree_level() {
-  local level
-  # Main migrations only: *_rollback / *_verify / *_test are not applied levels.
-  level="$(
-    find "$MIG_DIR" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]_*.sql' \
-      -not -name '*_rollback.sql' -not -name '*_verify.sql' -not -name '*_test.sql' \
-      -printf '%f\n' 2>/dev/null | cut -c1-4 | sort | tail -1
-  )"
-  if [ -z "$level" ]; then
-    echo "ERROR: no migrations found in $MIG_DIR — refusing to report a level" >&2
-    return 1
-  fi
-  printf '%s\n' "$level"
+  load_registry "$MIG_DIR" "$PRODUCTION_MANIFEST" "$MIGRATION_CHECKSUMS"
+  local last="${MIGRATION_FILES[${#MIGRATION_FILES[@]}-1]}"
+  printf '%s\n' "${last:0:4}"
 }
 
-# --- guard ------------------------------------------------------------------
+read_and_validate_ledger() {
+  local ledger_table ledger_columns ledger_rows
+  load_db_identifiers >&2
+  load_registry "$AUTHORITY_MIG_DIR" "$AUTHORITY_MANIFEST" "$AUTHORITY_CHECKSUMS"
+  ledger_table="$(psql_db -c "SELECT to_regclass('public.schema_migrations') IS NOT NULL;")"
+  [ "$ledger_table" = "t" ] || { echo "REFUSING: schema_migrations is missing" >&2; return 1; }
+  ledger_columns="$(psql_db -c "
+    SELECT count(*) FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='schema_migrations'
+      AND column_name IN ('id','migration_number','migration_name','applied_at');")"
+  [ "$ledger_columns" = "4" ] || { echo "REFUSING: schema_migrations has an unsupported shape" >&2; return 1; }
+  ledger_rows="$(psql_db -F '|' -c "
+    SELECT migration_number, COALESCE(migration_name, '')
+    FROM schema_migrations ORDER BY id;")"
+  validate_migration_ledger_rows "$ledger_rows" "${MIGRATION_FILES[@]}"
+}
+
+ledger_head() {
+  read_and_validate_ledger
+  [ "$MIGRATION_LEDGER_APPLIED_COUNT" -gt 0 ] || {
+    echo "REFUSING: schema_migrations has no validated entries" >&2; return 1; }
+  local last="${MIGRATION_FILES[$((MIGRATION_LEDGER_APPLIED_COUNT - 1))]}"
+  printf '%s\n' "${last:0:4}"
+}
+
 schema_guard() {
   local db_head tree_req
   tree_req="$(tree_level)"
   db_head="$(ledger_head)"
-
-  echo "### Schema compatibility: database head=$db_head, tree requires=$tree_req"
-
-  # String compare is safe and intentional: every migration number is exactly
-  # four zero-padded digits, so lexical and numeric order agree. Avoiding a
-  # numeric cast keeps a malformed value from being silently coerced to 0.
-  if [ "${#db_head}" -ne 4 ] || [ "${#tree_req}" -ne 4 ]; then
-    echo "FATAL: malformed migration level (db='$db_head' tree='$tree_req')" >&2
-    return 1
-  fi
-
+  echo "### Schema compatibility: validated database head=$db_head, validated tree requires=$tree_req"
   if [ "$db_head" \< "$tree_req" ]; then
-    cat >&2 <<EOF
-FATAL: the live database is behind the code being deployed.
-  database migration head : $db_head
-  this tree requires      : $tree_req
-Deploying now would run application code against a schema that lacks the
-columns and tables it reads. Run the migration release path first:
-  scripts/release-production.sh <sha>
-Refusing to build or restart anything.
-EOF
+    echo "FATAL: validated database ledger is behind the application candidate" >&2
     return 1
   fi
-
   if [ "$db_head" \> "$tree_req" ]; then
-    echo "WARNING: database head ($db_head) is AHEAD of this tree ($tree_req)."
-    echo "WARNING: this is expected only for a rollback to a previous SHA."
+    echo "WARNING: validated database ledger is ahead of the recorded rollback candidate."
   fi
-
   echo "### Schema compatibility OK"
 }
 
-# --- immutable deployment ledger -------------------------------------------
-# Append-only. Never rewritten, never truncated, never sorted. One JSON object
-# per line so the file survives partial writes and stays greppable.
+validate_audit_json() {
+  python3 -c '
+import json, re, sys
+p=json.loads(sys.argv[1])
+r={"event","sha","control_sha","branch","actor","workflow_run_id","mode","timestamp","started_at","previous_sha","migration_before","migration_after","backup_artifact","result","changed_services","image_ids","rollback_images","recovery_manifest"}
+if not isinstance(p,dict) or set(p) != r: raise SystemExit("audit fields do not match the required schema")
+for k in r-{"changed_services","image_ids","rollback_images"}:
+    if not isinstance(p[k],str): raise SystemExit(f"audit field {k} must be a string")
+for k in ("event","sha","control_sha","actor","workflow_run_id","mode","timestamp","started_at","result"):
+    if not p[k]: raise SystemExit(f"audit field {k} is required")
+if p["event"] not in {"DEPLOYMENT_PREPARED","DEPLOYMENT_RESULT"}: raise SystemExit("unsupported audit event")
+if p["result"] not in {"PREPARED","OK","FAILED"}: raise SystemExit("unsupported audit result")
+if (p["event"]=="DEPLOYMENT_PREPARED") != (p["result"]=="PREPARED"): raise SystemExit("audit event/result combination is invalid")
+if not re.fullmatch(r"[0-9a-f]{40}",p["sha"]) or not re.fullmatch(r"[0-9a-f]{40}",p["control_sha"]): raise SystemExit("audit SHAs must be full lowercase commit ids")
+if p["previous_sha"] and not re.fullmatch(r"[0-9a-f]{40}",p["previous_sha"]): raise SystemExit("audit previous SHA is malformed")
+if p["branch"]!="main" or p["mode"] not in {"deploy","release"}: raise SystemExit("audit branch or mode is invalid")
+if not re.fullmatch(r"[A-Za-z0-9._-]+",p["workflow_run_id"]): raise SystemExit("audit workflow run id is invalid")
+for key in ("timestamp","started_at"):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z",p[key]): raise SystemExit(f"audit {key} is malformed")
+for key in ("migration_before","migration_after"):
+    if p[key] and not re.fullmatch(r"\d{4}",p[key]): raise SystemExit(f"audit {key} is malformed")
+if p["mode"]=="release" and p["result"] in {"PREPARED","OK"} and not p["backup_artifact"].startswith("/"): raise SystemExit("successful release audit requires an absolute backup artifact")
+if not isinstance(p["changed_services"],list) or any(x not in {"api","demo","portal"} for x in p["changed_services"]): raise SystemExit("invalid changed_services")
+if not isinstance(p["image_ids"],dict) or not isinstance(p["rollback_images"],dict): raise SystemExit("image evidence must be objects")
+if any(k not in {"api","demo","portal"} for k in p["image_ids"]|p["rollback_images"]): raise SystemExit("image evidence contains an unknown service")
+if p["result"]=="OK":
+    services={"api","demo","portal"}
+    if set(p["changed_services"])!=services or len(p["changed_services"])!=3: raise SystemExit("successful audit must include all application services exactly once")
+    if set(p["image_ids"])!=services or set(p["rollback_images"])!=services: raise SystemExit("successful audit requires complete image evidence")
+    if any(not isinstance(value,str) or not re.fullmatch(r"sha256:[0-9a-f]{64}",value) for value in p["image_ids"].values()): raise SystemExit("successful audit image id is malformed")
+    if not p["migration_before"] or not p["migration_after"]: raise SystemExit("successful audit requires migration state")
+    if not p["recovery_manifest"].startswith("/"): raise SystemExit("successful audit requires an absolute recovery manifest")
+' "$1"
+}
+
+validate_existing_audit_ledger() {
+  local line number=0
+  [ -e "$DEPLOYMENT_LEDGER" ] || return 0
+  [ -f "$DEPLOYMENT_LEDGER" ] && [ ! -L "$DEPLOYMENT_LEDGER" ] || {
+    echo "FATAL: existing deployment ledger is not a regular file" >&2
+    return 1
+  }
+  while IFS= read -r line || [ -n "$line" ]; do
+    number=$((number + 1))
+    if ! validate_audit_json "$line"; then
+      echo "FATAL: existing deployment ledger line $number violates the audit schema" >&2
+      return 1
+    fi
+  done < "$DEPLOYMENT_LEDGER"
+}
+
 record() {
   local payload="${1:-}"
   [ -n "$payload" ] || usage
-
-  # Reject anything that is not a single-line JSON object: a stray newline would
-  # corrupt the one-record-per-line contract this file depends on.
-  case "$payload" in
-    '{'*'}') ;;
-    *) echo "FATAL: deployment record must be a JSON object" >&2; return 1 ;;
-  esac
-  if [ "$(printf '%s' "$payload" | wc -l)" -ne 0 ]; then
-    echo "FATAL: deployment record must be a single line" >&2
-    return 1
-  fi
-
-  local dir
-  dir="$(dirname "$DEPLOYMENT_LEDGER")"
-  mkdir -p "$dir"
-
-  # flock serialises concurrent writers; the workflow's concurrency group makes
-  # that unlikely, but a manual run on the host is not covered by it.
-  if command -v flock >/dev/null 2>&1; then
-    flock "$dir" sh -c "printf '%s\n' \"\$1\" >> \"\$2\"" _ "$payload" "$DEPLOYMENT_LEDGER"
-  else
-    printf '%s\n' "$payload" >> "$DEPLOYMENT_LEDGER"
-  fi
+  validate_audit_json "$payload" || { echo "FATAL: deployment record is not valid audit JSON" >&2; return 1; }
+  mkdir -p "$(dirname "$DEPLOYMENT_LEDGER")"
+  command -v flock >/dev/null 2>&1 || { echo "FATAL: flock is required for audit append" >&2; return 1; }
+  (
+    flock -x 9
+    validate_existing_audit_ledger
+    PAYLOAD="$payload" LEDGER="$DEPLOYMENT_LEDGER" python3 - <<'PY'
+import os
+fd=os.open(os.environ["LEDGER"], os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o600)
+try:
+    os.write(fd, os.environ["PAYLOAD"].encode("utf-8") + b"\n")
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
+  ) 9>"${DEPLOYMENT_LEDGER}.lock"
   echo "### Deployment recorded: $DEPLOYMENT_LEDGER"
 }
 
+successful_deployment() {
+  local sha="${1:-}"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || usage
+  [ -f "$DEPLOYMENT_LEDGER" ] || return 1
+  validate_existing_audit_ledger
+  python3 - "$DEPLOYMENT_LEDGER" "$sha" <<'PY'
+import json, sys
+path, sha = sys.argv[1:]
+found=False
+with open(path, encoding="utf-8") as handle:
+    for line in handle:
+        row=json.loads(line)
+        if row.get("event")=="DEPLOYMENT_RESULT" and row.get("sha")==sha and row.get("result")=="OK": found=True
+raise SystemExit(0 if found else 1)
+PY
+}
+
+deployed_image_id() {
+  local sha="${1:-}" service="${2:-}"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || usage
+  case "$service" in api|demo|portal) ;; *) usage ;; esac
+  [ -f "$DEPLOYMENT_LEDGER" ] || return 1
+  validate_existing_audit_ledger
+  python3 - "$DEPLOYMENT_LEDGER" "$sha" "$service" <<'PY'
+import json, re, sys
+path, sha, service = sys.argv[1:]
+image_id = None
+with open(path, encoding="utf-8") as handle:
+    for line in handle:
+        row = json.loads(line)
+        if row["event"] == "DEPLOYMENT_RESULT" and row["sha"] == sha and row["result"] == "OK":
+            image_id = row["image_ids"].get(service)
+if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[0-9a-f]+", image_id):
+    raise SystemExit(1)
+print(image_id)
+PY
+}
+
+no_successful_deployments() {
+  validate_existing_audit_ledger
+  [ -e "$DEPLOYMENT_LEDGER" ] || return 0
+  python3 - "$DEPLOYMENT_LEDGER" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    found = any(
+        (row := json.loads(line))["event"] == "DEPLOYMENT_RESULT" and row["result"] == "OK"
+        for line in handle
+    )
+raise SystemExit(1 if found else 0)
+PY
+}
+
+recovery_authorizes() {
+  local manifest="${1:-}" target_sha="${2:-}" run_id="${3:-}"
+  [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]] || usage
+  [[ "$run_id" =~ ^[A-Za-z0-9._-]+$ ]] || usage
+  [ -f "$manifest" ] && [ ! -L "$manifest" ] || return 1
+  python3 - "$manifest" "$target_sha" "$run_id" <<'PY'
+import json, re, sys
+path, target, run_id=sys.argv[1:]
+with open(path, encoding="utf-8") as handle: value=json.load(handle)
+required={"schema","run_id","target_sha","control_sha","previous_sha","source_dir","status","changed_services","previous_image_ids","target_image_ids","rollback_images"}
+if not isinstance(value,dict) or set(value)!=required: raise SystemExit("recovery manifest schema mismatch")
+if value["schema"]!="kaza-production-recovery-v1" or value["status"]!="FAILED": raise SystemExit("recovery manifest is not a failed trusted run")
+if value["run_id"]!=run_id or value["previous_sha"]!=target: raise SystemExit("recovery manifest does not authorize this target")
+for key in ("target_sha","control_sha","previous_sha"):
+    if not re.fullmatch(r"[0-9a-f]{40}",value[key]): raise SystemExit(f"recovery {key} is malformed")
+services={"api","demo","portal"}
+if not isinstance(value["changed_services"],list) or len(set(value["changed_services"]))!=len(value["changed_services"]) or any(x not in services for x in value["changed_services"]): raise SystemExit("recovery services are invalid")
+if not all(isinstance(value[key],dict) and set(value[key])==services for key in ("previous_image_ids","target_image_ids","rollback_images")): raise SystemExit("recovery image evidence is incomplete")
+if any(not isinstance(item,str) or not re.fullmatch(r"sha256:[0-9a-f]{64}",item) for key in ("previous_image_ids","target_image_ids") for item in value[key].values()): raise SystemExit("recovery image id is malformed")
+if not isinstance(value["source_dir"],str) or not value["source_dir"].startswith("/"): raise SystemExit("recovery source directory is invalid")
+PY
+}
+
 case "${1:-}" in
-  ledger-head)  ledger_head ;;
-  tree-level)   tree_level ;;
+  ledger-head) ledger_head ;;
+  tree-level) tree_level ;;
   schema-guard) schema_guard ;;
-  record)       shift; record "${1:-}" ;;
-  *)            usage ;;
+  record) shift; record "${1:-}" ;;
+  successful-deployment) shift; successful_deployment "${1:-}" ;;
+  deployed-image-id) shift; deployed_image_id "${1:-}" "${2:-}" ;;
+  no-successful-deployments) no_successful_deployments ;;
+  recovery-authorizes) shift; recovery_authorizes "${1:-}" "${2:-}" "${3:-}" ;;
+  *) usage ;;
 esac

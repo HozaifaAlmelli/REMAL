@@ -3,7 +3,7 @@ name: database-migration-production-safety
 description: >
   Apply production database schema changes safely: back up first, use unique additive
   migrations, never edit an applied migration or reuse a migration number, and never run
-  destructive SQL. Migrations are gated and never run automatically during deploy.
+  destructive SQL. Migrations are gated and run only in an explicit release operation.
 risk_level: critical
 when_to_use: >
   A production endpoint fails because the live schema is missing a column/table, or a new
@@ -19,7 +19,7 @@ forbidden_actions:
   - DROP / TRUNCATE / DELETE (destructive) without explicit approval + APPROVE_DESTRUCTIVE=1
   - Editing an already-applied migration file
   - Reusing an existing migration number
-  - Running migrations during deploy or on an empty ledger
+  - Running migrations during a code-only deploy or on an empty ledger
   - Writing to the DB before a verified backup exists
 preflight_checks:
   - Read-only confirm the gap via information_schema
@@ -36,7 +36,8 @@ lessons_from_kaza_incident: >
   it would have corrupted the ledger. The correct fix was a NEW unique, additive migration
   0057_add_owner_contact_fields, applied after a verified backup, via the gated runner
   scripts/apply-migrations.sh (which backs up, skips destructive SQL, runs *_verify.sql,
-  and records the number only on success). Migrations never run during deploy.
+  and records the number only on success). Migrations run only in the explicit release
+  path, never in a code-only deploy.
 ---
 
 # Database migration production safety
@@ -44,9 +45,9 @@ lessons_from_kaza_incident: >
 > **Releasing a feature that adds migrations? Do not run `apply-migrations.sh` by hand.**
 > Dispatch **Deploy Production** with `mode: release`. That runs
 > `scripts/release-production.sh`, which orders the whole thing for you: baseline →
-> candidate worktree → validated backup → migrate → ledger verification → deploy the
-> exact SHA → verify what landed, stopping at the first failure and never moving the
-> live checkout before the database is verified. This playbook covers the standalone
+> candidate worktree → exact validated backup handoff → migrate → full ledger verification
+> → deploy the exact SHA → verify what landed. The candidate supplies migration SQL, while
+> the current-main control plane supplies the runner and all safety logic. This playbook covers the standalone
 > case: a schema gap being closed on its own, with no code release attached.
 >
 > A migration must never be applied through the code deploy path, and the code deploy
@@ -87,14 +88,14 @@ ALTER TABLE owners ADD COLUMN IF NOT EXISTS detailed_address text;
 ALTER TABLE owners ADD COLUMN IF NOT EXISTS emergency_phone  text;
 ```
 
-Apply it through the **gated runner** (never ad-hoc, never during deploy):
+Apply it through the **release workflow** (never ad-hoc, never during a code-only deploy):
 
 ```bash
-# scripts/apply-migrations.sh: verifies the ordered checksum registry, takes the dedicated
-# database-scoped migration lock, validates the ledger, creates a validated unique backup,
-# applies only the pending suffix, runs *_verify.sql, records success strictly, validates
-# the final ledger, and refuses DROP/TRUNCATE/DELETE unless APPROVE_DESTRUCTIVE=1.
-APPROVE_DESTRUCTIVE=0 bash /opt/apps/kaza-booking/scripts/apply-migrations.sh
+# The workflow invokes scripts/apply-migrations.sh from the current-main control plane,
+# then deploys the exact matching application SHA under the same host lock.
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<full-reviewed-main-sha> -f mode=release \
+  -f approve_destructive=false
 ```
 
 ## Rules that keep the ledger sane
@@ -111,7 +112,8 @@ APPROVE_DESTRUCTIVE=0 bash /opt/apps/kaza-booking/scripts/apply-migrations.sh
 - **Never bypass ledger refusal.** Missing, empty, malformed, duplicate, unknown,
   out-of-order, gapped or conflicting ledger state requires investigation, not repair by
   the runner.
-- **Never run migrations during deploy.** The deploy explicitly does not; keep it that way.
+- **Never run migrations during `mode: deploy`.** `mode: release` invokes this runner
+  before application containers change.
 - **Never write before a verified backup.**
 
 ## Rollback philosophy (additive changes)

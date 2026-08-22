@@ -161,6 +161,8 @@ ENV
 run_runner() {
   local database="$1"
   local backup_dir="${2:-$TMP/backups}"
+  # This suite isolates the database-scoped advisory lock. Production host-lock
+  # contention is covered separately by test-deployment-safety-guards.sh.
   PATH="$TMP/bin:$PATH" \
   ENV_FILE="$(write_env "$database")" \
   COMPOSE_FILE="$TMP/compose.yml" \
@@ -169,6 +171,7 @@ run_runner() {
   PRODUCTION_MANIFEST="$TMP/production.sql" \
   MIGRATION_CHECKSUMS="$TMP/checksums.sha256" \
   BACKUP_DIR="$backup_dir" \
+  PRODUCTION_LOCK_FILE="$TMP/production-$database-$BASHPID.lock" \
   bash "$ROOT/scripts/apply-migrations.sh"
 }
 

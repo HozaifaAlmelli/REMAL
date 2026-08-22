@@ -1,0 +1,16 @@
+{
+  "environment": "production",
+  "allowedBranches": ["main"],
+  "requiredReviewers": ["HazemAlMili", "HozaifaAlmelli"],
+  "preventSelfReview": true,
+  "canAdminsBypass": false,
+  "customBranchPolicies": true,
+  "protectedBranches": false,
+  "allowedSecrets": [
+    "SSH_HOST",
+    "SSH_HOST_FINGERPRINT",
+    "SSH_KEY",
+    "SSH_PORT",
+    "SSH_USER"
+  ]
+}
