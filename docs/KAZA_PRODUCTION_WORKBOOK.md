@@ -27,7 +27,7 @@
 
 | الموقف | اقرأ |
 |---|---|
-| عايز أعمل deploy عادي | [القسم 3 (الدمج إلى main)](#القسم-3--ماذا-يحدث-عندما-أدمج-إلى-main-merge-to-main) + [القسم 6 (الأوامر الآمنة)](#القسم-6--قوالب-الأوامر-الآمنة-safe-command-templates) |
+| عايز أعمل deploy عادي | [القسم 3 (كيف أنشر)](#القسم-3--كيف-أنشر-إلى-الإنتاج-deploy-to-production) + [القسم 6 (الأوامر الآمنة)](#القسم-6--قوالب-الأوامر-الآمنة-safe-command-templates) |
 | عندي production bug | [القسم 4 (أي فرع)](#القسم-4--أي-فرع-branch-أستخدم-branch-decision-guide) + [القسم 15 (ديمومة الإصلاح الحيّ)](#القسم-15--سير-عمل-ديمومة-الإصلاح-الحي-live-hotfix-durability) |
 | عندي مشكلة API | [القسم 10 (سير عمل الـ API)](#القسم-10--سير-عمل-الـ-api-api-workflow) |
 | عندي مشكلة app.kaza-booking.com | [القسم 9 (سير عمل البوابة)](#القسم-9--سير-عمل-البوابة-portal-workflow) |
@@ -119,31 +119,48 @@ Kaza Booking يعمل على **VPS إنتاج مشترك (shared live VPS)** م�
 
 ---
 
-## القسم 3 — ماذا يحدث عندما أدمج إلى main؟ (Merge to main)
+## القسم 3 — كيف أنشر إلى الإنتاج؟ (Deploy to production)
 
-> ⚠️ **الدمج إلى `main` ليس عملية توثيق — هو عملية نشر (deploy).**
+> ✅ **الدمج إلى `main` لم يعد ينشر شيئًا.** تم حذف مُشغّل `push` من سير العمل
+> بتاريخ 2026-08-23. الدمج آمن في أي وقت.
 
-ماذا يحدث بالضبط:
-1. الدمج إلى `main` يُطلق (queue) سير عمل **Deploy Production** في GitHub Actions.
-2. هذا الـ deploy يسحب `main` على الـ VPS ويعيد بناء خدمات التطبيق (api/demo/portal).
-3. الـ deploy يعمل **force-checkout** لـ `main` — أي أنه **يمسح أي تعديل موجود على الـ VPS
-   فقط** ولم يُدمج إلى `main`.
-4. لا يوجد `paths:` filter — أي أن **حتى دمج توثيق (docs) فقط يُطلق الـ deploy** (لكنه
-   محميّ ببوابة موافقة يدوية / manual approval gate).
+**النشر الآن عملية يدوية صريحة**، لها مدخلان:
 
-> 💡 **لماذا مراجعة الـ PR مهمة:** لأن الدمج = نشر مباشر على موقع حيّ يشاركه مشروع آخر.
-> راجع الـ diff بالكامل قبل الدمج، وتأكد أنه لا يشغّل خدمات الـ edge على 80/443.
+| المدخل | القيمة |
+|---|---|
+| `deploy_sha` | الـ SHA الكامل (40 خانة) — يجب أن يكون موجودًا على `origin/main` |
+| `mode` | `deploy` (كود فقط) أو `release` (نسخة احتياطية + migrations + نشر) |
 
-**كيف تراقب GitHub Actions:**
-- افتح تبويب **Actions** في مستودع `HozaifaAlmelli/REMAL`، وابحث عن تشغيل **Deploy Production**.
-- الـ deploy يتوقف عند بوابة `environment: production` بانتظار موافقتك اليدوية.
+**كيف تختار الـ mode:** إذا كان الإصدار يضيف ملفات جديدة في `db/migrations/` فاختر
+`release`. غير ذلك `deploy`. إذا اخترت `deploy` بالخطأ، يرفض النظام التشغيل **قبل** أي
+بناء — لأن قاعدة البيانات ستكون متأخرة عن الكود. هذا رفض آمن، لكنه يُهدر موافقة.
+
+**خطوات النشر:**
+1. افتح تبويب **Actions** في مستودع `HozaifaAlmelli/REMAL` → **Deploy Production** →
+   **Run workflow**، وأدخل `deploy_sha` و `mode`.
+2. يتوقف التشغيل عند بوابة `environment: production` بانتظار موافقتك اليدوية.
+3. بعد الموافقة، النظام يتحقق تلقائيًا من:
+   - أن الـ SHA موجود على `origin/main` (لا يمكن نشر كود غير مُراجَع)
+   - أن شجرة العمل على الـ VPS نظيفة
+   - **أن قاعدة البيانات ليست متأخرة عن الكود** (فحص `schema-guard`)
+4. في وضع `release` فقط: نسخة احتياطية مُتحقَّقة → migrations → تحقّق من الـ ledger →
+   ثم النشر. لا يتحرك الكود الحيّ قبل نجاح قاعدة البيانات.
 
 > ⛔ **متى تُلغي (cancel) الـ deploy:**
 > - إذا رأيت أنه سيبني خدمة لم تقصد تغييرها.
 > - إذا لم تُراجَع التغييرات بعد.
 > - إذا لم تكن نافذة النشر (deploy window) مناسبة الآن.
+> - إذا كان الإصدار يضيف migrations وكان الـ `mode` هو `deploy`.
 
 **ماذا تتحقق بعد الـ deploy:** نفّذ قائمة التحقق في [القسم 9](#القسم-9--قائمة-التحقق-القياسية-standard-verification-checklist).
+
+**كيف تثبت ما هو المنشور فعلًا** (ثلاثة مصادر مستقلة يجب أن تتطابق):
+
+```bash
+cat /opt/kaza/releases/current-sha.txt
+docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' kaza-prod-api
+tail -1 /opt/kaza/releases/deployments.jsonl
+```
 
 التفاصيل الكاملة:
 [github-actions-production-deploy-safety](ai-deployment-skills/github-actions-production-deploy-safety.md).
@@ -167,8 +184,8 @@ Kaza Booking يعمل على **VPS إنتاج مشترك (shared live VPS)** م�
      → أدخِل نفس الـ diff تمامًا إلى main → deploy → تحقّق
 
 تغيير توثيق فقط (docs-only)
-   → docs branch → PR → تحقّق هل سيُطلق الدمج deploy أم لا
-     (تذكّر: لا يوجد paths filter، فالدمج يُطلق deploy مُبوَّبًا بموافقة يدوية)
+   → docs branch → PR → ادمج بأمان
+     (الدمج لم يعد يُطلق deploy — النشر يدوي صريح، القسم 3)
 ```
 
 > 💡 **القاعدة الجوهرية:** الإصلاح الحيّ (live hotfix) ليس خط النهاية أبدًا. أي شيء غير
@@ -514,8 +531,8 @@ docker exec novatova-nginx nginx -t
 
 ## القسم 15 — سير عمل ديمومة الإصلاح الحيّ (Live Hotfix Durability)
 
-> ⚠️ **الإصلاح الحيّ مؤقّت.** الـ deploy يعمل force-checkout لـ `main`، فأي تعديل على الـ
-> VPS فقط **يُمسح**.
+> ⚠️ **الإصلاح الحيّ مؤقّت.** الـ deploy ينقل شجرة العمل إلى الـ SHA المطلوب، فأي تعديل
+> على الـ VPS فقط **يُمسح** عند النشر التالي.
 
 الخطوات لجعل الإصلاح دائمًا:
 1. طبّق الإصلاح حيًّا (عند الضرورة) واختبره.
@@ -736,7 +753,7 @@ Final report: root cause, the smallest fix applied, verification, main-durabilit
 **قبل العمل (Before):**
 - [ ] حدّدتُ الخدمة المستهدفة (api / demo / portal / db / nginx).
 - [ ] أكّدتُ الفرع الصحيح (feature / from main / docs).
-- [ ] قدّرتُ خطر النشر (هل الدمج إلى main سيُطلق deploy؟).
+- [ ] قدّرتُ خطر النشر (هل هذا الإصدار يضيف migrations؟ إذن mode = release).
 - [ ] إن كان العمل على قاعدة البيانات: أخذتُ backup مُتحقَّقًا منه.
 - [ ] أكّدتُ حدّ Novatova (لن ألمس `novatova-*`).
 

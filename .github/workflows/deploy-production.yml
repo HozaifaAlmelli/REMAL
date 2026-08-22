@@ -1,12 +1,42 @@
 name: Deploy Production
 
-# Production deploy: push to main, OR manual dispatch. The `production` GitHub
-# Environment gates this with a MANUAL APPROVAL and restricts it to the main branch.
-# Build happens ON the VPS (Option A); no registry. DB migrations are NOT run here.
+# ---------------------------------------------------------------------------
+# The SINGLE production entry point. Two modes:
+#
+#   deploy   code only. Refuses to build or restart anything if the live
+#            database is behind the tree being deployed.
+#   release  schema-changing. backup -> migrate -> verify -> deploy -> verify,
+#            stopping at the first failure (scripts/release-production.sh).
+#
+# There is deliberately NO push trigger. Merging to `main` is not a release
+# decision: a docs merge, a revert and a schema-changing feature all produce a
+# push, and only a human knows which of them should reach production. Every
+# deployment is an explicit, SHA-addressed, manually dispatched act.
+#
+# The `production` GitHub Environment adds the manual approval gate and the
+# branch restriction. The SHA is additionally required to be reachable from
+# origin/main, so unreviewed code cannot be deployed even by dispatch.
+# ---------------------------------------------------------------------------
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: "Full 40-character commit SHA to deploy (must be reachable from origin/main)"
+        required: true
+        type: string
+      mode:
+        description: "deploy = code only | release = backup + migrations + deploy"
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - release
+      approve_destructive:
+        description: "release mode only: allow migrations containing DROP/TRUNCATE/DELETE"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -21,22 +51,47 @@ jobs:
     runs-on: ubuntu-latest
     environment: production    # <- manual-approval gate + branch restriction live here
     steps:
+      - name: Validate inputs and credentials
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          set -eu
+          case "$DEPLOY_SHA" in
+            *[!0-9a-f]*|"") echo "FATAL: deploy_sha must be lowercase hex" >&2; exit 1 ;;
+          esac
+          [ "${#DEPLOY_SHA}" -eq 40 ] || {
+            echo "FATAL: deploy_sha must be the full 40-character commit id" >&2; exit 1; }
+          # Key-based authentication only. An empty SSH_KEY previously fell
+          # through to SSH_PASSWORD silently; that fallback is gone, so a
+          # missing key fails here instead of downgrading the auth method.
+          [ -n "$SSH_KEY" ] || {
+            echo "FATAL: the SSH_KEY environment secret is not set." >&2
+            echo "Production deploys are key-only. Add SSH_KEY to the 'production'" >&2
+            echo "environment and remove SSH_PASSWORD." >&2
+            exit 1; }
+          echo "deploy_sha=$DEPLOY_SHA mode=${{ inputs.mode }}"
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          password: ${{ secrets.SSH_PASSWORD }}
           port: ${{ secrets.SSH_PORT }}
-          command_timeout: 30m
+          command_timeout: 60m
           script_stop: true
           script: |
             set -eu
 
-            DEPLOY_SHA="${{ github.sha }}"
+            DEPLOY_SHA="${{ inputs.deploy_sha }}"
+            MODE="${{ inputs.mode }}"
             APP_DIR="/opt/apps/kaza-booking"
             ENV_FILE="/opt/kaza/env/.env.production"
+
+            export DEPLOY_ACTOR="${{ github.actor }}"
+            export DEPLOY_RUN_ID="${{ github.run_id }}"
+            export DEPLOY_BRANCH="${{ github.ref_name }}"
 
             if [ ! -d "$APP_DIR" ]; then
               echo "FATAL: app directory missing: $APP_DIR"
@@ -55,10 +110,27 @@ jobs:
               exit 1
             fi
 
-            echo "### Fetching main"
-            git fetch origin main --quiet
-            git checkout main
-            git pull --ff-only origin main
+            if [ "$MODE" = "release" ]; then
+              # The orchestrator owns its own fetch, candidate worktree and
+              # checkout: the live tree must not move before the database is
+              # migrated and verified.
+              export APPROVE_DESTRUCTIVE="${{ inputs.approve_destructive && '1' || '0' }}"
+              exec bash scripts/release-production.sh "$DEPLOY_SHA"
+            fi
+
+            echo "### Fetching"
+            git fetch origin --prune --quiet
+
+            # Reachability from origin/main is what stops an unreviewed commit
+            # reaching production. Branch protection guarantees main is
+            # PR-reviewed; this ties the deployable set to it.
+            if ! git merge-base --is-ancestor "$DEPLOY_SHA" origin/main; then
+              echo "FATAL: $DEPLOY_SHA is not reachable from origin/main"
+              exit 1
+            fi
+
+            echo "### Checking out the exact SHA (detached)"
+            git checkout --detach "$DEPLOY_SHA" --quiet
 
             if [ "$(git rev-parse HEAD)" != "$DEPLOY_SHA" ]; then
               echo "FATAL: checked out SHA $(git rev-parse HEAD) does not match deploy SHA $DEPLOY_SHA"

@@ -32,8 +32,7 @@ lessons_from_kaza_incident: >
   Dedicated smoke Admin/Owner/Client accounts were created using the app's real hashing,
   and their passwords were stored ONLY in a root-only file on the VPS — never printed in
   chat, terminal, or GitHub Actions logs. Login checks reported only HTTP status, role,
-  and token-exists (boolean), never the password or the token itself. See also
-  scripts/production-login-smoke-maintenance.sh.
+  and token-exists (boolean), never the password or the token itself.
 ---
 
 # Smoke accounts & secret hygiene
@@ -44,8 +43,13 @@ Prove login works without ever exposing a secret or disturbing a real user.
 
 ```bash
 # 1. Create accounts via the app's REAL hashing (never hand-written hashes / plaintext).
-#    Use the repo's smoke maintenance path; it uses the same hashing the API verifies.
-sh /opt/apps/kaza-booking/scripts/production-login-smoke-maintenance.sh
+#    Drive the API's own registration/reset endpoints, or run the hasher from the API
+#    image. NEVER hand-write a hash and never INSERT one directly into the database.
+#
+#    NOTE: scripts/production-login-smoke-maintenance.sh and its workflow were REMOVED
+#    (2026-08-23). They wrote password hashes for real admin_users/owners/clients rows
+#    and INSERTed straight into schema_migrations, bypassing the gated migration
+#    runner -- a second, unaudited source of truth for production state.
 
 # 2. Store credentials ONLY in a root-only file (never echo them).
 CRED_FILE="/root/kaza-login-fix-logs/$(date +%Y%m%d-%H%M%S)-smoke-credentials.txt"

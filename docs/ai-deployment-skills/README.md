@@ -64,12 +64,18 @@ production DB — open the matching skill first.
    under the `edge` compose profile and must stay off on this host.
 4. **`nginx -t` before any reload.** Reload, never restart, `novatova-nginx`.
 5. **Back up before any DB write.** Migrations are additive, gated, and never run
-   during deploy.
-6. **The VPS is not durable.** Production deploy force-checks-out `main`; any
-   VPS-only edit is wiped on the next deploy. Every verified fix must land in `main`.
-7. **Never print secrets.** Redact passwords/tokens/JWTs/connection strings in every
+   during a code deploy.
+6. **Migration is not deployment.** A schema-changing release goes through
+   `mode: release` (`scripts/release-production.sh`). The code path refuses to build
+   when the live database is behind the tree being deployed.
+7. **A merge is not a release.** There is no push deploy trigger; production changes
+   only via an explicit `workflow_dispatch` with a full 40-character SHA that is
+   reachable from `origin/main`.
+8. **The VPS is not durable.** Any VPS-only edit is lost the next time the checkout
+   moves. Every verified fix must land in `main`.
+9. **Never print secrets.** Redact passwords/tokens/JWTs/connection strings in every
    log, chat message, and transcript.
-8. **Leave no keys behind.** Remove any temporary SSH key and verify access is denied.
+10. **Leave no keys behind.** Remove any temporary SSH key and verify access is denied.
 
 ## Shared VPS assumptions (Kaza / Novatova)
 
@@ -86,9 +92,13 @@ production DB — open the matching skill first.
 | Shared external Docker network | `proxy-network` (not defined in the compose file; reattached by the deploy script) |
 | Domains → app | `kaza-booking.com`/`www` → **demo**, `app.kaza-booking.com` → **portal**, `api.kaza-booking.com` → **api** |
 | Novatova domain (safety signal only) | `novatova.com` |
-| Authoritative deploy script | `scripts/deploy-production.sh` (run by `.github/workflows/deploy-production.yml`) |
+| Authoritative deploy script (code only) | `scripts/deploy-production.sh` |
+| Authoritative release script (schema-changing) | `scripts/release-production.sh` |
+| Release-state single source of truth | `scripts/release-state.sh` (`ledger-head`, `tree-level`, `schema-guard`, `record`) |
+| Only production entry point | `.github/workflows/deploy-production.yml` — `workflow_dispatch` only, inputs `deploy_sha` + `mode` |
+| Live SHA / rollback target / history | `/opt/kaza/releases/current-sha.txt`, `previous-sha.txt`, `deployments.jsonl` (append-only) |
 | DB backup / migrate / restore | `scripts/backup-postgres.sh`, `scripts/apply-migrations.sh`, `scripts/restore-postgres.sh` |
-| Last known-good SHA | `3e962da` (portal freeze + API health fixed, Novatova untouched, DB not recreated) |
+| Last SUCCESSFUL production deploy | `eb94cb48` (2026-07-27). Production has not been deployed since; migrations `0058`-`0064` are unapplied as of the last read on 2026-08-16. Re-verify before relying on this. |
 
 ## Order of skill usage during a deployment
 

@@ -3,7 +3,7 @@ name: deployment-decision-matrix
 description: >
   Decision matrices for choosing the SAFEST path when several exist: live hotfix vs
   GitHub-first, frontend-only vs backend auth fix, API-only vs portal-only vs full deploy,
-  migrate now vs defer, reload nginx vs not, merge now vs leave PR open, temporary SSH key
+  migrate now vs defer, reload nginx vs not, deploy mode vs release mode, temporary SSH key
   vs manual command execution.
 risk_level: medium
 when_to_use: >
@@ -27,8 +27,8 @@ final_report_required: true
 lessons_from_kaza_incident: >
   The right calls were consistently the narrow ones: fix login with a frontend-only portal
   change (not a backend cookie-Domain change); rebuild only the affected service (not the
-  whole stack); take a backup before the additive migration; leave a PR unmerged when a
-  merge would trigger an unwanted deploy; and remove the temporary SSH key at the end.
+  whole stack); take a backup before the additive migration; choose release mode whenever
+  the SHA adds a migration; and remove the temporary SSH key at the end.
   Default to the smallest change that fully fixes the problem, then make it durable in main.
 ---
 
@@ -42,7 +42,7 @@ When in doubt, prefer the safer row and hand back to a human.
 | Situation | Choose |
 |---|---|
 | Prod is broken now; fix is small + reversible; you can rebuild one service | **Live hotfix**, then immediately promote to `main` ([live-hotfix-to-main-durability](live-hotfix-to-main-durability.md)) |
-| Not an emergency; change touches multiple services or backend | **GitHub-first**: PR → review → merge → CI deploy ([github-actions-production-deploy-safety](github-actions-production-deploy-safety.md)) |
+| Not an emergency; change touches multiple services or backend | **GitHub-first**: PR → review → merge → **dispatch** Deploy Production with the merge SHA ([github-actions-production-deploy-safety](github-actions-production-deploy-safety.md)) |
 | Fix is unproven / risky | GitHub-first with review |
 
 > A live hotfix is **never** the finish line — it is wiped by the next deploy unless it is in `main`.
@@ -60,7 +60,8 @@ When in doubt, prefer the safer row and hand back to a human.
 |---|---|
 | Native lib / health / DB-connect issue in the API | **API-only** rebuild ([api-runtime-and-health-debug](api-runtime-and-health-debug.md)) |
 | Portal UI / auth / routing fix | **Portal-only** rebuild ([docker-compose-scoped-deploy](docker-compose-scoped-deploy.md)) |
-| Coordinated release across services from `main` | **Full CI deploy** (still service-scoped: api/demo/portal, edge excluded) |
+| Coordinated release across services from `main` | **Dispatch `mode: deploy`** (still service-scoped: api/demo/portal, edge excluded) |
+| The SHA adds any new `db/migrations/NNNN_*.sql` | **Dispatch `mode: release`** — backup + migrate + verify happen before the code moves |
 
 ## 4. Migration now vs defer
 
@@ -84,7 +85,7 @@ When in doubt, prefer the safer row and hand back to a human.
 | Situation | Choose |
 |---|---|
 | Change is verified and a deploy is wanted + a human will approve the gate | **Merge** (squash) and monitor |
-| Merge to `main` would trigger an unwanted/unreviewed deploy (no `paths:` filter) | **Leave PR open** for a human to merge deliberately |
+| You are unsure whether the SHA needs migrations | **Compare before dispatching**: `release-state.sh ledger-head` vs `MIG_DIR=<tree> release-state.sh tree-level` |
 | Docs-only change | Usually **leave open** — it still queues a (gated) deploy |
 
 ## 7. Temporary SSH key vs manual command execution

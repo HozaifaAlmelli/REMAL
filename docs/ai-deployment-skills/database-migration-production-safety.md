@@ -41,6 +41,18 @@ lessons_from_kaza_incident: >
 
 # Database migration production safety
 
+> **Releasing a feature that adds migrations? Do not run `apply-migrations.sh` by hand.**
+> Dispatch **Deploy Production** with `mode: release`. That runs
+> `scripts/release-production.sh`, which orders the whole thing for you: baseline →
+> candidate worktree → validated backup → migrate → ledger verification → deploy the
+> exact SHA → verify what landed, stopping at the first failure and never moving the
+> live checkout before the database is verified. This playbook covers the standalone
+> case: a schema gap being closed on its own, with no code release attached.
+>
+> A migration must never be applied through the code deploy path, and the code deploy
+> path refuses to run when the live schema is behind the tree — see
+> [github-actions-production-deploy-safety](github-actions-production-deploy-safety.md).
+
 The DB is the one thing you cannot rebuild from `main`. Every write is preceded by a
 verified backup and every migration is additive, uniquely numbered, and gated.
 

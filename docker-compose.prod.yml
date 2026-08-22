@@ -43,9 +43,18 @@ services:
     build:
       context: .
       dockerfile: RentalPlatform.API/Dockerfile   # existing file, unchanged
-    image: kaza-api:prod
+      labels:
+        org.opencontainers.image.revision: "${KAZA_IMAGE_TAG:-prod}"
+        org.opencontainers.image.title: "kaza-api"
+    # Immutable, SHA-addressed image. deploy-production.sh sets KAZA_IMAGE_TAG to
+    # the deploy SHA and additionally tags the result :prod, so the running code
+    # is provable from `docker inspect` alone. The :prod default keeps a manual
+    # compose invocation working unchanged.
+    image: kaza-api:${KAZA_IMAGE_TAG:-prod}
     container_name: kaza-prod-api
     restart: unless-stopped
+    labels:
+      org.opencontainers.image.revision: "${KAZA_IMAGE_TAG:-prod}"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}        # overrides image default
       ASPNETCORE_URLS: "http://+:8080"
@@ -78,9 +87,14 @@ services:
         NEXT_PUBLIC_API_URL: "https://${API_DOMAIN}"
         NEXT_PUBLIC_PLATFORM_URL: "https://${PORTAL_DOMAIN}"
         NEXT_PUBLIC_STORAGE_URL: "${NEXT_PUBLIC_STORAGE_URL}"   # absolute API origin => images at https://API_DOMAIN/uploads
-    image: kaza-demo:prod
+      labels:
+        org.opencontainers.image.revision: "${KAZA_IMAGE_TAG:-prod}"
+        org.opencontainers.image.title: "kaza-demo"
+    image: kaza-demo:${KAZA_IMAGE_TAG:-prod}
     container_name: kaza-prod-demo
     restart: unless-stopped
+    labels:
+      org.opencontainers.image.revision: "${KAZA_IMAGE_TAG:-prod}"
     networks:
       - public
 
@@ -95,9 +109,14 @@ services:
         NEXT_PUBLIC_APP_ENV: "production"
         NEXT_PUBLIC_MAPBOX_TOKEN: "${NEXT_PUBLIC_MAPBOX_TOKEN}"
         NEXT_PUBLIC_ALLOWED_RETURN_ORIGINS: "https://${PORTFOLIO_DOMAIN}"
-    image: kaza-portal:prod
+      labels:
+        org.opencontainers.image.revision: "${KAZA_IMAGE_TAG:-prod}"
+        org.opencontainers.image.title: "kaza-portal"
+    image: kaza-portal:${KAZA_IMAGE_TAG:-prod}
     container_name: kaza-prod-portal
     restart: unless-stopped
+    labels:
+      org.opencontainers.image.revision: "${KAZA_IMAGE_TAG:-prod}"
     environment:
       # `next start` RE-EVALUATES next.config.mjs at runtime, so the env-driven
       # images.remotePatterns needs the image host at RUNTIME (not only as a build arg).
