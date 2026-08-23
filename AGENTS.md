@@ -44,6 +44,8 @@ open for copy-paste-safe, scoped commands. The full documentation map is
 - **Always** use the repo path `/opt/apps/kaza-booking` (never the stale `/opt/kaza/app`).
 - **Always** route application deploy/recovery through the trusted current-`main` control
   plane; do not use a direct Compose recreate as a deployment shortcut.
+- **Always** identify live production with `scripts/production-state.sh` from that trusted
+  control plane. A state file, tag, checkout, or comment is not authoritative by itself.
 - **Always** run `nginx -t` before any `nginx -s reload` (reload, never restart).
 - **Never** print secrets (passwords/tokens/JWTs/connection strings); redact all output.
 

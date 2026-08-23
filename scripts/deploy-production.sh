@@ -19,7 +19,7 @@ DEPLOY_BACKUP_REF="${DEPLOY_BACKUP_REF:-}"
 DEPLOY_MIGRATION_BEFORE="${DEPLOY_MIGRATION_BEFORE:-}"
 DEPLOY_MIGRATION_AFTER="${DEPLOY_MIGRATION_AFTER:-}"
 AUTH_SMOKE_CREDENTIALS_FILE="${AUTH_SMOKE_CREDENTIALS_FILE:-/opt/kaza/secrets/auth-smoke.json}"
-APPROVE_LEGACY_PROVENANCE_BASELINE="${APPROVE_LEGACY_PROVENANCE_BASELINE:-0}"
+APPROVE_UNVERIFIED_LEGACY_REPLACEMENT="${APPROVE_UNVERIFIED_LEGACY_REPLACEMENT:-0}"
 COMPOSE_FILE="${COMPOSE_FILE:-$SOURCE_DIR/docker-compose.prod.yml}"
 PROVENANCE_FILE="$CONTROL_DIR/infra/deploy/compose.provenance.yml"
 DEPLOYMENT_LEDGER="$RELEASES_DIR/deployments.jsonl"
@@ -29,6 +29,8 @@ STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # shellcheck source=scripts/lib/production-lock.sh
 source "$CONTROL_DIR/scripts/lib/production-lock.sh"
 production_lock_acquire
+# shellcheck source=scripts/lib/deployment-authorization.sh
+source "$CONTROL_DIR/scripts/lib/deployment-authorization.sh"
 # shellcheck source=scripts/lib/image-provenance.sh
 source "$CONTROL_DIR/scripts/lib/image-provenance.sh"
 
@@ -147,6 +149,7 @@ case "$DEPLOY_MODE" in deploy|release) ;; *) echo "FATAL: unsupported deployment
 [ "$(git -C "$SOURCE_DIR" rev-parse HEAD)" = "$DEPLOY_SHA" ] || { echo "FATAL: candidate SHA mismatch" >&2; exit 1; }
 [ -z "$(git -C "$SOURCE_DIR" status --porcelain)" ] || { echo "FATAL: application candidate is dirty" >&2; exit 1; }
 [ -z "$(git -C "$CONTROL_DIR" status --porcelain)" ] || { echo "FATAL: trusted control tree is dirty" >&2; exit 1; }
+validate_deployment_authorization
 [ -s "$ENV_FILE" ] || { echo "FATAL: production env file is missing or empty" >&2; exit 1; }
 [ -s "$AUTH_SMOKE_CREDENTIALS_FILE" ] || { echo "FATAL: read-only auth smoke credentials are not provisioned" >&2; exit 1; }
 [ -f "$PROVENANCE_FILE" ] || { echo "FATAL: trusted compose provenance override is missing" >&2; exit 1; }
@@ -178,7 +181,7 @@ docker network inspect "$PROXY_NETWORK" >/dev/null
 docker inspect novatova-nginx >/dev/null
 
 verify_existing_runtime_provenance "$PREVIOUS_SHA" "$DEPLOY_SHA" "$CONTROL_SHA" \
-  "$LIVE_DIR" "$DEPLOYMENT_LEDGER" "$APPROVE_LEGACY_PROVENANCE_BASELINE" "$CONTROL_DIR" \
+  "$LIVE_DIR" "$DEPLOYMENT_LEDGER" "$APPROVE_UNVERIFIED_LEGACY_REPLACEMENT" "$CONTROL_DIR" \
   "${AUTHORIZED_RECOVERY_MANIFEST:-}"
 
 echo "### Validating complete migration registry and ledger before any build"

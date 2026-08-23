@@ -79,7 +79,9 @@ grep -q 'checksum mismatch' <<<"$out" || fail "migration checksum mutation was n
 audit_payload() {
   KAZA_AUDIT_EVENT=DEPLOYMENT_RESULT KAZA_AUDIT_SHA="$(printf 'a%.0s' {1..40})" \
   KAZA_AUDIT_CONTROL_SHA="$(printf 'b%.0s' {1..40})" KAZA_AUDIT_BRANCH=main \
-  KAZA_AUDIT_ACTOR=test KAZA_AUDIT_RUN_ID=test-1 KAZA_AUDIT_MODE=deploy \
+  KAZA_AUDIT_ACTOR=test KAZA_AUDIT_RUN_ID=gh-100-1 KAZA_AUDIT_MODE=deploy \
+  DEPLOY_WORKFLOW_RUN=https://github.com/HozaifaAlmelli/REMAL/actions/runs/100 \
+  DEPLOY_AUTHORIZATION_REF=github-environment:production:100 \
   KAZA_AUDIT_TIMESTAMP=2026-08-23T00:00:01Z KAZA_AUDIT_STARTED_AT=2026-08-23T00:00:00Z \
   KAZA_AUDIT_PREVIOUS_SHA="" KAZA_AUDIT_MIGRATION_BEFORE=0064 KAZA_AUDIT_MIGRATION_AFTER=0064 \
   KAZA_AUDIT_BACKUP_ARTIFACT="" KAZA_AUDIT_RESULT=OK \
@@ -92,12 +94,30 @@ audit_payload() {
 payload="$(audit_payload)"
 run_state record "$payload" >/dev/null
 python3 -c 'import json,sys; json.loads(open(sys.argv[1],encoding="utf-8").read())' "$TMP/releases/deployments.jsonl"
+[ "$(run_state latest-successful)" = "$payload" ] || fail "latest successful deployment record was not returned"
+expect_failure "duplicate terminal deployment audit" run_state record "$payload" >/dev/null
 expect_failure "malformed audit JSON" run_state record '{not-json}' >/dev/null
 expect_failure "missing audit metadata" run_state record '{"sha":"x"}' >/dev/null
 incomplete_success="$(python3 -c 'import json,sys; value=json.loads(sys.argv[1]); value["changed_services"]=["api"]; print(json.dumps(value,separators=(",",":")))' "$payload")"
 expect_failure "incomplete successful audit" run_state record "$incomplete_success" >/dev/null
-bad_payload="${payload/\"sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"/\"sha\":\"old\"}"
+bad_payload="${payload/\"commit_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"/\"commit_sha\":\"old\"}"
 expect_failure "malformed audit SHA" run_state record "$bad_payload" >/dev/null
+bad_authorization="$(python3 -c 'import json,sys; p=json.loads(sys.argv[1]); p["authorization_ref"]="operator-said-ok"; print(json.dumps(p,separators=(",",":"),sort_keys=True))' "$payload")"
+expect_failure "untrusted deployment authorization" run_state record "$bad_authorization" >/dev/null
+manual_payload="$(KAZA_AUDIT_EVENT=DEPLOYMENT_RESULT KAZA_AUDIT_SHA="$(printf 'c%.0s' {1..40})" \
+  KAZA_AUDIT_CONTROL_SHA="$(printf 'b%.0s' {1..40})" KAZA_AUDIT_BRANCH=main \
+  KAZA_AUDIT_ACTOR=identified-operator KAZA_AUDIT_RUN_ID=manual-incident-123 KAZA_AUDIT_MODE=deploy \
+  DEPLOY_WORKFLOW_RUN=manual DEPLOY_AUTHORIZATION_REF=emergency:INC-123 \
+  KAZA_AUDIT_TIMESTAMP=2026-08-23T00:00:03Z KAZA_AUDIT_STARTED_AT=2026-08-23T00:00:02Z \
+  KAZA_AUDIT_PREVIOUS_SHA="$(printf 'a%.0s' {1..40})" KAZA_AUDIT_MIGRATION_BEFORE=0064 KAZA_AUDIT_MIGRATION_AFTER=0064 \
+  KAZA_AUDIT_BACKUP_ARTIFACT="" KAZA_AUDIT_RESULT=OK KAZA_AUDIT_CHANGED_SERVICES='["api","demo","portal"]' \
+  KAZA_AUDIT_IMAGE_IDS='{"api":"sha256:1111111111111111111111111111111111111111111111111111111111111111","demo":"sha256:2222222222222222222222222222222222222222222222222222222222222222","portal":"sha256:3333333333333333333333333333333333333333333333333333333333333333"}' \
+  KAZA_AUDIT_ROLLBACK_IMAGES='{"api":"kaza-api:rollback-manual","demo":"kaza-demo:rollback-manual","portal":"kaza-portal:rollback-manual"}' \
+  KAZA_AUDIT_RECOVERY_MANIFEST=/tmp/recovery-manual.json \
+    python3 "$ROOT/scripts/lib/deployment-record.py" audit)"
+run_state record "$manual_payload" >/dev/null || fail "explicitly authorized manual operation was rejected"
+anonymous_manual="$(python3 -c 'import json,sys; p=json.loads(sys.argv[1]); p["actor"]="manual"; print(json.dumps(p,separators=(",",":"),sort_keys=True))' "$manual_payload")"
+expect_failure "anonymous manual deployment" run_state record "$anonymous_manual" >/dev/null
 printf '{broken-existing-ledger\n' > "$TMP/releases/malformed-existing.jsonl"
 expect_failure "malformed existing audit ledger" env DEPLOYMENT_LEDGER="$TMP/releases/malformed-existing.jsonl" \
   bash "$ROOT/scripts/release-state.sh" record "$payload" >/dev/null
@@ -144,7 +164,9 @@ PROVENANCE_CONTROL="$(printf '2%.0s' {1..40})"
 PROVENANCE_LEDGER="$TMP/releases/provenance.jsonl"
 KAZA_AUDIT_EVENT=DEPLOYMENT_RESULT KAZA_AUDIT_SHA="$PROVENANCE_SHA" \
 KAZA_AUDIT_CONTROL_SHA="$PROVENANCE_CONTROL" KAZA_AUDIT_BRANCH=main \
-KAZA_AUDIT_ACTOR=test KAZA_AUDIT_RUN_ID=provenance-1 KAZA_AUDIT_MODE=deploy \
+KAZA_AUDIT_ACTOR=test KAZA_AUDIT_RUN_ID=gh-101-1 KAZA_AUDIT_MODE=deploy \
+DEPLOY_WORKFLOW_RUN=https://github.com/HozaifaAlmelli/REMAL/actions/runs/101 \
+DEPLOY_AUTHORIZATION_REF=github-environment:production:101 \
 KAZA_AUDIT_TIMESTAMP=2026-08-23T00:00:01Z KAZA_AUDIT_STARTED_AT=2026-08-23T00:00:00Z \
 KAZA_AUDIT_PREVIOUS_SHA="" KAZA_AUDIT_MIGRATION_BEFORE=0064 KAZA_AUDIT_MIGRATION_AFTER=0064 \
 KAZA_AUDIT_BACKUP_ARTIFACT="" KAZA_AUDIT_RESULT=OK \
@@ -190,6 +212,9 @@ git -C "$PROVENANCE_REPO" commit -qm legacy; LEGACY_RUNTIME_SHA="$(git -C "$PROV
         esac ;;
       *org.opencontainers.image.revision*) echo "${STUB_RUNTIME_REVISION:-$PROVENANCE_SHA}" ;;
       *com.kaza.deployment.control-revision*) echo "$PROVENANCE_CONTROL" ;;
+      *'{{.State.Running}}'*) echo true ;;
+      *com.docker.compose.project*) echo kaza-prod ;;
+      *com.docker.compose.service*) case "$service" in *api) echo api ;; *demo) echo demo ;; *portal) echo portal ;; esac ;;
       *) return 90 ;;
     esac
   }
@@ -293,6 +318,7 @@ printf 'old\n' > "$OLD_REPO/app.txt"
 git -C "$OLD_REPO" add .; git -C "$OLD_REPO" commit -qm old; OLD_SHA="$(git -C "$OLD_REPO" rev-parse HEAD)"
 cp "$ROOT/scripts/production-dispatch.sh" "$OLD_REPO/scripts/production-dispatch.sh"
 cp "$ROOT/scripts/lib/production-lock.sh" "$OLD_REPO/scripts/lib/production-lock.sh"
+cp "$ROOT/scripts/lib/deployment-authorization.sh" "$OLD_REPO/scripts/lib/deployment-authorization.sh"
 cat > "$OLD_REPO/scripts/release-state.sh" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" != successful-deployment ]
@@ -303,7 +329,9 @@ git -C "$OLD_REPO" add .; git -C "$OLD_REPO" commit -qm current; CURRENT_SHA="$(
 git -C "$OLD_REPO" branch -M main; git -C "$OLD_REPO" remote add origin "$OLD_REPO"; git -C "$OLD_REPO" update-ref refs/remotes/origin/main "$CURRENT_SHA"
 printf '%s\n' "$OLD_SHA" > "$TMP/releases/previous-sha.txt"
 out="$(expect_failure "unrecorded old SHA" env CONTROL_DIR="$OLD_REPO" LIVE_DIR="$OLD_REPO" RELEASES_DIR="$TMP/releases" \
-  PRODUCTION_LOCK_FILE="$TMP/old-target.lock" DEPLOY_RUN_ID=old-target \
+  PRODUCTION_LOCK_FILE="$TMP/old-target.lock" DEPLOY_ACTOR=test DEPLOY_BRANCH=main \
+  DEPLOY_RUN_ID=gh-103-1 DEPLOY_WORKFLOW_RUN=https://github.com/HozaifaAlmelli/REMAL/actions/runs/103 \
+  DEPLOY_AUTHORIZATION_REF=github-environment:production:103 \
   bash "$OLD_REPO/scripts/production-dispatch.sh" "$OLD_SHA" deploy)"
 grep -q 'no successful trusted deployment record' <<<"$out" || fail "old target refusal was not explicit"
 
@@ -327,7 +355,10 @@ git -C "$BOOT" branch -M main; git -C "$BOOT" remote add origin "$BOOT"; git -C 
 BOOT_RELEASES="$TMP/bootstrap-releases"; mkdir -p "$BOOT_RELEASES"
 BOOTSTRAP_MARKER="$TMP/bootstrap.marker" OLD_RUNNER_MARKER="$TMP/old-runner.marker" \
 CONTROL_SHA="$BOOT_SHA" DEPLOY_SHA="$LEGACY_SHA" DEPLOY_MODE=deploy \
-DEPLOY_ACTOR=test DEPLOY_RUN_ID=bootstrap-1 DEPLOY_BRANCH=main APP_DIR="$BOOT" ENV_FILE="$TMP/test.env" RELEASES_DIR="$BOOT_RELEASES" \
+DEPLOY_ACTOR=test DEPLOY_RUN_ID=gh-102-1 DEPLOY_BRANCH=main \
+DEPLOY_WORKFLOW_RUN=https://github.com/HozaifaAlmelli/REMAL/actions/runs/102 \
+DEPLOY_AUTHORIZATION_REF=github-environment:production:102 \
+APP_DIR="$BOOT" ENV_FILE="$TMP/test.env" RELEASES_DIR="$BOOT_RELEASES" \
   bash "$ROOT/scripts/bootstrap-production-control.sh"
 [ "$(cat "$TMP/bootstrap.marker")" = "$LEGACY_SHA|deploy" ] || fail "old-checkout bootstrap did not use current main control"
 [ ! -e "$TMP/old-runner.marker" ] || fail "historical application deployment script was executed"
@@ -377,7 +408,7 @@ grep -q 'fingerprint:.*SSH_HOST_FINGERPRINT' "$WF" || fail "SSH host fingerprint
 grep -qE '^[[:space:]]+password:' "$WF" && fail "workflow contains an SSH password input"
 grep -q 'script_path: scripts/bootstrap-production-control.sh' "$WF" || fail "workflow does not send trusted bootstrap"
 grep -q 'RECOVERY_RUN_ID' "$WF" || fail "workflow does not carry explicit failed-run recovery identity"
-grep -q 'APPROVE_LEGACY_PROVENANCE_BASELINE' "$WF" || fail "workflow lacks explicit one-time legacy provenance approval"
+grep -q 'APPROVE_UNVERIFIED_LEGACY_REPLACEMENT' "$WF" || fail "workflow lacks explicit one-time legacy replacement approval"
 grep -q 'rev-parse --is-inside-work-tree' "$DEPLOY" || fail "deploy does not accept real Git worktree candidates"
 grep -q 'rev-parse --is-inside-work-tree' "$RELEASE" || fail "release does not accept real Git worktree candidates"
 grep -q 'compose up -d --no-deps db' "$DEPLOY" && fail "code deploy can recreate the database"

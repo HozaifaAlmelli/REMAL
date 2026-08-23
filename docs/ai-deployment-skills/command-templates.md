@@ -55,6 +55,13 @@ gh workflow run deploy-production.yml --ref main \
   -f deploy_sha=<full-reviewed-main-sha> -f mode=deploy
 ```
 
+Read-only identity reconciliation uses the same trusted entry point:
+
+```bash
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<expected-full-main-sha> -f mode=inspect
+```
+
 Do not recreate a service directly with Compose. Even a service-scoped command would
 bypass the production-operation lock, current-main tooling, migration guard, image-ID
 proof, audit record, and recovery manifest. A bare `docker compose up -d` is additionally

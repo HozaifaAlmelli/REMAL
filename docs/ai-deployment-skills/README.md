@@ -95,7 +95,8 @@ production DB — open the matching skill first.
 | Trusted dispatch/bootstrap | `scripts/bootstrap-production-control.sh`, then `scripts/production-dispatch.sh` from current `main` |
 | Authoritative deploy script (code only) | current-main control `scripts/deploy-production.sh` with a separate candidate worktree |
 | Authoritative release script (schema-changing) | current-main control `scripts/release-production.sh` with a separate candidate worktree |
-| Release-state single source of truth | `scripts/release-state.sh` (`ledger-head`, `tree-level`, `schema-guard`, `record`) |
+| Production identity reconciliation | `scripts/production-state.sh` (audit + digest/labels + checkout/state + validated DB head) |
+| Release-state authority | `scripts/release-state.sh` (`ledger-head`, `tree-level`, `schema-guard`, `record`, `latest-successful`) |
 | Normal production entry point | `.github/workflows/deploy-production.yml` — main-only `workflow_dispatch`, inputs `deploy_sha` + `mode` |
 | Live SHA / rollback target / history | `/opt/kaza/releases/current-sha.txt`, `previous-sha.txt`, `deployments.jsonl` (append-only) |
 | DB backup / migrate / restore | `scripts/backup-postgres.sh`, `scripts/apply-migrations.sh`, `scripts/restore-postgres.sh` |

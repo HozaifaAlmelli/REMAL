@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/production-migrations.sh"
 
 usage() {
-  echo "usage: release-state.sh <ledger-head|tree-level|schema-guard|record|successful-deployment|deployed-image-id|no-successful-deployments|recovery-authorizes>" >&2
+  echo "usage: release-state.sh <ledger-head|tree-level|schema-guard|record|successful-deployment|latest-successful|deployed-image-id|no-successful-deployments|recovery-authorizes>" >&2
   exit 64
 }
 
@@ -95,33 +95,46 @@ validate_audit_json() {
   python3 -c '
 import json, re, sys
 p=json.loads(sys.argv[1])
-r={"event","sha","control_sha","branch","actor","workflow_run_id","mode","timestamp","started_at","previous_sha","migration_before","migration_after","backup_artifact","result","changed_services","image_ids","rollback_images","recovery_manifest"}
+r={"schema","event","commit_sha","control_sha","branch","actor","deployment_id","workflow_run","authorization_ref","mode","timestamp","started_at","previous_version","database_migration_before","database_migration_after","backup_artifact","result","changed_services","image_digests","rollback_images","recovery_manifest"}
 if not isinstance(p,dict) or set(p) != r: raise SystemExit("audit fields do not match the required schema")
-for k in r-{"changed_services","image_ids","rollback_images"}:
+for k in r-{"changed_services","image_digests","rollback_images"}:
     if not isinstance(p[k],str): raise SystemExit(f"audit field {k} must be a string")
-for k in ("event","sha","control_sha","actor","workflow_run_id","mode","timestamp","started_at","result"):
+for k in ("event","commit_sha","control_sha","actor","deployment_id","workflow_run","authorization_ref","mode","timestamp","started_at","result"):
     if not p[k]: raise SystemExit(f"audit field {k} is required")
+if p["schema"]!="kaza-production-deployment-v1": raise SystemExit("unsupported deployment audit schema")
 if p["event"] not in {"DEPLOYMENT_PREPARED","DEPLOYMENT_RESULT"}: raise SystemExit("unsupported audit event")
 if p["result"] not in {"PREPARED","OK","FAILED"}: raise SystemExit("unsupported audit result")
 if (p["event"]=="DEPLOYMENT_PREPARED") != (p["result"]=="PREPARED"): raise SystemExit("audit event/result combination is invalid")
-if not re.fullmatch(r"[0-9a-f]{40}",p["sha"]) or not re.fullmatch(r"[0-9a-f]{40}",p["control_sha"]): raise SystemExit("audit SHAs must be full lowercase commit ids")
-if p["previous_sha"] and not re.fullmatch(r"[0-9a-f]{40}",p["previous_sha"]): raise SystemExit("audit previous SHA is malformed")
+if not re.fullmatch(r"[0-9a-f]{40}",p["commit_sha"]) or not re.fullmatch(r"[0-9a-f]{40}",p["control_sha"]): raise SystemExit("audit SHAs must be full lowercase commit ids")
+if p["previous_version"] and not re.fullmatch(r"[0-9a-f]{40}",p["previous_version"]): raise SystemExit("audit previous SHA is malformed")
 if p["branch"]!="main" or p["mode"] not in {"deploy","release"}: raise SystemExit("audit branch or mode is invalid")
-if not re.fullmatch(r"[A-Za-z0-9._-]+",p["workflow_run_id"]): raise SystemExit("audit workflow run id is invalid")
+if not re.fullmatch(r"[A-Za-z0-9._-]+",p["deployment_id"]): raise SystemExit("audit deployment id is invalid")
+github_run=re.fullmatch(r"gh-(\d+)-(\d+)",p["deployment_id"])
+manual_run=re.fullmatch(r"manual-[A-Za-z0-9._-]+",p["deployment_id"])
+if github_run:
+    expected=f"https://github.com/HozaifaAlmelli/REMAL/actions/runs/{github_run.group(1)}"
+    if p["workflow_run"]!=expected: raise SystemExit("audit workflow run does not match deployment id")
+    if p["authorization_ref"]!=f"github-environment:production:{github_run.group(1)}": raise SystemExit("audit GitHub authorization reference is invalid")
+elif manual_run:
+    if p["workflow_run"]!="manual": raise SystemExit("manual deployment must identify its workflow as manual")
+    if not re.fullmatch(r"emergency:[A-Za-z0-9._-]{3,100}",p["authorization_ref"]): raise SystemExit("manual deployment lacks an explicit emergency authorization reference")
+    if p["actor"]=="manual": raise SystemExit("manual deployment requires an identified actor")
+else:
+    raise SystemExit("audit deployment id is not a trusted GitHub or emergency-manual identity")
 for key in ("timestamp","started_at"):
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z",p[key]): raise SystemExit(f"audit {key} is malformed")
-for key in ("migration_before","migration_after"):
+for key in ("database_migration_before","database_migration_after"):
     if p[key] and not re.fullmatch(r"\d{4}",p[key]): raise SystemExit(f"audit {key} is malformed")
 if p["mode"]=="release" and p["result"] in {"PREPARED","OK"} and not p["backup_artifact"].startswith("/"): raise SystemExit("successful release audit requires an absolute backup artifact")
 if not isinstance(p["changed_services"],list) or any(x not in {"api","demo","portal"} for x in p["changed_services"]): raise SystemExit("invalid changed_services")
-if not isinstance(p["image_ids"],dict) or not isinstance(p["rollback_images"],dict): raise SystemExit("image evidence must be objects")
-if any(k not in {"api","demo","portal"} for k in p["image_ids"]|p["rollback_images"]): raise SystemExit("image evidence contains an unknown service")
+if not isinstance(p["image_digests"],dict) or not isinstance(p["rollback_images"],dict): raise SystemExit("image evidence must be objects")
+if any(k not in {"api","demo","portal"} for k in p["image_digests"]|p["rollback_images"]): raise SystemExit("image evidence contains an unknown service")
 if p["result"]=="OK":
     services={"api","demo","portal"}
     if set(p["changed_services"])!=services or len(p["changed_services"])!=3: raise SystemExit("successful audit must include all application services exactly once")
-    if set(p["image_ids"])!=services or set(p["rollback_images"])!=services: raise SystemExit("successful audit requires complete image evidence")
-    if any(not isinstance(value,str) or not re.fullmatch(r"sha256:[0-9a-f]{64}",value) for value in p["image_ids"].values()): raise SystemExit("successful audit image id is malformed")
-    if not p["migration_before"] or not p["migration_after"]: raise SystemExit("successful audit requires migration state")
+    if set(p["image_digests"])!=services or set(p["rollback_images"])!=services: raise SystemExit("successful audit requires complete image evidence")
+    if any(not isinstance(value,str) or not re.fullmatch(r"sha256:[0-9a-f]{64}",value) for value in p["image_digests"].values()): raise SystemExit("successful audit image id is malformed")
+    if not p["database_migration_before"] or not p["database_migration_after"]: raise SystemExit("successful audit requires migration state")
     if not p["recovery_manifest"].startswith("/"): raise SystemExit("successful audit requires an absolute recovery manifest")
 ' "$1"
 }
@@ -152,8 +165,19 @@ record() {
     flock -x 9
     validate_existing_audit_ledger
     PAYLOAD="$payload" LEDGER="$DEPLOYMENT_LEDGER" python3 - <<'PY'
-import os
-fd=os.open(os.environ["LEDGER"], os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o600)
+import json, os
+payload=json.loads(os.environ["PAYLOAD"])
+path=os.environ["LEDGER"]
+if os.path.exists(path):
+    with open(path, encoding="utf-8") as handle:
+        related=[json.loads(line) for line in handle if json.loads(line)["deployment_id"]==payload["deployment_id"]]
+    if any(row["event"]==payload["event"] for row in related):
+        raise SystemExit("deployment audit event already exists for this deployment id")
+    if payload["event"]=="DEPLOYMENT_PREPARED" and related:
+        raise SystemExit("prepared audit cannot follow a terminal deployment result")
+flags=os.O_WRONLY|os.O_CREAT|os.O_APPEND
+if hasattr(os,"O_NOFOLLOW"): flags |= os.O_NOFOLLOW
+fd=os.open(path, flags, 0o600)
 try:
     os.write(fd, os.environ["PAYLOAD"].encode("utf-8") + b"\n")
     os.fsync(fd)
@@ -176,8 +200,25 @@ found=False
 with open(path, encoding="utf-8") as handle:
     for line in handle:
         row=json.loads(line)
-        if row.get("event")=="DEPLOYMENT_RESULT" and row.get("sha")==sha and row.get("result")=="OK": found=True
+        if row.get("event")=="DEPLOYMENT_RESULT" and row.get("commit_sha")==sha and row.get("result")=="OK": found=True
 raise SystemExit(0 if found else 1)
+PY
+}
+
+latest_successful() {
+  [ -f "$DEPLOYMENT_LEDGER" ] || return 3
+  validate_existing_audit_ledger
+  python3 - "$DEPLOYMENT_LEDGER" <<'PY'
+import json, sys
+latest = None
+with open(sys.argv[1], encoding="utf-8") as handle:
+    for line in handle:
+        row = json.loads(line)
+        if row["event"] == "DEPLOYMENT_RESULT" and row["result"] == "OK":
+            latest = row
+if latest is None:
+    raise SystemExit(3)
+print(json.dumps(latest, separators=(",", ":"), sort_keys=True))
 PY
 }
 
@@ -194,8 +235,8 @@ image_id = None
 with open(path, encoding="utf-8") as handle:
     for line in handle:
         row = json.loads(line)
-        if row["event"] == "DEPLOYMENT_RESULT" and row["sha"] == sha and row["result"] == "OK":
-            image_id = row["image_ids"].get(service)
+        if row["event"] == "DEPLOYMENT_RESULT" and row["commit_sha"] == sha and row["result"] == "OK":
+            image_id = row["image_digests"].get(service)
 if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[0-9a-f]+", image_id):
     raise SystemExit(1)
 print(image_id)
@@ -245,6 +286,7 @@ case "${1:-}" in
   schema-guard) schema_guard ;;
   record) shift; record "${1:-}" ;;
   successful-deployment) shift; successful_deployment "${1:-}" ;;
+  latest-successful) latest_successful ;;
   deployed-image-id) shift; deployed_image_id "${1:-}" "${2:-}" ;;
   no-successful-deployments) no_successful_deployments ;;
   recovery-authorizes) shift; recovery_authorizes "${1:-}" "${2:-}" "${3:-}" ;;

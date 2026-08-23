@@ -44,5 +44,6 @@ Named here only to mark them forbidden. Do not execute them.
   mutation through the trusted current-`main` control plane; `nginx -t` before any reload;
   back up before any DB write;
   run production operations only through the current-main trusted control plane and its
-  host lock; promote every live hotfix to `main`; never print secrets. If a Global Stop Condition in
+  host lock; identify live state with `scripts/production-state.sh`; promote every live
+  hotfix to `main`; never print secrets. If a Global Stop Condition in
   a skill is met, **halt and report**.

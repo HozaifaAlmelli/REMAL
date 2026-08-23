@@ -58,11 +58,10 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.RunningFor}}"
 docker exec novatova-nginx nginx -t
 docker logs --tail=100 kaza-prod-api 2>&1 | grep -i libgssapi && echo "BAD" || echo "no libgssapi"
 
-# 4. Deployment evidence: state, content image identity, labels, and audit must agree.
-cat /opt/kaza/releases/current-sha.txt 2>/dev/null
-docker inspect -f '{{.Image}}' kaza-prod-api
-docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' kaza-prod-api
-tail -1 /opt/kaza/releases/deployments.jsonl
+# 4. Deployment evidence: dispatch the protected workflow with mode=inspect for
+#    the exact expected SHA. It must emit governanceStatus=GOVERNED and exit zero.
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<expected-full-sha> -f mode=inspect
 ```
 
 ## Report template

@@ -55,6 +55,8 @@ command can take Novatova down or wipe the Kaza DB. Slow down and use the playbo
 - **The VPS is not a deployment authority.** Current `main` supplies the trusted control
   plane and a separate reviewed Git candidate supplies application code. Promote every
   verified live fix to `main`; uncommitted host edits are never deployable evidence.
+- **Production identity is reconciled, not inferred.** Use `scripts/production-state.sh`;
+  it must reconcile audit, image digests/labels, checkout/state files, and the DB ledger.
 - **Never print secrets.** Pipe anything that might contain them through `redact`.
 - **Remove any temporary SSH key** at the end and verify access is denied.
 

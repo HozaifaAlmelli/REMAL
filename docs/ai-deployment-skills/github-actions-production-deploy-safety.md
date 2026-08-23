@@ -62,6 +62,7 @@ state is an unavailable deployment, never password fallback.
 
 | Mode | Permitted operation |
 |---|---|
+| `inspect` | Read-only reconciliation of the expected SHA against the successful audit, running image digests/labels, checkout/state files, and validated DB ledger. Non-governed or drifted state fails. |
 | `deploy` | Code-only deploy. The complete database ledger must already satisfy the candidate. The existing `kaza-prod-db` identity is checked before and after and is never recreated. |
 | `release` | Current-main only. Validate ledger, create and validate the exact returned backup artifact, apply pending migrations, verify ledger, then call the code deploy. |
 
@@ -71,14 +72,16 @@ advisory lock. A concurrent operation refuses with a clear message.
 
 ## One-time legacy provenance transition
 
-Containers created by the pre-hardening deploy use the generic revision label `prod` and
-have no trusted content-ID audit record. The first hardened deployment therefore requires
-the explicit `approve_legacy_provenance_baseline` input. It is accepted only when there is
-no successful trusted deployment in `deployments.jsonl`, the live checkout equals
-`current-sha.txt`, all three application containers have the known legacy `prod` label,
-and the target is current `main`. Release mode performs this check before any database
-mutation. After the first successful trusted deployment, the exception is permanently
-refused and every running image ID must match the last successful audit evidence.
+Containers created by the pre-hardening deploy may have `prod` or no revision label and
+have no trusted content-ID audit record. They cannot be attributed to a commit after the
+fact. The explicit `approve_unverified_legacy_replacement` input authorizes their one-time
+replacement; it does not certify them. It is accepted only when there is no successful
+trusted deployment in `deployments.jsonl`, the clean live checkout equals
+`current-sha.txt`, all application containers are running under the expected Compose
+identity with content-addressed image IDs, and the target is current `main`. Release mode
+performs this check before any database mutation. After the first successful trusted
+deployment, the exception is permanently refused and every running image ID must match
+the last successful audit evidence.
 
 ## Required deployment evidence
 
@@ -101,9 +104,10 @@ attempted target image IDs service by service. This exception never authorizes m
 rollback.
 
 Every audit append is schema-validated JSON, serialized, fsynced, and blocking. Existing
-malformed JSONL prevents further operation. Required fields include target/control SHA,
-actor, workflow run, timestamps, previous SHA, migration state, backup artifact, result,
-changed services, image evidence, and recovery manifest.
+malformed JSONL or a duplicate event for one deployment ID prevents further operation.
+Required fields include deployment ID, application/control SHA, actor, exact workflow and
+authorization reference, timestamps, previous version, migration state, backup artifact,
+result, changed services, image digests, and recovery manifest.
 
 The former arbitrary pre/post release hooks do not exist. Every production step must be a
 reviewed control-plane command with explicit ordering and audit semantics.
@@ -113,18 +117,19 @@ reviewed control-plane command with explicit ordering and audit semantics.
 ```bash
 git log -1 --format='%H %s' origin/main
 gh workflow run deploy-production.yml --repo <owner>/REMAL \
-  --ref main -f deploy_sha=<full-sha> -f mode=<deploy|release>
+  --ref main -f deploy_sha=<full-sha> -f mode=<inspect|deploy|release>
 gh run watch --repo <owner>/REMAL
 ```
 
 After approval and completion, verify without exposing secrets:
 
 ```bash
-cat /opt/kaza/releases/current-sha.txt
-docker inspect -f '{{.Image}}' kaza-prod-api
-docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' kaza-prod-api
-tail -1 /opt/kaza/releases/deployments.jsonl
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<expected-full-sha> -f mode=inspect
 ```
+
+The command emits one JSON identity report and succeeds only for `GOVERNED`. See
+[`production-state-governance.md`](../operations/production-state-governance.md).
 
 The run must also prove the database container ID did not change, the final migration
 ledger matches its fully validated state, all Kaza health checks pass, the read-only auth

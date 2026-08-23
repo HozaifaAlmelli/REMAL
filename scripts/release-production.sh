@@ -14,18 +14,21 @@ COMPOSE_FILE="${COMPOSE_FILE:-$SOURCE_DIR/docker-compose.prod.yml}"
 CONTROL_SHA="${CONTROL_SHA:-$(git -C "$CONTROL_DIR" rev-parse HEAD)}"
 DEPLOY_RUN_ID="${DEPLOY_RUN_ID:-manual-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 AUTH_SMOKE_CREDENTIALS_FILE="${AUTH_SMOKE_CREDENTIALS_FILE:-/opt/kaza/secrets/auth-smoke.json}"
-APPROVE_LEGACY_PROVENANCE_BASELINE="${APPROVE_LEGACY_PROVENANCE_BASELINE:-0}"
+APPROVE_UNVERIFIED_LEGACY_REPLACEMENT="${APPROVE_UNVERIFIED_LEGACY_REPLACEMENT:-0}"
 DEPLOYMENT_LEDGER="$RELEASES_DIR/deployments.jsonl"
 
 # shellcheck source=scripts/lib/production-lock.sh
 source "$CONTROL_DIR/scripts/lib/production-lock.sh"
 production_lock_acquire
+# shellcheck source=scripts/lib/deployment-authorization.sh
+source "$CONTROL_DIR/scripts/lib/deployment-authorization.sh"
 
 [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "FATAL: target SHA must be full lowercase hex" >&2; exit 64; }
 [ "$(git -C "$SOURCE_DIR" rev-parse --is-inside-work-tree 2>/dev/null)" = "true" ] || {
   echo "FATAL: application candidate is not a Git worktree" >&2; exit 1; }
 [ "$(git -C "$SOURCE_DIR" rev-parse HEAD)" = "$TARGET_SHA" ] || { echo "FATAL: candidate SHA mismatch" >&2; exit 1; }
 [ -z "$(git -C "$SOURCE_DIR" status --porcelain)" ] || { echo "FATAL: application candidate is dirty" >&2; exit 1; }
+validate_deployment_authorization
 [ "$TARGET_SHA" = "$CONTROL_SHA" ] || { echo "FATAL: schema-changing release must target current main" >&2; exit 1; }
 [ -s "$AUTH_SMOKE_CREDENTIALS_FILE" ] || { echo "FATAL: read-only auth smoke credentials are not provisioned" >&2; exit 1; }
 [ -f "$CONTROL_DIR/infra/deploy/compose.provenance.yml" ] || { echo "FATAL: trusted compose provenance override is missing" >&2; exit 1; }
@@ -36,7 +39,7 @@ AUTH_SMOKE_CREDENTIALS_FILE="$AUTH_SMOKE_CREDENTIALS_FILE" \
 source "$CONTROL_DIR/scripts/lib/image-provenance.sh"
 PREVIOUS_SHA="$(cat "$RELEASES_DIR/current-sha.txt" 2>/dev/null || true)"
 verify_existing_runtime_provenance "$PREVIOUS_SHA" "$TARGET_SHA" "$CONTROL_SHA" \
-  "$LIVE_DIR" "$DEPLOYMENT_LEDGER" "$APPROVE_LEGACY_PROVENANCE_BASELINE" "$CONTROL_DIR"
+  "$LIVE_DIR" "$DEPLOYMENT_LEDGER" "$APPROVE_UNVERIFIED_LEGACY_REPLACEMENT" "$CONTROL_DIR"
 
 BACKUP_RESULT_FILE="$RELEASES_DIR/backup-result-${DEPLOY_RUN_ID}.txt"
 [ ! -e "$BACKUP_RESULT_FILE" ] || { echo "FATAL: backup result file already exists" >&2; exit 1; }
@@ -115,7 +118,7 @@ echo "=== [4] Deploy exact application candidate through trusted engine"
 DEPLOY_STARTED=1
 DEPLOY_MODE=release DEPLOY_BACKUP_REF="$BACKUP_REF" DEPLOY_MIGRATION_BEFORE="$LEDGER_BEFORE" \
 DEPLOY_MIGRATION_AFTER="$LEDGER_AFTER" \
-APPROVE_LEGACY_PROVENANCE_BASELINE="$APPROVE_LEGACY_PROVENANCE_BASELINE" \
+APPROVE_UNVERIFIED_LEGACY_REPLACEMENT="$APPROVE_UNVERIFIED_LEGACY_REPLACEMENT" \
   bash "$CONTROL_DIR/scripts/deploy-production.sh" "$TARGET_SHA"
 
 echo "### RELEASE OK: sha=$TARGET_SHA ledger=$LEDGER_BEFORE->$LEDGER_AFTER backup=$BACKUP_REF"

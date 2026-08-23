@@ -16,8 +16,11 @@ AUTHORIZED_RECOVERY_MANIFEST=""
 # shellcheck source=scripts/lib/production-lock.sh
 source "$CONTROL_DIR/scripts/lib/production-lock.sh"
 production_lock_acquire
+# shellcheck source=scripts/lib/deployment-authorization.sh
+source "$CONTROL_DIR/scripts/lib/deployment-authorization.sh"
+validate_deployment_authorization
 
-case "$MODE" in deploy|release) ;; *) echo "FATAL: mode must be deploy or release" >&2; exit 64 ;; esac
+case "$MODE" in inspect|deploy|release) ;; *) echo "FATAL: mode must be inspect, deploy or release" >&2; exit 64 ;; esac
 [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "FATAL: target SHA must be full lowercase hex" >&2; exit 64; }
 
 CONTROL_SHA="$(git -C "$CONTROL_DIR" rev-parse HEAD)"
@@ -28,6 +31,12 @@ git -C "$LIVE_DIR" fetch origin main --prune --quiet
   echo "FATAL: trusted control SHA is not the current origin/main" >&2; exit 1; }
 git -C "$LIVE_DIR" merge-base --is-ancestor "$TARGET_SHA" origin/main || {
   echo "FATAL: target SHA is not reachable from origin/main" >&2; exit 1; }
+
+if [ "$MODE" = "inspect" ]; then
+  export EXPECTED_SHA="$TARGET_SHA" CONTROL_DIR LIVE_DIR ENV_FILE RELEASES_DIR
+  bash "$CONTROL_DIR/scripts/production-state.sh"
+  exit 0
+fi
 
 if [ "$TARGET_SHA" != "$CONTROL_SHA" ]; then
   [ "$MODE" = "deploy" ] || { echo "FATAL: releases must target the current main SHA" >&2; exit 1; }

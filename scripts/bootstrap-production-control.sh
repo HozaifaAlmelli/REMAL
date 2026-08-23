@@ -7,7 +7,7 @@ APP_DIR="${APP_DIR:-/opt/apps/kaza-booking}"
 ENV_FILE="${ENV_FILE:-/opt/kaza/env/.env.production}"
 RELEASES_DIR="${RELEASES_DIR:-/opt/kaza/releases}"
 
-required=(CONTROL_SHA DEPLOY_SHA DEPLOY_MODE DEPLOY_ACTOR DEPLOY_RUN_ID DEPLOY_BRANCH)
+required=(CONTROL_SHA DEPLOY_SHA DEPLOY_MODE DEPLOY_ACTOR DEPLOY_RUN_ID DEPLOY_BRANCH DEPLOY_WORKFLOW_RUN DEPLOY_AUTHORIZATION_REF)
 for name in "${required[@]}"; do
   [ -n "${!name:-}" ] || { echo "FATAL: $name is required" >&2; exit 1; }
 done
@@ -21,7 +21,7 @@ if [ "${#CONTROL_SHA}" -ne 40 ] || [ "${#DEPLOY_SHA}" -ne 40 ]; then
 fi
 [ "$DEPLOY_BRANCH" = "main" ] || {
   echo "FATAL: production control may only be dispatched from main" >&2; exit 1; }
-case "$DEPLOY_MODE" in deploy|release) ;; *) echo "FATAL: unsupported mode: $DEPLOY_MODE" >&2; exit 1 ;; esac
+case "$DEPLOY_MODE" in inspect|deploy|release) ;; *) echo "FATAL: unsupported mode: $DEPLOY_MODE" >&2; exit 1 ;; esac
 
 [ -d "$APP_DIR/.git" ] || { echo "FATAL: live repository missing: $APP_DIR" >&2; exit 1; }
 [ -s "$ENV_FILE" ] || { echo "FATAL: production env file missing or empty" >&2; exit 1; }
@@ -53,6 +53,6 @@ trap cleanup EXIT
 
 export CONTROL_DIR LIVE_DIR="$APP_DIR" ENV_FILE RELEASES_DIR
 export APPROVE_DESTRUCTIVE="${APPROVE_DESTRUCTIVE:-0}"
-export APPROVE_LEGACY_PROVENANCE_BASELINE="${APPROVE_LEGACY_PROVENANCE_BASELINE:-0}"
+export APPROVE_UNVERIFIED_LEGACY_REPLACEMENT="${APPROVE_UNVERIFIED_LEGACY_REPLACEMENT:-0}"
 export AUTH_SMOKE_CREDENTIALS_FILE="${AUTH_SMOKE_CREDENTIALS_FILE:-/opt/kaza/secrets/auth-smoke.json}"
 bash "$CONTROL_DIR/scripts/production-dispatch.sh" "$DEPLOY_SHA" "$DEPLOY_MODE"

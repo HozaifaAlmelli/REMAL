@@ -15,6 +15,7 @@ duplicating content.
 | **Production map** (domains, containers, paths, Novatova boundary) | [Workbook §1](../KAZA_PRODUCTION_WORKBOOK.md) · [production-inventory-and-discovery](../ai-deployment-skills/production-inventory-and-discovery.md) |
 | **Deployment** (safe scoped deploy, merge-to-main behavior, branch choice) | [Workbook §3–§6](../KAZA_PRODUCTION_WORKBOOK.md) · [docker-compose-scoped-deploy](../ai-deployment-skills/docker-compose-scoped-deploy.md) · [github-actions-production-deploy-safety](../ai-deployment-skills/github-actions-production-deploy-safety.md) |
 | **Verification** (post-change checklist, expected results) | [Workbook §8](../KAZA_PRODUCTION_WORKBOOK.md) · [final-verification-and-reporting](../ai-deployment-skills/final-verification-and-reporting.md) |
+| **Production identity** (one-command SHA/image/database/audit reconciliation) | [production-state-governance.md](production-state-governance.md) |
 | **Rollback & recovery** | [rollback-and-recovery.md](rollback-and-recovery.md) |
 | **Staging environment** (design only, not built) | [staging-environment-design.md](staging-environment-design.md) |
 | **Database** (backups, restore, gated migrations) | [database-operations.md](database-operations.md) · [database-migration-production-safety](../ai-deployment-skills/database-migration-production-safety.md) |

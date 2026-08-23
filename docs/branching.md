@@ -48,11 +48,14 @@ All of these controls are required:
    proof.
 
 The first hardened production run has one explicit transition control for containers
-created by the legacy deploy. `approve_legacy_provenance_baseline=true` is accepted only
-before any successful trusted audit exists, only for current `main`, only when the live
-checkout equals `current-sha.txt`, and only for the known legacy `prod` labels. Release
-mode checks this before migration. Once a trusted deployment succeeds, running image IDs
-must match its audit record and the legacy exception cannot be used again.
+created by the legacy deploy. `approve_unverified_legacy_replacement=true` authorizes
+replacement of that unverified runtime; it never certifies the old image as having come
+from `current-sha.txt`. It is accepted only before any successful trusted audit exists,
+only for current `main`, only when the clean live checkout equals `current-sha.txt`, and
+only for running Kaza application containers with content-addressed image IDs and the
+expected Compose identity. Release mode checks this before migration. Once a trusted
+deployment succeeds, running image IDs must match its audit record and the exception
+cannot be used again.
 
 Run `bash scripts/verify-production-environment-policy.sh` before a release window. The
 checked-in policy is [`production-environment-policy.json`](../.github/production-environment-policy.json).
@@ -70,6 +73,10 @@ The moving `:prod` alias is updated only after all verification succeeds.
 - append-only, fsynced `deployments.jsonl` records;
 - one recovery manifest per run with changed services and exact image IDs/tags;
 - exact backup-result handoff files during release execution.
+
+No one file is authoritative in isolation. Run `bash scripts/production-state.sh` from
+the current-`main` control plane; it returns zero only when audit, state files, checkout,
+running digests/labels, and the validated migration head all agree.
 
 If a deployment fails after changing a service, no automatic rollback runs. The candidate
 and recovery manifest are retained, the audit result is `FAILED`, and an operator uses the

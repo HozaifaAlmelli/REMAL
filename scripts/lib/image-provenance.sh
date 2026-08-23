@@ -86,7 +86,7 @@ PY
   [ "$normal_provenance" = "1" ] && return 0
 
   [ "$approve_legacy" = "1" ] || {
-    echo "FATAL: existing application has no complete trusted provenance; explicit one-time baseline approval is required" >&2
+    echo "FATAL: existing application has no complete trusted provenance; explicit one-time replacement approval is required" >&2
     return 1
   }
   [ "$target_sha" = "$control_sha" ] || {
@@ -103,11 +103,28 @@ PY
     return 1
   }
   for service in api demo portal; do
+    running_id="$(docker inspect -f '{{.Image}}' "kaza-prod-$service")"
     revision="$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "kaza-prod-$service")"
-    [ "$revision" = "prod" ] || {
-      echo "FATAL: legacy $service container has an unexpected revision label" >&2
+    [[ "$running_id" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+      echo "FATAL: legacy $service container has no content-addressed image identity" >&2
       return 1
     }
+    [ "$(docker inspect -f '{{.State.Running}}' "kaza-prod-$service")" = "true" ] || {
+      echo "FATAL: legacy $service container is not running" >&2
+      return 1
+    }
+    [ "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "kaza-prod-$service")" = "kaza-prod" ] || {
+      echo "FATAL: legacy $service container has the wrong Compose project" >&2
+      return 1
+    }
+    [ "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "kaza-prod-$service")" = "$service" ] || {
+      echo "FATAL: legacy $service container has the wrong Compose service" >&2
+      return 1
+    }
+    case "$revision" in ""|"<no value>"|prod) ;; *)
+      echo "FATAL: legacy $service container has an unexpected revision label" >&2
+      return 1
+    esac
   done
-  echo "WARNING: explicitly adopting the one-time legacy application provenance baseline" >&2
+  echo "WARNING: explicitly replacing an unverified legacy runtime; no source provenance is being asserted for it" >&2
 }

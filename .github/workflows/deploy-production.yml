@@ -24,11 +24,12 @@ on:
         required: true
         type: string
       mode:
-        description: "deploy = code only | release = backup + migrations + deploy"
+        description: "inspect = read-only identity check | deploy = code only | release = backup + migrations + deploy"
         required: true
         default: deploy
         type: choice
         options:
+          - inspect
           - deploy
           - release
       approve_destructive:
@@ -40,8 +41,8 @@ on:
         description: "Optional failed trusted run id; authorizes only that manifest's previous SHA in deploy mode"
         required: false
         type: string
-      approve_legacy_provenance_baseline:
-        description: "One-time only: adopt legacy :prod containers before any successful trusted deployment"
+      approve_unverified_legacy_replacement:
+        description: "One-time only: authorize replacement of an unverified legacy runtime; this does not certify it"
         required: false
         default: false
         type: boolean
@@ -107,8 +108,10 @@ jobs:
           DEPLOY_ACTOR: ${{ github.actor }}
           DEPLOY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
           DEPLOY_BRANCH: ${{ github.ref_name }}
+          DEPLOY_WORKFLOW_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DEPLOY_AUTHORIZATION_REF: github-environment:production:${{ github.run_id }}
           RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
-          APPROVE_LEGACY_PROVENANCE_BASELINE: ${{ inputs.approve_legacy_provenance_baseline && '1' || '0' }}
+          APPROVE_UNVERIFIED_LEGACY_REPLACEMENT: ${{ inputs.approve_unverified_legacy_replacement && '1' || '0' }}
           APP_DIR: /opt/apps/kaza-booking
           ENV_FILE: /opt/kaza/env/.env.production
           RELEASES_DIR: /opt/kaza/releases
@@ -121,5 +124,5 @@ jobs:
           fingerprint: ${{ secrets.SSH_HOST_FINGERPRINT }}
           command_timeout: 60m
           script_stop: true
-          envs: CONTROL_SHA,DEPLOY_SHA,DEPLOY_MODE,APPROVE_DESTRUCTIVE,APPROVE_LEGACY_PROVENANCE_BASELINE,DEPLOY_ACTOR,DEPLOY_RUN_ID,DEPLOY_BRANCH,RECOVERY_RUN_ID,APP_DIR,ENV_FILE,RELEASES_DIR,AUTH_SMOKE_CREDENTIALS_FILE
+          envs: CONTROL_SHA,DEPLOY_SHA,DEPLOY_MODE,APPROVE_DESTRUCTIVE,APPROVE_UNVERIFIED_LEGACY_REPLACEMENT,DEPLOY_ACTOR,DEPLOY_RUN_ID,DEPLOY_BRANCH,DEPLOY_WORKFLOW_RUN,DEPLOY_AUTHORIZATION_REF,RECOVERY_RUN_ID,APP_DIR,ENV_FILE,RELEASES_DIR,AUTH_SMOKE_CREDENTIALS_FILE
           script_path: scripts/bootstrap-production-control.sh

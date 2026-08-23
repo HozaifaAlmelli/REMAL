@@ -57,18 +57,19 @@ matches either its recorded previous image ID or, for an attempted service, the 
 run's recorded target image ID. Any unrelated image blocks recovery. This authorization
 does not restore a database or reverse a migration.
 
-The one-time `approve_legacy_provenance_baseline` input is not a rollback mechanism. It
-exists only to establish the first trusted image-ID record from the pre-hardening `prod`
-containers under the deployment playbook's strict first-run checks. It is refused after
-any successful trusted deployment.
+The one-time `approve_unverified_legacy_replacement` input is not a rollback mechanism and
+does not assign source provenance to legacy containers. It authorizes replacing a
+strictly inspected but unverified legacy runtime with a newly built governed release. It
+is refused after any successful trusted deployment.
 
 ## Recovery when GitHub Actions cannot reach the host
 
 Do not run a candidate's `deploy-production.sh` and do not improvise `docker compose`
 commands. A break-glass operator must first obtain the current `origin/main` control SHA,
-use its reviewed `bootstrap-production-control.sh` / `production-dispatch.sh`, and allow
-the same host lock, target authorization, ledger, audit, provenance, and smoke gates to
-run. If that trusted control plane cannot be established, stop rather than downgrade.
+use its reviewed `bootstrap-production-control.sh` / `production-dispatch.sh`, identify
+the operator, and provide an `emergency:<reviewed-reference>` authorization. The same host
+lock, target authorization, ledger, audit, provenance, and smoke gates still run. If that
+trusted control plane cannot be established, stop rather than downgrade.
 
 ## Database boundary
 
