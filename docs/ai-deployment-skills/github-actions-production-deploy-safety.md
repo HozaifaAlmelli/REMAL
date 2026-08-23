@@ -49,7 +49,9 @@ bash scripts/verify-production-environment-policy.sh
 The policy requires:
 
 - custom deployment branch policy with only `main`;
-- independent required reviewers, self-review disabled, and admin bypass disabled;
+- required reviewers configured and admin bypass disabled; self-review is permitted
+  because this repository has a single active maintainer (see
+  [`branching.md`](../branching.md#single-maintainer-review-model));
 - only `SSH_HOST`, `SSH_USER`, `SSH_PORT`, `SSH_KEY`, and
   `SSH_HOST_FINGERPRINT` in the Environment;
 - no `SSH_PASSWORD`.

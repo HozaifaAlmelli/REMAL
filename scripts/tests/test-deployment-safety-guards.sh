@@ -407,6 +407,12 @@ fi
 grep -q 'fingerprint:.*SSH_HOST_FINGERPRINT' "$WF" || fail "SSH host fingerprint is not pinned"
 grep -qE '^[[:space:]]+password:' "$WF" && fail "workflow contains an SSH password input"
 grep -q 'script_path: scripts/bootstrap-production-control.sh' "$WF" || fail "workflow does not send trusted bootstrap"
+# drone-ssh injects a per-line exit-code check when script_stop is true, which
+# splits every multi-line construct in the transported bootstrap and makes bash
+# refuse to parse it. The bootstrap enforces its own `set -Eeuo pipefail`.
+grep -qE '^[[:space:]]+script_stop:[[:space:]]*true' "$WF" && fail "script_stop:true corrupts the multi-line bootstrap script"
+grep -qE '^[[:space:]]+script_stop:[[:space:]]*false' "$WF" || fail "workflow does not explicitly disable script_stop"
+grep -q 'set -Eeuo pipefail' "$ROOT/scripts/bootstrap-production-control.sh" || fail "bootstrap does not fail fast on its own"
 grep -q 'RECOVERY_RUN_ID' "$WF" || fail "workflow does not carry explicit failed-run recovery identity"
 grep -q 'APPROVE_UNVERIFIED_LEGACY_REPLACEMENT' "$WF" || fail "workflow lacks explicit one-time legacy replacement approval"
 grep -q 'rev-parse --is-inside-work-tree' "$DEPLOY" || fail "deploy does not accept real Git worktree candidates"
