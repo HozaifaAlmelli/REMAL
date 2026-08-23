@@ -193,8 +193,8 @@ order, entirely inside the trusted control plane:
 | 12 | Reattach `proxy-network`; assert no Kaza edge container; `nginx -t` then reload | Edge container running; `nginx -t` fails |
 | 13 | Health checks on all Kaza domains **and** `novatova.com` | Any non-2xx/3xx |
 | 14 | Read-only auth smoke (admin, owner, client) | Any login not HTTP 200 with the right subject type |
-| 15 | Re-assert `kaza-prod-db` identity and unchanged ledger head | Database container or ledger changed |
-| 16 | Advance the live checkout to the deployed SHA | Live repo dirty, or checkout did not advance |
+| 15 | Scan API logs for `libgssapi`; re-assert `kaza-prod-db` identity and unchanged ledger head | The native-library error is present; database container or ledger changed |
+| 16 | Move the `:prod` alias onto the verified images, then advance the live checkout to the deployed SHA | Live repo dirty, or checkout did not advance |
 | 17 | Write `previous-sha.txt`, `current-sha.txt`; record `DEPLOYMENT_RESULT OK` | — |
 
 `release` mode inserts backup -> migrate -> verify-ledger before the deploy engine runs,
