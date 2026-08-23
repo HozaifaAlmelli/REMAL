@@ -259,6 +259,24 @@ MIGRATION_AFTER="$(APP_DIR="$SOURCE_DIR" COMPOSE_FILE="$COMPOSE_FILE" MIGRATION_
 [ "$MIGRATION_AFTER" = "$LEDGER_AT_DEPLOY_START" ] || { echo "FATAL: database ledger changed during application deploy" >&2; exit 1; }
 
 for svc in api demo portal; do docker image tag "kaza-$svc:$DEPLOY_SHA" "kaza-$svc:prod"; done
+
+# >>> live-checkout-advance (covered by scripts/tests/test-live-checkout-advance.sh)
+# production-state.sh treats the live checkout as production identity and reports
+# live_checkout_mismatch when it disagrees with the audited SHA. The build runs from
+# a candidate worktree, so without this the live repository would sit on the previous
+# release forever and reconciliation could never return GOVERNED.
+#
+# Placement is the safety property: every verification gate above has already passed,
+# and this runs BEFORE current-sha.txt is written. A failure here therefore aborts
+# under `set -Eeuo pipefail` with the recorded state still describing the un-advanced
+# checkout, rather than claiming a release the live repository does not reflect.
+[ -z "$(git -C "$LIVE_DIR" status --porcelain)" ] || {
+  echo "FATAL: live repository became dirty during deployment" >&2; exit 1; }
+git -C "$LIVE_DIR" checkout --detach "$DEPLOY_SHA" --quiet
+[ "$(git -C "$LIVE_DIR" rev-parse HEAD)" = "$DEPLOY_SHA" ] || {
+  echo "FATAL: live checkout did not advance to the deployed SHA" >&2; exit 1; }
+# <<< live-checkout-advance
+
 if [ -n "$PREVIOUS_SHA" ]; then write_state_file "$RELEASES_DIR/previous-sha.txt" "$PREVIOUS_SHA"; fi
 write_state_file "$RELEASES_DIR/current-sha.txt" "$DEPLOY_SHA"
 write_recovery_manifest DEPLOYED
