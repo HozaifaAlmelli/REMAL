@@ -1,5 +1,9 @@
 # Production State Governance
 
+> The operational procedure — how to inspect, prepare, deploy, and roll back — is
+> [`production-deployment.md`](production-deployment.md). This document explains the
+> governance *model* behind it and records how the current baseline was established.
+
 Production identity is a reconciliation, not a text file, tag, or operator memory.
 The current state is `GOVERNED` only when one successful deployment audit record agrees
 with all of these live facts:
@@ -84,10 +88,59 @@ recovery manifest. The normal code recovery target is only the previously succes
 audited SHA; a partial-run recovery is limited to the exact failed manifest. Follow
 [rollback-and-recovery.md](rollback-and-recovery.md).
 
-## Historical observation
+## The completed transition (2026-08-23)
 
-A read-only reconciliation on 2026-08-23 found Historical Booking healthy and migration
-ledger head `0064`, but no deployment audit and no application/control revision labels on
-the running images. The checkout and `current-sha.txt` agreed on one commit, but that does
-not prove which commit produced the image bytes. This is an `UNVERIFIED_LEGACY` state and
-must not be rewritten as a governed release without the transition above.
+The transition described above has been executed. It is recorded here because the one-time
+legacy-adoption input can never be used again, so this is the only account of how the
+current baseline was established.
+
+**Starting state.** A read-only reconciliation on 2026-08-23 found Historical Booking
+healthy and migration ledger head `0064`, but no deployment audit and no
+application/control revision labels on the running images. The checkout and
+`current-sha.txt` agreed on one commit, but that does not prove which commit produced the
+image bytes — `UNVERIFIED_LEGACY`.
+
+**Two defects had to be fixed first**, both of which made the hardened path unusable:
+
+| Defect | Effect | Fix |
+|---|---|---|
+| `script_stop: true` on the SSH action | drone-ssh injects an exit-code check after every line of the transported script, splitting every multi-line bash construct. The bootstrap died on its first `case ... in`. The hardened workflow had never once executed. | PR #79 — `script_stop: false`, with the transported script's own `set -Eeuo pipefail` carrying the failure semantics |
+| The live checkout never advanced | Builds run from a candidate worktree, so `/opt/apps/kaza-booking` stayed on the previous release and reconciliation reported `live_checkout_mismatch` forever. **No number of correct deployments could have returned `GOVERNED`.** | PR #80 — an explicit advance after every gate and before `current-sha.txt`, covered by `scripts/tests/test-live-checkout-advance.sh` |
+
+The second was fixed rather than relaxed: `live_checkout_mismatch` remains a required
+invariant, and the test asserts both the fix and the invariant.
+
+**The transition runs:**
+
+| Step | Run | Result |
+|---|---|---|
+| Adoption deploy, `approve_unverified_legacy_replacement=true` | `32663279999` | success — unverified legacy runtime replaced by a newly built, labelled, digest-verified release at `e9fa590db8f43ca11b9c2fde6e5e014089e486e3` |
+| Final deploy, **no** legacy input (normal provenance applied) | `32665722518` | success at `e628ad9c8b88567f20d1d68d67239b3601749dca` |
+| Reconciliation, `mode=inspect` | `32665890315` | **`GOVERNED`**, `reconciliationFailures: []` |
+
+**The governed baseline:**
+
+```
+governanceStatus      : GOVERNED
+commitSha             : e628ad9c8b88567f20d1d68d67239b3601749dca   (from the audit record)
+claimedCommitSha      : e628ad9c8b88567f20d1d68d67239b3601749dca   (current-sha.txt)
+liveCheckoutSha       : e628ad9c8b88567f20d1d68d67239b3601749dca   (DETACHED, clean)
+controlSha            : e628ad9c8b88567f20d1d68d67239b3601749dca
+previousVersion       : e9fa590db8f43ca11b9c2fde6e5e014089e486e3   (rollback target)
+databaseMigrationHead : 0064                                       (unchanged throughout)
+api    imageDigest    : sha256:a3643e1768c10c467f1d9c3e27978dc8900ccf0cfe0ddb99f05381ae91126fa8
+demo   imageDigest    : sha256:eb166dd3a26183c852966db4c0dfcb265874cfba1d40ad4dc000b37e179e49de
+portal imageDigest    : sha256:dc7669bf47fbd5ba2bed3adedb3791bbf4867c7e3b37a7a7d908be8ef7e20e36
+```
+
+The database container was never recreated (identity asserted identical before and after
+each run) and no migration executed — both deployments record `0064 -> 0064`. The audit
+ledger holds four rows: a `PREPARED` and an `OK` for each of the two deployments.
+
+**What this means going forward.** `approve_unverified_legacy_replacement` is now
+permanently refused, because a successful trusted deployment exists. Every running
+application image must match the last successful audit record, and the only ways past that
+check are a normal matching runtime or a `recovery_run_id` manifest written by a failed
+trusted run. A container built or recreated by hand therefore fails the next deployment
+closed with no workflow input able to clear it — see
+[`production-deployment.md` § the one-way door](production-deployment.md#the-one-way-door).

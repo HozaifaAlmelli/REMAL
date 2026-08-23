@@ -99,7 +99,8 @@ Stop immediately if any of these is true:
 - A command would affect Novatova (any `novatova-*` container, config, or data).
 - A command would start a service that binds host ports 80 or 443.
 - A step requires `docker compose down`.
-- A step is a bare `docker compose up -d` (no `--no-deps <service>`, no service list).
+- A step would run `docker compose` (build / up / down) against `kaza-prod`, or
+  recreate, build, or tag a Kaza application container outside the trusted workflow.
 - `docker exec novatova-nginx nginx -t` fails.
 - The env file `/opt/kaza/env/.env.production` is missing or empty.
 - The live repo path is uncertain (compose labels don't confirm it).

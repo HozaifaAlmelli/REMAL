@@ -25,7 +25,7 @@ preflight_checks:
   - Identify where the refresh_token cookie is set and its host scope
 safe_procedure: "See 'Classify, then fix at the right layer' below."
 verification: "All three roles reach their dashboard with no freeze; protected routes 307->200; login API 200 token=yes."
-rollback: "Retag pre-build portal image to :prod and up -d --no-deps portal."
+rollback: "No manual image retag or recreate — that permanently blocks the next deployment. Re-dispatch Deploy Production at the currently deployed SHA, or at `previous-sha.txt` (see operations/rollback-and-recovery.md)."
 stop_conditions: "See 'Global Stop Conditions' below."
 final_report_required: true
 lessons_from_kaza_incident: >
@@ -108,7 +108,8 @@ Stop immediately if any of these is true:
 - A command would affect Novatova (any `novatova-*` container, config, or data).
 - A command would start a service that binds host ports 80 or 443.
 - A step requires `docker compose down`.
-- A step is a bare `docker compose up -d` (no `--no-deps <service>`, no service list).
+- A step would run `docker compose` (build / up / down) against `kaza-prod`, or
+  recreate, build, or tag a Kaza application container outside the trusted workflow.
 - `docker exec novatova-nginx nginx -t` fails.
 - The env file `/opt/kaza/env/.env.production` is missing or empty.
 - The live repo path is uncertain (compose labels don't confirm it).

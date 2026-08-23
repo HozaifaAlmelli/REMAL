@@ -88,6 +88,8 @@ A temporary agent SSH key had to be tagged, removed after use, and the denial ve
   deployment safety skills").
 - `docs/KAZA_PRODUCTION_WORKBOOK.md` — Arabic-first operator workbook.
 - `AGENTS.md` + `.github/skills/deploy-safety/` + `.agents/skills/deploy-safety/` —
-  agent entry points.
+  agent entry points. *(Those two skill paths were retired in 2026-08 and replaced by the
+  single `production-deployment` skill; see
+  [`../operations/production-deployment.md`](../operations/production-deployment.md).)*
 - Hardened `scripts/deploy-production.sh`, gated `scripts/apply-migrations.sh`,
   `scripts/backup-postgres.sh` / `restore-postgres.sh` / `backup-uploads.sh`.

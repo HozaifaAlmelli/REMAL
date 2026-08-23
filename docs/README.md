@@ -4,8 +4,9 @@ Start here. This page routes you to the right doc for what you're doing.
 
 | I want to… | Start here |
 |---|---|
-| **Change anything in production** (deploy, hotfix, debug live) | [`KAZA_PRODUCTION_WORKBOOK.md`](KAZA_PRODUCTION_WORKBOOK.md) — the human operator workbook (Arabic-first). **Always first.** |
-| **Operate as an AI agent on production/VPS** | [`ai-deployment-skills/README.md`](ai-deployment-skills/README.md) — 15 deep playbooks + [command templates](ai-deployment-skills/command-templates.md). Root rules: [`../AGENTS.md`](../AGENTS.md). |
+| **Deploy, release, or roll back production** | [`operations/production-deployment.md`](operations/production-deployment.md) — the single source of truth, and the reference behind the `production-deployment` agent skill. **Always first.** |
+| **Change anything else in production** (debug live, nginx, SSL) | [`KAZA_PRODUCTION_WORKBOOK.md`](KAZA_PRODUCTION_WORKBOOK.md) — the human operator workbook (Arabic-first). **Always first.** |
+| **Operate as an AI agent on production/VPS** | Invoke the `production-deployment` skill, then [`ai-deployment-skills/README.md`](ai-deployment-skills/README.md) — 15 specialist playbooks + [command templates](ai-deployment-skills/command-templates.md). Root rules: [`../AGENTS.md`](../AGENTS.md). |
 | **Find an operations procedure** (rollback, DB backup/restore, verification, smoke) | [`operations/README.md`](operations/README.md) |
 | **Manage unit images** (public URLs, device uploads, persistent VPS uploads) | [`operations/unit-image-management.md`](operations/unit-image-management.md) |
 | **Understand what broke during production bring-up** | [`incidents/README.md`](incidents/README.md) — historical, not instructions |
@@ -31,8 +32,10 @@ Product/design context lives at the repo root: `PRODUCT.md`, `DESIGN.md`,
 
 ## Ground rules for this docs tree
 
-- **Production guidance has exactly two canonical homes:** the workbook (humans) and the
-  skills library (agents + humans). Don't create a third.
+- **The deployment contract has exactly one home:**
+  [`operations/production-deployment.md`](operations/production-deployment.md). The
+  workbook (humans, Arabic) and the skills library (specialist playbooks) route to it.
+  Don't create a second deployment guide, and don't create a second deployment skill.
 - New **incident write-ups** go to `incidents/`; new **playbooks** go to
   `ai-deployment-skills/`; retired docs go to `archive/` (see its README).
 - The stubs at `deployment.md`, `rollback.md`, `backup-restore.md` exist only to keep old

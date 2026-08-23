@@ -1,5 +1,9 @@
 # Kaza Branching and Production Release Workflow
 
+> Operating the deployment itself — Inspect / Prepare / Execute, rollback, emergencies — is
+> [`operations/production-deployment.md`](operations/production-deployment.md). This
+> document covers the branch model and the trust controls behind it.
+
 ```
 feature/* -> dev -> main -> explicit production workflow
 hotfix/*  -> main (then merge back to dev)

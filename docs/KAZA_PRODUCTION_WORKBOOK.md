@@ -15,6 +15,11 @@
   ارجع إلى [`docs/ai-deployment-skills/`](ai-deployment-skills/README.md). هذا الدليل هو
   *الدليل العملي المختصر*، والمهارات هي *الكتب المرجعية العميقة (deep playbooks)*.
 
+> ⚠️ **النشر (Deploy / Release / Rollback) له مرجع واحد فقط:**
+> [`operations/production-deployment.md`](operations/production-deployment.md). هوية
+> الإنتاج الآن **محكومة (GOVERNED)**، وأي حاوية تطبيق تُبنى أو تُعاد إنشاؤها يدويًا
+> **تمنع كل عملية نشر لاحقة**. اقرأ ذلك المستند قبل أي عملية نشر.
+
 الترتيب الصحيح للاستخدام:
 1. اقرأ هذا الدليل أولًا لتعرف نوع المشكلة والخدمة المستهدفة.
 2. افتح المهارة المناسبة من المكتبة للتفاصيل الدقيقة.
@@ -99,8 +104,13 @@ Kaza Booking يعمل على **VPS إنتاج مشترك (shared live VPS)** م�
 
 > 🚫 **ممنوع دائمًا (Never):**
 > - **لا** تشغّل `docker compose down` أبدًا.
-> - **لا** تشغّل `docker compose up -d` بمفرده (bare) بدون تحديد خدمة. أعِد إنشاء خدمة
->   واحدة فقط: `... up -d --no-deps <service>`.
+> - **لا** تشغّل أي أمر `docker compose` (build / up / down) على مشروع `kaza-prod`،
+>   ولا تُعِد إنشاء أو وسم أي حاوية/صورة تطبيق يدويًا. إعادة إنشاء الخدمات تتم
+>   **حصرًا** عبر سير عمل Deploy Production الموثوق. حاوية أُنشئت يدويًا **تمنع كل
+>   عملية نشر لاحقة** — راجع
+>   [البوابة أحادية الاتجاه](operations/production-deployment.md#the-one-way-door).
+> - **لا** تُنفّذ `git checkout` أو `git pull` أو أي تعديل داخل `/opt/apps/kaza-booking`؛
+>   فهي **هوية الإنتاج** ويجب أن تبقى نظيفة وفي حالة detached.
 > - **لا** تُشغّل `nginx`/`certbot` الخاصة بـ Kaza على المنفذين 80/443 (هي داخل
 >   `profiles: ["edge"]` ويجب أن تبقى مطفأة على هذا الخادوم المشترك).
 > - **لا** تُعِد تشغيل (restart) أي حاوية من `novatova-*`.
@@ -571,8 +581,12 @@ sed -i '/claude-kaza-debug/d' ~/.ssh/authorized_keys
 
 ### 17.1 تطبيق Kaza متوقف (Kaza app down)
 - **فحوصات أولى:** `docker ps` لحالة الحاويات؛ فحص الدومينات ([القسم 8](#القسم-8--قائمة-التحقق-القياسية-standard-verification-checklist)).
-- **لا تفعل:** `docker compose down`؛ ولا إعادة بناء الحزمة كاملة.
-- **إجراء آمن:** أعِد إنشاء الخدمة المتوقفة فقط (`up -d --no-deps <service>`) ثم أعِد وصل الشبكة و`reload` nginx.
+- **لا تفعل:** أي أمر `docker compose` على `kaza-prod` — لا `down`، ولا `build`، ولا `up`،
+  ولا حتى لخدمة واحدة.
+- **إجراء آمن:** لا تُعِد إنشاء الحاوية يدويًا. شغّل `mode=inspect` أولًا، ثم أعِد إطلاق
+  Deploy Production بـ `mode=deploy` على **نفس الـ SHA المنشور حاليًا** — هذه إعادة
+  تشغيل تحافظ على سلسلة الإثبات (provenance)، وتتولّى إعادة وصل الشبكة و`reload`
+  nginx تلقائيًا. إن فشلت، ارجع إلى `previous-sha.txt` عبر نفس سير العمل.
 - **توقّف إذا:** تطلّب الحلّ لمس Novatova أو `down`.
 
 ### 17.2 API يُرجع 500
@@ -752,8 +766,9 @@ Final report: root cause, the smallest fix applied, verification, main-durabilit
 - [ ] أكّدتُ حدّ Novatova (لن ألمس `novatova-*`).
 
 **أثناء العمل (During):**
-- [ ] أوامر مُقيَّدة بالخدمة (`up -d --no-deps <service>`).
-- [ ] لا `docker compose up -d` مجرّد، ولا `docker compose down`.
+- [ ] كل تغيير على التطبيق تمّ عبر سير عمل Deploy Production — لا أوامر docker يدوية.
+- [ ] لم أُعِد إنشاء أو بناء أو وسم أي حاوية/صورة تطبيق يدويًا.
+- [ ] لم ألمس `/opt/apps/kaza-booking` (لا checkout ولا pull ولا تعديل).
 - [ ] لا أفعال مدمّرة على قاعدة البيانات.
 - [ ] لا طباعة أسرار (استخدمتُ `redact`).
 
@@ -763,6 +778,7 @@ Final report: root cause, the smallest fix applied, verification, main-durabilit
 - [ ] `nginx -t` ناجح.
 - [ ] `novatova.com` ما زال يعمل.
 - [ ] رقّيتُ الإصلاح إلى `main` (PR) — الديمومة.
+- [ ] شغّلتُ `mode=inspect` بعد النشر وأعاد **`GOVERNED`** بدون أي إخفاقات مطابقة.
 - [ ] حذفتُ أي مفتاح SSH مؤقّت وتحققتُ من رفض الوصول.
 - [ ] سجّلتُ الـ SHA النهائي المنشور.
 
@@ -770,6 +786,8 @@ Final report: root cause, the smallest fix applied, verification, main-durabilit
 
 ## المراجع (مكتبة المهارات التقنية العميقة)
 
+- **عقد النشر (المرجع الوحيد):**
+  [`operations/production-deployment.md`](operations/production-deployment.md)
 - الفهرس: [`docs/ai-deployment-skills/README.md`](ai-deployment-skills/README.md)
 - الأوامر الآمنة: [`command-templates.md`](ai-deployment-skills/command-templates.md)
 - قواعد الوكلاء: [`AGENTS.md`](../AGENTS.md)
@@ -779,9 +797,9 @@ Final report: root cause, the smallest fix applied, verification, main-durabilit
 | الأساس الأمني المشترك | [shared-vps-production-safety](ai-deployment-skills/shared-vps-production-safety.md) |
 | اكتشاف البيئة الحقيقية | [production-inventory-and-discovery](ai-deployment-skills/production-inventory-and-discovery.md) |
 | SSL / nginx | [ssl-and-nginx-reverse-proxy](ai-deployment-skills/ssl-and-nginx-reverse-proxy.md) |
-| نشر مُقيَّد بالخدمة | [docker-compose-scoped-deploy](ai-deployment-skills/docker-compose-scoped-deploy.md) |
+| ما تفعله أداة النشر داخليًا (مرجع فقط) | [docker-compose-scoped-deploy](ai-deployment-skills/docker-compose-scoped-deploy.md) |
 | إعادة وصل الشبكة + reload | [proxy-network-reattach-and-nginx-reload](ai-deployment-skills/proxy-network-reattach-and-nginx-reload.md) |
-| ديمومة الإصلاح الحيّ | [live-hotfix-to-main-durability](ai-deployment-skills/live-hotfix-to-main-durability.md) |
+| تغيير تمّ يدويًا على الخادوم (حادثة) | [live-hotfix-to-main-durability](ai-deployment-skills/live-hotfix-to-main-durability.md) |
 | أمان GitHub Actions | [github-actions-production-deploy-safety](ai-deployment-skills/github-actions-production-deploy-safety.md) |
 | تشخيص الـ API والصحّة | [api-runtime-and-health-debug](ai-deployment-skills/api-runtime-and-health-debug.md) |
 | أمان هجرة قاعدة البيانات | [database-migration-production-safety](ai-deployment-skills/database-migration-production-safety.md) |

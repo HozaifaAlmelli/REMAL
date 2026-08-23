@@ -12,8 +12,9 @@ duplicating content.
 
 | Purpose | Canonical doc |
 |---|---|
+| **Deploy / release / roll back / inspect production** | **[production-deployment.md](production-deployment.md)** — the single source of truth, and the reference behind the `production-deployment` skill |
 | **Production map** (domains, containers, paths, Novatova boundary) | [Workbook §1](../KAZA_PRODUCTION_WORKBOOK.md) · [production-inventory-and-discovery](../ai-deployment-skills/production-inventory-and-discovery.md) |
-| **Deployment** (safe scoped deploy, merge-to-main behavior, branch choice) | [Workbook §3–§6](../KAZA_PRODUCTION_WORKBOOK.md) · [docker-compose-scoped-deploy](../ai-deployment-skills/docker-compose-scoped-deploy.md) · [github-actions-production-deploy-safety](../ai-deployment-skills/github-actions-production-deploy-safety.md) |
+| **Deployment detail** (workflow/Environment policy, evidence, trust model) | [github-actions-production-deploy-safety](../ai-deployment-skills/github-actions-production-deploy-safety.md) · [Workbook §3–§6](../KAZA_PRODUCTION_WORKBOOK.md) |
 | **Verification** (post-change checklist, expected results) | [Workbook §8](../KAZA_PRODUCTION_WORKBOOK.md) · [final-verification-and-reporting](../ai-deployment-skills/final-verification-and-reporting.md) |
 | **Production identity** (one-command SHA/image/database/audit reconciliation) | [production-state-governance.md](production-state-governance.md) |
 | **Rollback & recovery** | [rollback-and-recovery.md](rollback-and-recovery.md) |
@@ -28,7 +29,9 @@ duplicating content.
 
 ## Non-negotiables (full list in the workbook §2)
 
-Never `docker compose down` · never use direct Compose recreation as a deployment path
-(the trusted runner scopes each internal recreate) · never start Kaza nginx/certbot on 80/443 · never
-restart `novatova-*` · never touch the DB without a verified backup · always `nginx -t`
-before reload · promote every live fix to `main` · never print secrets.
+Never `docker compose down` · never recreate, build, or tag a Kaza application container
+by hand — it blocks every future deployment
+([one-way door](production-deployment.md#the-one-way-door)) · never `git checkout`/`pull`
+inside `/opt/apps/kaza-booking` · never start Kaza nginx/certbot on 80/443 · never restart
+`novatova-*` · never touch the DB without a verified backup · always `nginx -t` before
+reload · always close out with `mode=inspect` returning `GOVERNED` · never print secrets.
