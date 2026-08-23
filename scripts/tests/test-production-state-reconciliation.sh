@@ -128,4 +128,18 @@ grep -q 'audit ledger is invalid' <<<"$bad_audit" || fail "invalid audit was wea
 unknown="$(EXPECTED_SHA="$(printf 'e%.0s' {1..40})" expect_failure "unknown expected SHA" run_state)"
 grep -q 'expected_sha_mismatch' <<<"$unknown" || fail "expected SHA mismatch was not diagnosed"
 
+# A live checkout left behind on the previous release is the exact drift the
+# trusted deploy's live-checkout advance exists to prevent. Reconciliation must
+# keep refusing it: the fix belongs in the deploy, never in this invariant.
+git -C "$LIVE" checkout -q --detach "$(git -C "$LIVE" rev-parse HEAD^)"
+stale_checkout="$(expect_failure "stale live checkout" run_state)"
+grep -q 'live_checkout_mismatch' <<<"$stale_checkout" || fail "stale live checkout was not diagnosed"
+grep -q 'DRIFTED' <<<"$stale_checkout" || fail "stale live checkout was not classified as drift"
+git -C "$LIVE" checkout -q --detach "$LIVE_SHA"
+
+# ...and once the deploy has advanced it again, the same state is GOVERNED.
+regoverned="$(run_state)" || fail "state was not governed again after the live checkout advanced"
+grep -q '"governanceStatus":"GOVERNED"' <<<"$regoverned" ||
+  fail "restored live checkout did not reconcile to GOVERNED"
+
 echo "PASS: production identity reconciles audit, image, checkout and migration truth"
