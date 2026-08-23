@@ -23,7 +23,7 @@ preflight_checks:
   - Confirm each service's compose build context (demo vs rental-platform)
 safe_procedure: "See 'Verify routing + build source' below."
 verification: "Each domain serves the expected app (distinct HTML title/markers); portal != demo; novatova.com 200."
-rollback: "Retag the pre-build image to :prod and up -d --no-deps <service>; restore any nginx file from backup + reload."
+rollback: "No manual image retag or recreate — that permanently blocks the next deployment. Re-dispatch Deploy Production at the currently deployed SHA. Restore any nginx file from backup + reload."
 stop_conditions: "See 'Global Stop Conditions' below."
 final_report_required: true
 lessons_from_kaza_incident: >
@@ -80,7 +80,8 @@ Stop immediately if any of these is true:
 - A command would affect Novatova (any `novatova-*` container, config, or data).
 - A command would start a service that binds host ports 80 or 443.
 - A step requires `docker compose down`.
-- A step is a bare `docker compose up -d` (no `--no-deps <service>`, no service list).
+- A step would run `docker compose` (build / up / down) against `kaza-prod`, or
+  recreate, build, or tag a Kaza application container outside the trusted workflow.
 - `docker exec novatova-nginx nginx -t` fails.
 - The env file `/opt/kaza/env/.env.production` is missing or empty.
 - The live repo path is uncertain (compose labels don't confirm it).

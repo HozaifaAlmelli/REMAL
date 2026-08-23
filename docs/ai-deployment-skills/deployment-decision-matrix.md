@@ -26,10 +26,11 @@ stop_conditions: "See 'Global Stop Conditions' below."
 final_report_required: true
 lessons_from_kaza_incident: >
   The right calls were consistently the narrow ones: fix login with a frontend-only portal
-  change (not a backend cookie-Domain change); rebuild only the affected service (not the
-  whole stack); take a backup before the additive migration; choose release mode whenever
-  the SHA adds a migration; and remove the temporary SSH key at the end.
-  Default to the smallest change that fully fixes the problem, then make it durable in main.
+  change (not a backend cookie-Domain change); take a backup before the additive migration;
+  choose release mode whenever the SHA adds a migration; and remove the temporary SSH key
+  at the end. Since the governed transition, "narrow" no longer means a narrower manual
+  command — every application change goes through the same workflow, and the only remaining
+  choice is which reviewed SHA and which mode.
 ---
 
 # Deployment decision matrix
@@ -37,15 +38,22 @@ lessons_from_kaza_incident: >
 Pick the **smallest blast radius that fully fixes the problem**, then make it durable.
 When in doubt, prefer the safer row and hand back to a human.
 
-## 1. Live hotfix vs GitHub-first
+## 1. How urgent is it? (There is no longer a "live hotfix" option)
+
+Production is `GOVERNED`. A hand-built or hand-recreated container no longer merely gets
+wiped by the next deploy — it **blocks** the next deploy, permanently, because its image
+ID will not match the last successful audit record. See
+[the one-way door](../operations/production-deployment.md#the-one-way-door).
 
 | Situation | Choose |
 |---|---|
-| Prod is broken now; fix is small + reversible; you can rebuild one service | **Live hotfix**, then immediately promote to `main` ([live-hotfix-to-main-durability](live-hotfix-to-main-durability.md)) |
-| Not an emergency; change touches multiple services or backend | **GitHub-first**: PR → review → merge → **dispatch** Deploy Production with the merge SHA ([github-actions-production-deploy-safety](github-actions-production-deploy-safety.md)) |
-| Fix is unproven / risky | GitHub-first with review |
+| Prod is broken now | **Diagnose read-only** (`docker ps`, `docker logs`, `mode=inspect`). If a service is down, re-dispatch `mode=deploy` at the **currently deployed SHA** — that is a provenance-preserving restart. |
+| Read-only diagnosis found a code fix | **GitHub-first, expedited**: hotfix branch from `main` → PR → CI → merge → dispatch. The whole loop is minutes, and it is the only loop that ends in a governed state. |
+| Prod is broken and the workflow itself cannot reach the host | **Break-glass**, still through the current-`main` bootstrap with an `emergency:<reviewed-reference>` authorization ([production-deployment.md §7](../operations/production-deployment.md#7-emergency-procedure)). Never improvise Compose commands. |
+| Fix is unproven / risky | GitHub-first with review. Urgency is not a reason to skip Inspect. |
 
-> A live hotfix is **never** the finish line — it is wiped by the next deploy unless it is in `main`.
+> Editing files or rebuilding an image directly on the VPS is no longer a fast path. It is
+> an incident that needs owner-authorized recovery before anything can deploy again.
 
 ## 2. Frontend-only vs backend auth fix
 
@@ -56,12 +64,17 @@ When in doubt, prefer the safer row and hand back to a human.
 
 ## 3. API-only vs portal-only vs full app deploy
 
+The deploy always rebuilds and recreates all three application services (`api`, `demo`,
+`portal`), one at a time with `--no-deps --no-build`. There is no per-service dispatch, and
+recreating one service by hand is [a one-way door](../operations/production-deployment.md#the-one-way-door).
+What you are actually choosing is the **mode**:
+
 | Situation | Choose |
 |---|---|
-| Native lib / health / DB-connect issue in the API | **API-only** rebuild ([api-runtime-and-health-debug](api-runtime-and-health-debug.md)) |
-| Portal UI / auth / routing fix | **Portal-only** rebuild ([docker-compose-scoped-deploy](docker-compose-scoped-deploy.md)) |
-| Coordinated release across services from `main` | **Dispatch `mode: deploy`** (still service-scoped: api/demo/portal, edge excluded) |
-| The SHA adds any new `db/migrations/NNNN_*.sql` | **Dispatch `mode: release`** — backup + migrate + verify happen before the code moves |
+| Any application change whose SHA adds no new migration | **Dispatch `mode: deploy`** — all three services, `db` untouched, edge excluded |
+| The SHA adds any new `db/migrations/NNNN_*.sql` | **Dispatch `mode: release`** — backup + migrate + verify happen before the code moves, and it must target current `main` |
+| You only need to know what is live | **Dispatch `mode: inspect`** — read-only, mutates nothing |
+| Diagnosing which layer is at fault before choosing | Read-only first: [api-runtime-and-health-debug](api-runtime-and-health-debug.md), [portal-auth-and-post-login-debug](portal-auth-and-post-login-debug.md) |
 
 ## 4. Migration now vs defer
 
@@ -84,7 +97,7 @@ When in doubt, prefer the safer row and hand back to a human.
 
 | Situation | Choose |
 |---|---|
-| Change is verified and a deploy is wanted + a human will approve the gate | **Merge** (squash) and monitor |
+| Change is verified and a deploy is wanted + a human will approve the gate | **Merge** (squash), then **dispatch separately** — merging never deploys |
 | You are unsure whether the SHA needs migrations | **Compare before dispatching**: `release-state.sh ledger-head` vs `MIG_DIR=<tree> release-state.sh tree-level` |
 | Docs-only change | Merge when reviewed; it does not queue a deploy because production is manual-only |
 
@@ -102,7 +115,8 @@ Stop immediately if any of these is true:
 - A command would affect Novatova (any `novatova-*` container, config, or data).
 - A command would start a service that binds host ports 80 or 443.
 - A step requires `docker compose down`.
-- A step is a bare `docker compose up -d` (no `--no-deps <service>`, no service list).
+- A step would run `docker compose` (build / up / down) against `kaza-prod`, or
+  recreate, build, or tag a Kaza application container outside the trusted workflow.
 - `docker exec novatova-nginx nginx -t` fails.
 - The env file `/opt/kaza/env/.env.production` is missing or empty.
 - The live repo path is uncertain (compose labels don't confirm it).

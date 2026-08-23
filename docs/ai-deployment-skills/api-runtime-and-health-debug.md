@@ -23,7 +23,7 @@ preflight_checks:
   - Read API logs for startup exceptions / native lib errors
 safe_procedure: "See 'Diagnose then rebuild only the API' below."
 verification: "/ and /health return 200 JSON; /api/projects 200 (DB OK); no libgssapi in logs; novatova.com 200."
-rollback: "Retag the pre-build API image to :prod and up -d --no-deps api (command-templates #10)."
+rollback: "No manual image retag or recreate — that permanently blocks the next deployment. Re-dispatch Deploy Production at the currently deployed SHA, or at `previous-sha.txt` (see operations/rollback-and-recovery.md)."
 stop_conditions: "See 'Global Stop Conditions' below."
 final_report_required: true
 lessons_from_kaza_incident: >
@@ -104,7 +104,8 @@ Stop immediately if any of these is true:
 - A command would affect Novatova (any `novatova-*` container, config, or data).
 - A command would start a service that binds host ports 80 or 443.
 - A step requires `docker compose down`.
-- A step is a bare `docker compose up -d` (no `--no-deps <service>`, no service list).
+- A step would run `docker compose` (build / up / down) against `kaza-prod`, or
+  recreate, build, or tag a Kaza application container outside the trusted workflow.
 - `docker exec novatova-nginx nginx -t` fails.
 - The env file `/opt/kaza/env/.env.production` is missing or empty.
 - The live repo path is uncertain (compose labels don't confirm it).
