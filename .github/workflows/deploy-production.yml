@@ -1,12 +1,51 @@
 name: Deploy Production
 
-# Production deploy: push to main, OR manual dispatch. The `production` GitHub
-# Environment gates this with a MANUAL APPROVAL and restricts it to the main branch.
-# Build happens ON the VPS (Option A); no registry. DB migrations are NOT run here.
+# ---------------------------------------------------------------------------
+# The SINGLE production entry point. Two modes:
+#
+#   deploy   code only. Refuses to build or restart anything if the live
+#            database is behind the tree being deployed.
+#   release  schema-changing. backup -> migrate -> verify -> deploy -> verify,
+#            stopping at the first failure (scripts/release-production.sh).
+#
+# There is deliberately NO push trigger. Merging to `main` is not a release
+# decision: a docs merge, a revert and a schema-changing feature all produce a
+# push, and only a human knows which of them should reach production. Every
+# deployment is an explicit, SHA-addressed, manually dispatched act.
+#
+# The workflow definition and bootstrap script always come from the current
+# `main` SHA. The application target never supplies its own deployment engine.
+# ---------------------------------------------------------------------------
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: "Full 40-character commit SHA to deploy (must be reachable from origin/main)"
+        required: true
+        type: string
+      mode:
+        description: "inspect = read-only identity check | deploy = code only | release = backup + migrations + deploy"
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - inspect
+          - deploy
+          - release
+      approve_destructive:
+        description: "release mode only: allow migrations containing DROP/TRUNCATE/DELETE"
+        required: false
+        default: false
+        type: boolean
+      recovery_run_id:
+        description: "Optional failed trusted run id; authorizes only that manifest's previous SHA in deploy mode"
+        required: false
+        type: string
+      approve_unverified_legacy_replacement:
+        description: "One-time only: authorize replacement of an unverified legacy runtime; this does not certify it"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -21,48 +60,69 @@ jobs:
     runs-on: ubuntu-latest
     environment: production    # <- manual-approval gate + branch restriction live here
     steps:
+      - name: Refuse non-main workflow revisions
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -eu
+          [ "$WORKFLOW_REF" = "refs/heads/main" ] || {
+            echo "FATAL: production workflow must run from refs/heads/main" >&2
+            exit 1
+          }
+
+      - name: Validate inputs and credentials
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST_FINGERPRINT: ${{ secrets.SSH_HOST_FINGERPRINT }}
+        run: |
+          set -eu
+          case "$DEPLOY_SHA" in
+            *[!0-9a-f]*|"") echo "FATAL: deploy_sha must be lowercase hex" >&2; exit 1 ;;
+          esac
+          [ "${#DEPLOY_SHA}" -eq 40 ] || {
+            echo "FATAL: deploy_sha must be the full 40-character commit id" >&2; exit 1; }
+          # Key-based authentication only. An empty SSH_KEY previously fell
+          # through to SSH_PASSWORD silently; that fallback is gone, so a
+          # missing key fails here instead of downgrading the auth method.
+          [ -n "$SSH_KEY" ] || {
+            echo "FATAL: the SSH_KEY environment secret is not set." >&2
+            echo "Production deploys are key-only. Add SSH_KEY to the 'production'" >&2
+            echo "environment and remove SSH_PASSWORD." >&2
+            exit 1; }
+          [ -n "$SSH_HOST_FINGERPRINT" ] || {
+            echo "FATAL: SSH_HOST_FINGERPRINT is required for host-key pinning." >&2
+            exit 1; }
+          echo "deploy_sha=$DEPLOY_SHA mode=${{ inputs.mode }}"
+
+      - name: Checkout trusted production control plane
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17
+        env:
+          CONTROL_SHA: ${{ github.sha }}
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          DEPLOY_MODE: ${{ inputs.mode }}
+          APPROVE_DESTRUCTIVE: ${{ inputs.approve_destructive && '1' || '0' }}
+          DEPLOY_ACTOR: ${{ github.actor }}
+          DEPLOY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
+          DEPLOY_BRANCH: ${{ github.ref_name }}
+          DEPLOY_WORKFLOW_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DEPLOY_AUTHORIZATION_REF: github-environment:production:${{ github.run_id }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          APPROVE_UNVERIFIED_LEGACY_REPLACEMENT: ${{ inputs.approve_unverified_legacy_replacement && '1' || '0' }}
+          APP_DIR: /opt/apps/kaza-booking
+          ENV_FILE: /opt/kaza/env/.env.production
+          RELEASES_DIR: /opt/kaza/releases
+          AUTH_SMOKE_CREDENTIALS_FILE: /opt/kaza/secrets/auth-smoke.json
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          password: ${{ secrets.SSH_PASSWORD }}
           port: ${{ secrets.SSH_PORT }}
-          command_timeout: 30m
+          fingerprint: ${{ secrets.SSH_HOST_FINGERPRINT }}
+          command_timeout: 60m
           script_stop: true
-          script: |
-            set -eu
-
-            DEPLOY_SHA="${{ github.sha }}"
-            APP_DIR="/opt/apps/kaza-booking"
-            ENV_FILE="/opt/kaza/env/.env.production"
-
-            if [ ! -d "$APP_DIR" ]; then
-              echo "FATAL: app directory missing: $APP_DIR"
-              exit 1
-            fi
-
-            if [ ! -s "$ENV_FILE" ]; then
-              echo "FATAL: env file missing or empty: $ENV_FILE"
-              exit 1
-            fi
-
-            cd "$APP_DIR"
-            if [ -n "$(git status --porcelain)" ]; then
-              echo "FATAL: live repo has local changes"
-              git status --short
-              exit 1
-            fi
-
-            echo "### Fetching main"
-            git fetch origin main --quiet
-            git checkout main
-            git pull --ff-only origin main
-
-            if [ "$(git rev-parse HEAD)" != "$DEPLOY_SHA" ]; then
-              echo "FATAL: checked out SHA $(git rev-parse HEAD) does not match deploy SHA $DEPLOY_SHA"
-              exit 1
-            fi
-
-            sh scripts/deploy-production.sh "$DEPLOY_SHA"
+          envs: CONTROL_SHA,DEPLOY_SHA,DEPLOY_MODE,APPROVE_DESTRUCTIVE,APPROVE_UNVERIFIED_LEGACY_REPLACEMENT,DEPLOY_ACTOR,DEPLOY_RUN_ID,DEPLOY_BRANCH,DEPLOY_WORKFLOW_RUN,DEPLOY_AUTHORIZATION_REF,RECOVERY_RUN_ID,APP_DIR,ENV_FILE,RELEASES_DIR,AUTH_SMOKE_CREDENTIALS_FILE
+          script_path: scripts/bootstrap-production-control.sh

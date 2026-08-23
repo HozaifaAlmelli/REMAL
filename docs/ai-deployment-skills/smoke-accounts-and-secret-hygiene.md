@@ -32,41 +32,37 @@ lessons_from_kaza_incident: >
   Dedicated smoke Admin/Owner/Client accounts were created using the app's real hashing,
   and their passwords were stored ONLY in a root-only file on the VPS — never printed in
   chat, terminal, or GitHub Actions logs. Login checks reported only HTTP status, role,
-  and token-exists (boolean), never the password or the token itself. See also
-  scripts/production-login-smoke-maintenance.sh.
+  and token-exists (boolean), never the password or the token itself.
 ---
 
 # Smoke accounts & secret hygiene
 
 Prove login works without ever exposing a secret or disturbing a real user.
 
-## Create + use smoke accounts without leaks
+## Provision and use smoke accounts without leaks
 
 ```bash
 # 1. Create accounts via the app's REAL hashing (never hand-written hashes / plaintext).
-#    Use the repo's smoke maintenance path; it uses the same hashing the API verifies.
-sh /opt/apps/kaza-booking/scripts/production-login-smoke-maintenance.sh
+#    Drive the API's own registration/reset endpoints, or run the hasher from the API
+#    image. NEVER hand-write a hash and never INSERT one directly into the database.
+#
+#    NOTE: scripts/production-login-smoke-maintenance.sh and its workflow were REMOVED
+#    (2026-08-23). They wrote password hashes for real admin_users/owners/clients rows
+#    and INSERTed straight into schema_migrations, bypassing the gated migration
+#    runner -- a second, unaudited source of truth for production state.
 
-# 2. Store credentials ONLY in a root-only file (never echo them).
-CRED_FILE="/root/kaza-login-fix-logs/$(date +%Y%m%d-%H%M%S)-smoke-credentials.txt"
-install -m 600 /dev/null "$CRED_FILE"   # create empty, mode 600, root-owned
-#   ...the maintenance script / your tooling writes creds into $CRED_FILE...
-ls -l "$CRED_FILE"                        # confirm 600, never `cat` it into the transcript
+# 2. An owner provisions the three dedicated accounts through reviewed application
+#    commands, then writes this JSON directly on the VPS without printing it:
+#    /opt/kaza/secrets/auth-smoke.json
+#    {"admin":{"email":"...","password":"..."},
+#     "owner":{"phone":"...","password":"..."},
+#     "client":{"phone":"...","password":"..."}}
+chmod 600 /opt/kaza/secrets/auth-smoke.json
 
-# 3. Verify login and print ONLY status/role/token-exists — NEVER the token or password.
-#    (Read creds from the file into shell vars; do not echo them.)
-for role in admin owner client; do
-  # EMAIL/PASS are read from $CRED_FILE into vars WITHOUT printing.
-  code=$(curl -sS -o /tmp/login.json -w '%{http_code}' \
-    -X POST "https://api.kaza-booking.com/api/auth/$role/login" \
-    -H 'content-type: application/json' \
-    --data "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" --max-time 15)
-  has_token=$(grep -q '"accessToken"' /tmp/login.json && echo yes || echo no)
-  subj=$(grep -oE '"subjectType":"[^"]*"' /tmp/login.json | head -1)
-  echo "$role -> HTTP $code token=$has_token $subj"
-  rm -f /tmp/login.json
-done
-unset EMAIL PASS
+# 3. The deploy runs the checked-in read-only verifier. It calls only existing login
+#    endpoints and reports role success; it never prints credentials or returned tokens.
+AUTH_SMOKE_CREDENTIALS_FILE=/opt/kaza/secrets/auth-smoke.json \
+  bash scripts/smoke-production-auth.sh
 ```
 
 ## Hard rules
@@ -76,8 +72,11 @@ unset EMAIL PASS
 - **Never reset a real user's password** to "test login". Create a smoke account instead.
 - **Never print secrets.** Report `HTTP 200 / role / token=yes`, never the token or
   password. Pipe any env/log output through `redact`.
-- **Credentials live in a root-only `chmod 600` file** on the VPS. Never scp them to a
-  local machine; never paste them into chat or CI.
+- **Credentials live in a deploy-user-owned regular `chmod 400` or `600` file** on the
+  VPS. Symlinks are refused. Never copy it locally or paste it into chat or CI.
+- **The production smoke is non-mutating.** It invokes only admin/owner/client login.
+  `AuthService` validates credentials and issues tokens without `SaveChanges`; no reset,
+  registration, direct SQL, or migration-ledger write is permitted.
 - **Rotate/disable** smoke accounts after the task if the environment requires it.
 
 ## Global Stop Conditions — halt and report, do not proceed

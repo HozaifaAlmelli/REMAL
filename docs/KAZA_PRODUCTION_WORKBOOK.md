@@ -27,7 +27,7 @@
 
 | الموقف | اقرأ |
 |---|---|
-| عايز أعمل deploy عادي | [القسم 3 (الدمج إلى main)](#القسم-3--ماذا-يحدث-عندما-أدمج-إلى-main-merge-to-main) + [القسم 6 (الأوامر الآمنة)](#القسم-6--قوالب-الأوامر-الآمنة-safe-command-templates) |
+| عايز أعمل deploy عادي | [القسم 3 (كيف أنشر)](#القسم-3--كيف-أنشر-إلى-الإنتاج-deploy-to-production) + [القسم 6 (الأوامر الآمنة)](#القسم-6--قوالب-الأوامر-الآمنة-safe-command-templates) |
 | عندي production bug | [القسم 4 (أي فرع)](#القسم-4--أي-فرع-branch-أستخدم-branch-decision-guide) + [القسم 15 (ديمومة الإصلاح الحيّ)](#القسم-15--سير-عمل-ديمومة-الإصلاح-الحي-live-hotfix-durability) |
 | عندي مشكلة API | [القسم 10 (سير عمل الـ API)](#القسم-10--سير-عمل-الـ-api-api-workflow) |
 | عندي مشكلة app.kaza-booking.com | [القسم 9 (سير عمل البوابة)](#القسم-9--سير-عمل-البوابة-portal-workflow) |
@@ -119,31 +119,50 @@ Kaza Booking يعمل على **VPS إنتاج مشترك (shared live VPS)** م�
 
 ---
 
-## القسم 3 — ماذا يحدث عندما أدمج إلى main؟ (Merge to main)
+## القسم 3 — كيف أنشر إلى الإنتاج؟ (Deploy to production)
 
-> ⚠️ **الدمج إلى `main` ليس عملية توثيق — هو عملية نشر (deploy).**
+> ✅ **الدمج إلى `main` لم يعد ينشر شيئًا.** تم حذف مُشغّل `push` من سير العمل
+> بتاريخ 2026-08-23. الدمج آمن في أي وقت.
 
-ماذا يحدث بالضبط:
-1. الدمج إلى `main` يُطلق (queue) سير عمل **Deploy Production** في GitHub Actions.
-2. هذا الـ deploy يسحب `main` على الـ VPS ويعيد بناء خدمات التطبيق (api/demo/portal).
-3. الـ deploy يعمل **force-checkout** لـ `main` — أي أنه **يمسح أي تعديل موجود على الـ VPS
-   فقط** ولم يُدمج إلى `main`.
-4. لا يوجد `paths:` filter — أي أن **حتى دمج توثيق (docs) فقط يُطلق الـ deploy** (لكنه
-   محميّ ببوابة موافقة يدوية / manual approval gate).
+**النشر الآن عملية يدوية صريحة**، لها مدخلان:
 
-> 💡 **لماذا مراجعة الـ PR مهمة:** لأن الدمج = نشر مباشر على موقع حيّ يشاركه مشروع آخر.
-> راجع الـ diff بالكامل قبل الدمج، وتأكد أنه لا يشغّل خدمات الـ edge على 80/443.
+| المدخل | القيمة |
+|---|---|
+| `deploy_sha` | الـ SHA الكامل (40 خانة) — يجب أن يكون موجودًا على `origin/main` |
+| `mode` | `deploy` (كود فقط) أو `release` (نسخة احتياطية + migrations + نشر) |
 
-**كيف تراقب GitHub Actions:**
-- افتح تبويب **Actions** في مستودع `HozaifaAlmelli/REMAL`، وابحث عن تشغيل **Deploy Production**.
-- الـ deploy يتوقف عند بوابة `environment: production` بانتظار موافقتك اليدوية.
+**كيف تختار الـ mode:** إذا كان الإصدار يضيف ملفات جديدة في `db/migrations/` فاختر
+`release`. غير ذلك `deploy`. إذا اخترت `deploy` بالخطأ، يرفض النظام التشغيل **قبل** أي
+بناء — لأن قاعدة البيانات ستكون متأخرة عن الكود. هذا رفض آمن، لكنه يُهدر موافقة.
+
+**خطوات النشر:**
+1. افتح تبويب **Actions** في مستودع `HozaifaAlmelli/REMAL` → **Deploy Production** →
+   **Run workflow**، وأدخل `deploy_sha` و `mode`.
+2. يتوقف التشغيل عند بوابة `environment: production` بانتظار موافقتك اليدوية.
+3. بعد الموافقة، النظام يتحقق تلقائيًا من:
+   - أن سير عمل `main` الحالي هو مصدر أدوات النشر الموثوقة، وليس الـ SHA المراد نشره
+   - أن الـ SHA موجود على `origin/main`؛ والرجوع مسموح فقط للإصدار السابق المُسجَّل نجاحه
+   - أن شجرة العمل على الـ VPS نظيفة
+   - **أن سجل قاعدة البيانات يطابق ترتيب الـ migrations والـ checksums بالكامل**
+   - أن حاوية قاعدة البيانات الحالية موجودة وتبقى بنفس الهوية؛ نشر الكود لا يعيد إنشاءها
+4. في وضع `release` فقط: نسخة احتياطية مُتحقَّقة → migrations → تحقّق من الـ ledger →
+   ثم النشر. لا يتحرك الكود الحيّ قبل نجاح قاعدة البيانات.
 
 > ⛔ **متى تُلغي (cancel) الـ deploy:**
 > - إذا رأيت أنه سيبني خدمة لم تقصد تغييرها.
 > - إذا لم تُراجَع التغييرات بعد.
 > - إذا لم تكن نافذة النشر (deploy window) مناسبة الآن.
+> - إذا كان الإصدار يضيف migrations وكان الـ `mode` هو `deploy`.
 
 **ماذا تتحقق بعد الـ deploy:** نفّذ قائمة التحقق في [القسم 9](#القسم-9--قائمة-التحقق-القياسية-standard-verification-checklist).
+
+**كيف تثبت ما هو المنشور فعلًا** (ثلاثة مصادر مستقلة يجب أن تتطابق):
+
+```bash
+cat /opt/kaza/releases/current-sha.txt
+docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' kaza-prod-api
+tail -1 /opt/kaza/releases/deployments.jsonl
+```
 
 التفاصيل الكاملة:
 [github-actions-production-deploy-safety](ai-deployment-skills/github-actions-production-deploy-safety.md).
@@ -167,8 +186,8 @@ Kaza Booking يعمل على **VPS إنتاج مشترك (shared live VPS)** م�
      → أدخِل نفس الـ diff تمامًا إلى main → deploy → تحقّق
 
 تغيير توثيق فقط (docs-only)
-   → docs branch → PR → تحقّق هل سيُطلق الدمج deploy أم لا
-     (تذكّر: لا يوجد paths filter، فالدمج يُطلق deploy مُبوَّبًا بموافقة يدوية)
+   → docs branch → PR → ادمج بأمان
+     (الدمج لم يعد يُطلق deploy — النشر يدوي صريح، القسم 3)
 ```
 
 > 💡 **القاعدة الجوهرية:** الإصلاح الحيّ (live hotfix) ليس خط النهاية أبدًا. أي شيء غير
@@ -227,33 +246,18 @@ redact() {
 }
 ```
 
-**إعادة بناء البوابة (portal) فقط:**
+**Application deployment:**
 
 ```bash
-"${COMPOSE[@]}" build portal
-"${COMPOSE[@]}" up -d --no-deps portal
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<full-reviewed-main-sha> -f mode=deploy
 ```
 
-**إعادة بناء الـ API فقط:**
-
-```bash
-"${COMPOSE[@]}" build api
-"${COMPOSE[@]}" up -d --no-deps api
-```
-
-**إعادة بناء الموقع العام (demo) فقط:**
-
-```bash
-"${COMPOSE[@]}" build demo
-"${COMPOSE[@]}" up -d --no-deps demo
-```
-
-> ✅ **النتيجة المتوقعة:** إعادة إنشاء الخدمة المستهدفة فقط. `--no-deps` يمنع إعادة إنشاء
-> بقية الخدمات. قد تحدث ثوانٍ قليلة من انقطاع (blip) للخدمة المُعاد إنشاؤها فقط.
-
-> 🚫 **ممنوع (يظهر هنا للتحذير فقط — لا تنفّذه):** أمر `docker compose up -d` المجرّد
-> (بدون خدمة) يُعيد إنشاء المشروع كله، وقد يشغّل بروفايل `edge`، ويُسقط `proxy-network`.
-> وكذلك `docker compose down` ممنوع تمامًا.
+The workflow's current-`main` control plane owns every application recreate. Direct
+Compose rebuild/recreate commands are not a deployment path because they bypass the host
+lock, migration guard, image provenance, recovery manifest, and deployment audit. The
+runner internally uses explicit `--no-deps --no-build` operations and never recreates the
+database.
 
 التفاصيل والقالب الكامل في
 [command-templates.md](ai-deployment-skills/command-templates.md).
@@ -492,12 +496,16 @@ docker exec novatova-nginx nginx -t
 ## القسم 14 — سير عمل GitHub Actions
 
 - سير عمل النشر: `.github/workflows/deploy-production.yml`، ينفّذ
-  `scripts/deploy-production.sh`.
-- يُطلق عند **push إلى `main`** أو `workflow_dispatch`، ومحميّ ببوابة `environment:
+  `scripts/bootstrap-production-control.sh` من `main` الحالي، ثم يشغّل أدوات التحكم
+  الموثوقة على مرشح تطبيق منفصل.
+- يُطلق فقط يدويًا عبر `workflow_dispatch` من `main`، ومحميّ ببوابة `environment:
   production` (موافقة يدوية).
 
 **ما يجب أن يفعله سير العمل الآمن:**
 - **لا** `docker compose up -d` مجرّد أبدًا — نشر **مُقيَّد بالخدمة (service-scoped)**.
+- لا يعيد نشر الكود إنشاء حاوية قاعدة البيانات أو إعادة تشغيلها.
+- تستخدم كل عمليات deploy/release/migration اليدوية قفل `flock` مشتركًا على المضيف.
+- يتم التحقق من هوية الصورة الفعلية (`Docker image ID`) وليس من اسم tag فقط.
 - استخدام المسار الصحيح `/opt/apps/kaza-booking`.
 - استبعاد خدمات الـ edge (`nginx`/`certbot`) عبر بروفايل `edge`.
 - إعادة وصل `proxy-network` بعد إعادة الإنشاء.
@@ -514,8 +522,8 @@ docker exec novatova-nginx nginx -t
 
 ## القسم 15 — سير عمل ديمومة الإصلاح الحيّ (Live Hotfix Durability)
 
-> ⚠️ **الإصلاح الحيّ مؤقّت.** الـ deploy يعمل force-checkout لـ `main`، فأي تعديل على الـ
-> VPS فقط **يُمسح**.
+> ⚠️ **الإصلاح الحيّ مؤقّت.** الـ deploy ينقل شجرة العمل إلى الـ SHA المطلوب، فأي تعديل
+> على الـ VPS فقط **يُمسح** عند النشر التالي.
 
 الخطوات لجعل الإصلاح دائمًا:
 1. طبّق الإصلاح حيًّا (عند الضرورة) واختبره.
@@ -628,7 +636,8 @@ sed -i '/claude-kaza-debug/d' ~/.ssh/authorized_keys
 Task: Fix a Kaza Booking API issue (container kaza-prod-api) on the SHARED VPS that also
 hosts Novatova. Read docs/ai-deployment-skills/api-runtime-and-health-debug.md first.
 Scope: API only. Expected files: RentalPlatform.API/** (e.g. Dockerfile, Program.cs).
-Forbidden: no docker compose down; no bare docker compose up -d (use up -d --no-deps api);
+Forbidden: no docker compose down; no direct Compose rebuild/recreate; use the protected
+current-main deployment workflow;
 never touch Novatova; never start Kaza nginx/certbot on 80/443; never print secrets; never
 edit the DB without a verified backup.
 Verify: api.kaza-booking.com/health = 200, api.kaza-booking.com/ = 200, no libgssapi error
@@ -644,7 +653,8 @@ Task: Fix a portal issue on app.kaza-booking.com (container kaza-prod-portal, so
 rental-platform). Read docs/ai-deployment-skills/portal-auth-and-post-login-debug.md and
 portal-vs-demo-routing-and-build-source.md.
 Scope: portal frontend only. Do NOT touch API or DB unless proven necessary.
-Forbidden: no docker compose down; recreate only with up -d --no-deps portal; never touch
+Forbidden: no docker compose down; no direct Compose recreate; use the protected
+current-main deployment workflow; never touch
 Novatova; never print secrets.
 Verify: login works for Admin/Owner/Client, no post-login freeze/redirect loop, app.
 serves portal (not demo), nginx -t OK, novatova.com still up.
@@ -656,7 +666,8 @@ Final report: root cause, files changed, portal rebuilt, verification, main-dura
 ```
 Task: Apply an ADDITIVE production DB migration for Kaza (container kaza-prod-db). Read
 docs/ai-deployment-skills/database-migration-production-safety.md.
-Scope: one additive, nullable migration with a UNIQUE number, via scripts/apply-migrations.sh.
+Scope: one additive, nullable migration with a UNIQUE number, released through the
+current-main workflow in release mode.
 Forbidden: no DROP/TRUNCATE/DELETE; no editing old migrations; no duplicate numbers; no
 volume deletion; do NOT proceed without a verified backup first.
 Verify: backup exists and is non-empty, migration applied via the gated runner, affected
@@ -736,7 +747,7 @@ Final report: root cause, the smallest fix applied, verification, main-durabilit
 **قبل العمل (Before):**
 - [ ] حدّدتُ الخدمة المستهدفة (api / demo / portal / db / nginx).
 - [ ] أكّدتُ الفرع الصحيح (feature / from main / docs).
-- [ ] قدّرتُ خطر النشر (هل الدمج إلى main سيُطلق deploy؟).
+- [ ] قدّرتُ خطر النشر (هل هذا الإصدار يضيف migrations؟ إذن mode = release).
 - [ ] إن كان العمل على قاعدة البيانات: أخذتُ backup مُتحقَّقًا منه.
 - [ ] أكّدتُ حدّ Novatova (لن ألمس `novatova-*`).
 

@@ -151,6 +151,7 @@ ENV_FILE="$TMP/test.env" \
 COMPOSE_FILE="$TMP/compose.yml" \
 APP_DIR="$ROOT" \
 BACKUP_DIR="$TMP/backups" \
+PRODUCTION_LOCK_FILE="$TMP/production-operation.lock" \
 APPROVE_DESTRUCTIVE=1 \
 bash "$ROOT/scripts/apply-migrations.sh" > "$TMP/upgrade.log"
 

@@ -8,6 +8,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-/opt/apps/kaza-booking/docker-compose.prod.yml}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/kaza/backups/postgres}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 BACKUP_MIN_RETAINED="${BACKUP_MIN_RETAINED:-3}"
+BACKUP_RESULT_FILE="${BACKUP_RESULT_FILE:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=scripts/lib/postgres-backup.sh
@@ -56,7 +57,17 @@ validate_postgres_backup_artifact "$PARTIAL"
 publish_postgres_backup_artifact "$PARTIAL" "$OUT"
 PARTIAL=""
 
+if [ -n "$BACKUP_RESULT_FILE" ]; then
+  [ ! -e "$BACKUP_RESULT_FILE" ] || {
+    echo "ERROR: backup result file already exists: $BACKUP_RESULT_FILE" >&2
+    exit 1
+  }
+  umask 077
+  printf '%s\n' "$OUT" > "$BACKUP_RESULT_FILE"
+fi
+
 echo "$(date -Is) backup OK: $OUT ($(du -h "$OUT" | cut -f1))"
+echo "BACKUP_ARTIFACT=$OUT"
 
 # Retention. Never silent, never below the retained floor, and fully disabled by
 # RETENTION_DAYS=0 — which is what a production rollout must use so that no

@@ -246,6 +246,16 @@
       "command": ["bash", "scripts/tests/test-production-env-loading-safety.sh"]
     },
     {
+      "id": "deployment_safety_guards",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-deployment-safety-guards.sh"]
+    },
+    {
+      "id": "production_state_reconciliation",
+      "lanes": ["full"],
+      "command": ["bash", "scripts/tests/test-production-state-reconciliation.sh"]
+    },
+    {
       "id": "migration_release_hardening_postgresql",
       "lanes": ["full"],
       "command": ["bash", "scripts/tests/test-release-hardening-migrations-postgresql.sh"]

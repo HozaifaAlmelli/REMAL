@@ -4,9 +4,10 @@ Copy-paste-safe snippets reused across the skills. Every template here is
 **scoped** and **non-destructive**. Run them on the VPS (`root@<VPS>`), never bring
 secrets to a local machine, and always pass output through `redact` before logging.
 
-The single source of truth for the real deploy flow is
-[`scripts/deploy-production.sh`](../../scripts/deploy-production.sh); these templates
-mirror it so you can run individual steps by hand safely.
+The single source of truth for a production mutation is the current-`main` control plane
+entered through [`.github/workflows/deploy-production.yml`](../../.github/workflows/deploy-production.yml).
+The snippets below are read-only diagnostics unless a section explicitly says otherwise.
+They are not a substitute for the host lock, provenance, audit, or recovery evidence.
 
 ---
 
@@ -46,26 +47,31 @@ COMPOSE=(
 )
 ```
 
-## 3. Service-scoped deploy (the ONLY approved recreate)
+## 3. Application deployment (workflow only)
 
 ```bash
-# Rebuild + recreate a single service. --no-deps so dependencies are NOT recreated.
-# Replace `portal` with `api` or `demo` as needed. NEVER omit the service name.
-"${COMPOSE[@]}" build portal
-"${COMPOSE[@]}" up -d --no-deps portal
+# Run from a trusted operator workstation after review and Environment approval.
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<full-reviewed-main-sha> -f mode=deploy
 ```
 
-> A bare `docker compose up -d` (no service, no `--no-deps`) recreates the whole
-> project, may start the `edge` profile if invoked wrong, and drops
-> `proxy-network`. It is forbidden — see every skill's Forbidden Commands.
-
-## 4. Network reattach (recreate can drop `proxy-network`)
+Read-only identity reconciliation uses the same trusted entry point:
 
 ```bash
-# Reattach only if missing. Repeat for kaza-prod-api / kaza-prod-demo / kaza-prod-portal.
-if ! docker inspect -f '{{json .NetworkSettings.Networks}}' kaza-prod-portal | grep -q '"proxy-network"'; then
-  docker network connect proxy-network kaza-prod-portal
-fi
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<expected-full-main-sha> -f mode=inspect
+```
+
+Do not recreate a service directly with Compose. Even a service-scoped command would
+bypass the production-operation lock, current-main tooling, migration guard, image-ID
+proof, audit record, and recovery manifest. A bare `docker compose up -d` is additionally
+capable of recreating the whole project and remains forbidden.
+
+## 4. Network inspection
+
+```bash
+# Read-only. The trusted deploy performs any required reattachment and audits the run.
+docker inspect -f '{{json .NetworkSettings.Networks}}' kaza-prod-portal
 ```
 
 ## 5. nginx test + reload (test ALWAYS precedes reload; reload, never restart)
@@ -128,26 +134,29 @@ docker run --rm --network "$NET" curlimages/curl -sS -i --max-time 15 \
   "http://kaza-prod-api:8080/health" | head -30
 ```
 
-## 10. Rollback to previous image (recreate is expected to blip a few seconds)
+## 10. Application recovery
 
 ```bash
-# BEFORE building, tag the current image so you can revert:
-ROLLBACK_TAG="kaza-api:rollback-$(date +%Y%m%d-%H%M%S)"
-docker image tag "$(docker inspect -f '{{.Image}}' kaza-prod-api)" "$ROLLBACK_TAG"
+# Normal previous-release rollback:
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<recorded-previous-sha> -f mode=deploy
 
-# To revert:
-docker image tag "$ROLLBACK_TAG" kaza-api:prod
-"${COMPOSE[@]}" up -d --no-deps api
-docker exec novatova-nginx nginx -t && docker exec novatova-nginx nginx -s reload
+# Partial failed-run recovery additionally supplies the exact failed run id:
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<manifest-previous-sha> -f mode=deploy \
+  -f recovery_run_id=<failed-run-id>
 ```
+
+The current-main runner validates the successful audit or failed recovery manifest and
+then applies the same lock, ledger, provenance, health, and audit gates. Do not retag or
+recreate containers manually.
 
 ---
 
 ### Notes on false positives when grepping for "dangerous" strings
 
-- The scoped deploy uses `"${COMPOSE[@]}" up -d --no-deps <service>` — it does **not**
-  contain the literal string `docker compose up -d`. Only the **Forbidden Commands**
-  sections name the bare form, on purpose.
+- Direct Compose recreation examples are intentionally absent. Production mutation is
+  routed through the trusted workflow and host control plane.
 - The DB templates never issue `DROP`/`TRUNCATE`/`DELETE`. Those appear only in
   Forbidden Commands and in the migration skill's explanation of what the gated
   runner refuses.

@@ -87,19 +87,16 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "kaza
 
 `/health` must not require auth and must not leak config/secrets.
 
-### Rebuild ONLY the API
+### Deploy the reviewed API correction
 
 ```bash
-# Tag rollback, then scoped build/recreate (see docker-compose-scoped-deploy).
-COMPOSE=( docker compose -p kaza-prod -f /opt/apps/kaza-booking/docker-compose.prod.yml
-          --env-file /opt/kaza/env/.env.production --project-directory /opt/apps/kaza-booking )
-"${COMPOSE[@]}" build api
-"${COMPOSE[@]}" up -d --no-deps api
-docker logs --tail=120 kaza-prod-api 2>&1 | grep -i libgssapi && echo "STILL BROKEN" || echo "no libgssapi"
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<full-reviewed-main-sha> -f mode=deploy
 ```
 
-Then reattach `proxy-network` + reload nginx, and **promote the Dockerfile/Program.cs
-change to main** (a live rebuild is wiped by the next deploy).
+The trusted runner performs the service-scoped recreates, network correction, nginx
+validation/reload, health checks, image proof, and audit. Do not rebuild the API directly
+on the host. The Dockerfile/Program.cs correction must already be reviewed in `main`.
 
 ## Global Stop Conditions — halt and report, do not proceed
 

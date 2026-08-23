@@ -353,6 +353,7 @@ mkdir -p "$TMP/mig/runner/lib" "$TMP/mig/migrations"
 cp "$ROOT/scripts/apply-migrations.sh" "$TMP/mig/runner/apply-migrations.sh"
 cp "$ROOT/scripts/lib/production-migrations.sh" "$TMP/mig/runner/lib/production-migrations.sh"
 cp "$ROOT/scripts/lib/env-file.sh" "$TMP/mig/runner/lib/env-file.sh"
+cp "$ROOT/scripts/lib/production-lock.sh" "$TMP/mig/runner/lib/production-lock.sh"
 cat > "$TMP/mig/runner/backup-postgres.sh" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -421,6 +422,7 @@ run_migrations() {
     EXECUTED_SQL_FILE="$TMP/mig/executed.sql" \
     BACKUP_CALLS_FILE="$TMP/mig/backups" \
     DB_CALLS_FILE="$TMP/mig/db-calls" \
+    PRODUCTION_LOCK_FILE="$TMP/mig/production-operation.lock" \
     COMPOSE_CONFIG_STATUS="${COMPOSE_CONFIG_STATUS:-0}" \
     bash "$TMP/mig/runner/apply-migrations.sh"
 }

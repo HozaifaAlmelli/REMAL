@@ -60,7 +60,8 @@ The checked manifest at `release-gates/final-rc/gates.json` is the executable in
   and isolated Historical Booking, Historical Reporting, Occupancy and Booking History/RBAC Playwright;
 - storefront install, tests and its TypeScript-validating production build;
 - migration selection, backup safety, release-hardening PostgreSQL, current migration/bootstrap PostgreSQL,
-  API production-image construction, production Compose rendering, ShellCheck and actionlint;
+  deployment safety, production-state reconciliation, API production-image construction, production Compose
+  rendering, ShellCheck and actionlint;
 - the final-RC validator's own fail-closed tests.
 
 The manifest maps those commands into the #99 `P0`, `P1`, `security`, `accounting`, and

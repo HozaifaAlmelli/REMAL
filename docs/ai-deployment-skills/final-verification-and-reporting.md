@@ -58,8 +58,10 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.RunningFor}}"
 docker exec novatova-nginx nginx -t
 docker logs --tail=100 kaza-prod-api 2>&1 | grep -i libgssapi && echo "BAD" || echo "no libgssapi"
 
-# 4. Deployed SHA
-cat /opt/kaza/releases/current-sha.txt 2>/dev/null
+# 4. Deployment evidence: dispatch the protected workflow with mode=inspect for
+#    the exact expected SHA. It must emit governanceStatus=GOVERNED and exit zero.
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<expected-full-sha> -f mode=inspect
 ```
 
 ## Report template
@@ -70,6 +72,8 @@ cat /opt/kaza/releases/current-sha.txt 2>/dev/null
 What changed & why: <one paragraph>
 Files changed:       <paths / PR link>
 Deployed Git SHA:    <sha>  (PR: <link>, merged by: <who>)
+Control SHA:         <current main sha>
+Running image IDs:  <api/demo/portal content IDs; reconcile with recovery/audit evidence>
 Containers rebuilt/recreated: <e.g. api, demo, portal>  (via <deploy | scoped recreate>)
 
 Verification:
@@ -85,7 +89,7 @@ Explicitly NOT touched:
 - Env file: not edited
 - Edge (80/443): kaza-prod-nginx/certbot not started
 
-Rollback: <rollback image tag / previous SHA / revert PR>
+Rollback: <previous successful SHA / recovery manifest / revert PR>
 Remaining risks / follow-ups: <e.g. optional cookie-Domain change, deferred>
 Durability: <fix is in main (SHA) / PR open awaiting merge>
 Temporary SSH key: <removed + denial verified / n-a>
