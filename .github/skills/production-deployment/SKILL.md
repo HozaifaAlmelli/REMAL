@@ -49,7 +49,22 @@ successful audit record. A container built or recreated by hand does not match, 
 **One manual `docker compose up -d api` on this host blocks every future deployment.** The
 only exit is an owner-authorized incident procedure. There is no shortcut back.
 
+## Deployment lifecycle
+
+```
+feature/*  --> dev --> main --> [manual dispatch + human approval] --> production
+hotfix/*   ---------->  main -->                                    --> reconcile
+                                                                    --> GOVERNED
+```
+
+A merge is **not** a release. There is deliberately no `push` trigger. Every deployment is
+an explicit, SHA-addressed `workflow_dispatch` from `refs/heads/main`, and it is not
+finished until reconciliation returns `GOVERNED`.
+
 ## Three operating modes — in order
+
+Inspect establishes **production truth**; Prepare establishes **repository and readiness
+truth**. Together they are the GO/NO-GO. Neither alone is enough.
 
 ### Mode 1 — Inspect (read-only)
 
