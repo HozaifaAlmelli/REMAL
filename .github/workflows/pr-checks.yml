@@ -139,13 +139,17 @@ jobs:
             -e POSTGRES_PASSWORD=test-only \
             postgres:16-alpine >/dev/null
           trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
-          for attempt in $(seq 1 60); do
+          ready_count=0
+          for _ in $(seq 1 60); do
             if docker exec "$container" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
-              break
+              ready_count=$((ready_count + 1))
+              [ "$ready_count" -ge 3 ] && break
+            else
+              ready_count=0
             fi
-            [ "$attempt" -lt 60 ] || { echo "PostgreSQL 16 did not become ready" >&2; exit 1; }
             sleep 1
           done
+          [ "$ready_count" -ge 3 ] || { echo "PostgreSQL 16 did not become stably ready" >&2; exit 1; }
           KAZA_MIGRATION_TEST_CONTAINER="$container" \
             KAZA_MIGRATION_TEST_DB_PREFIX=kaza_test_release_hardening \
             bash scripts/tests/test-release-hardening-migrations-postgresql.sh
