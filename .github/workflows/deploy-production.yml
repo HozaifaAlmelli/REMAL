@@ -123,6 +123,13 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           fingerprint: ${{ secrets.SSH_HOST_FINGERPRINT }}
           command_timeout: 60m
-          script_stop: true
+          # MUST stay false. drone-ssh's script_stop injects a
+          # `DRONE_SSH_PREV_COMMAND_EXIT_CODE=$? ; if ...` line after EVERY line of
+          # the script (plugin.go scriptCommands), which splits every multi-line
+          # construct - `case`/`esac`, `for`/`done`, `if`/`fi`, `|| { ... }`. The
+          # bootstrap died on `case ... in` with a bash syntax error before it could
+          # run. The transported script sets `-Eeuo pipefail` itself, which is
+          # stronger than the per-line check, and its exit code still fails this step.
+          script_stop: false
           envs: CONTROL_SHA,DEPLOY_SHA,DEPLOY_MODE,APPROVE_DESTRUCTIVE,APPROVE_UNVERIFIED_LEGACY_REPLACEMENT,DEPLOY_ACTOR,DEPLOY_RUN_ID,DEPLOY_BRANCH,DEPLOY_WORKFLOW_RUN,DEPLOY_AUTHORIZATION_REF,RECOVERY_RUN_ID,APP_DIR,ENV_FILE,RELEASES_DIR,AUTH_SMOKE_CREDENTIALS_FILE
           script_path: scripts/bootstrap-production-control.sh
