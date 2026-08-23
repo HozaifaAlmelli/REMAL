@@ -133,6 +133,7 @@ jobs:
           bash scripts/tests/test-deployment-safety-guards.sh
           bash scripts/tests/test-production-state-reconciliation.sh
           bash scripts/tests/test-live-checkout-advance.sh
+          bash scripts/tests/test-deployment-skill-sync.sh
       - name: Test production migration workflow on PostgreSQL 16
         run: |
           container=kaza-release-hardening-ci-test-pg16
