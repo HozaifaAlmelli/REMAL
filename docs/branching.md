@@ -37,8 +37,10 @@ All of these controls are required:
 
 1. `main` requires a reviewed pull request, the required status checks, current-branch
    checks, resolved review threads, and has no bypass actor.
-2. The `production` Environment allows only `main`, requires independent review,
-   prevents self-review and admin bypass, and contains only the approved SSH secrets.
+2. The `production` Environment allows only `main`, requires an explicit human
+   deployment approval, forbids admin bypass, and contains only the approved SSH
+   secrets. Self-review is permitted because this repository has a single active
+   maintainer; see "Single-maintainer review model" below.
 3. The workflow runtime refuses any ref other than `refs/heads/main`.
 4. The bootstrap requires its control SHA to equal the current `origin/main` SHA.
 5. The candidate must be a `main` ancestor, with historical targeting restricted to the
@@ -56,6 +58,34 @@ only for running Kaza application containers with content-addressed image IDs an
 expected Compose identity. Release mode checks this before migration. Once a trusted
 deployment succeeds, running image IDs must match its audit record and the exception
 cannot be used again.
+
+## Single-maintainer review model
+
+This repository has one active maintainer, so no second person can supply an independent
+approval. Rather than leave gates configured to demand a reviewer who does not exist -
+which forces `--admin` bypasses in practice - the review requirements are set to what a
+single maintainer can actually satisfy, and the checked-in contract states that honestly:
+
+| Control | Setting | Why |
+|---|---|---|
+| `main` required approvals | `0` | No second reviewer exists. |
+| `main` require-last-push-approval | off | Cannot be met by the pusher; blocked every merge. |
+| Environment `prevent_self_review` | off | The dispatcher is always the only reviewer. |
+
+Everything that does not require a second person stays on, and these are the controls
+that actually carry the weight:
+
+- `main` still requires a pull request; direct pushes are refused.
+- All seven required status checks must pass, with the strict up-to-date policy.
+- Review threads must be resolved; branch deletion and force-push are blocked.
+- There are **no bypass actors** on the ruleset and `can_admins_bypass` is `false`.
+- Deployment still requires an explicit manual Environment approval - a deliberate
+  second action, separate from the merge, recorded against a named actor in the audit.
+- Every deploy remains SHA-addressed, control-plane-verified, image-provenance-checked
+  and audited. None of that depends on reviewer count.
+
+If a second maintainer joins, restore `preventSelfReview` to `true` here and in the
+Environment, re-enable require-last-push-approval, and raise required approvals to `1`.
 
 Run `bash scripts/verify-production-environment-policy.sh` before a release window. The
 checked-in policy is [`production-environment-policy.json`](../.github/production-environment-policy.json).
