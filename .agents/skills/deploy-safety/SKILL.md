@@ -28,7 +28,7 @@ migration, SSL/nginx, proxy-network, hotfix durability, verification, SSH hygien
 
 Named here only to mark them forbidden. Do not execute them.
 - `docker compose down`
-- `docker compose up -d` (bare — no service scope; recreate one service with `up -d --no-deps <service>`)
+- `docker compose up -d` (bare) or a direct service recreate that bypasses the trusted control plane
 - `docker system prune` / `docker builder prune -a`
 - `docker volume rm ...`
 - `rm -rf /etc/letsencrypt`
@@ -40,7 +40,10 @@ Named here only to mark them forbidden. Do not execute them.
 
 ## Always
 
-- Use `/opt/apps/kaza-booking` (never the stale `/opt/kaza/app`); service-scoped compose
-  only; `nginx -t` before any reload (reload, never restart); back up before any DB write;
-  promote every live hotfix to `main`; never print secrets. If a Global Stop Condition in
+- Use `/opt/apps/kaza-booking` (never the stale `/opt/kaza/app`); route application
+  mutation through the trusted current-`main` control plane; `nginx -t` before any reload;
+  back up before any DB write;
+  run production operations only through the current-main trusted control plane and its
+  host lock; identify live state with `scripts/production-state.sh`; promote every live
+  hotfix to `main`; never print secrets. If a Global Stop Condition in
   a skill is met, **halt and report**.

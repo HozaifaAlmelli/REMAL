@@ -1,31 +1,26 @@
 ---
 name: docker-compose-scoped-deploy
 description: >
-  Rebuild and recreate exactly ONE Kaza service (api, demo, or portal) on the shared
-  VPS without recreating the whole stack, starting edge services, or disturbing
-  Novatova. The only approved manual recreate procedure.
+  Diagnose a Kaza service and route any required recreate through the trusted
+  current-main production workflow. Direct Compose recreation is no longer approved.
 risk_level: high
 when_to_use: >
-  You must apply a change to a single Kaza service in production (e.g. rebuild the
-  portal after a frontend fix) and cannot wait for the full CI deploy, or you are
-  reproducing/patching one service under a hotfix.
-do_not_use_when: >
-  A full, coordinated release is expected — use the CI Deploy Production workflow (see
-  github-actions-production-deploy-safety). Never use this to "just bring everything up".
+  A Kaza application service appears to require recreation or application rollback.
+do_not_use_when: You intend to run Docker Compose directly to mutate production.
 required_inputs:
-  - The exact service to recreate (api | demo | portal)
-  - APP_DIR, ENV_FILE, PROJECT confirmed via production-inventory-and-discovery
+  - Exact reviewed application SHA
+  - Deploy or release mode decision
 forbidden_actions:
   - docker compose down / bare docker compose up -d
-  - Recreating db unless explicitly intended and backed up
+  - Any direct service or database recreation
   - Starting the edge (nginx/certbot) profile
-  - Omitting --no-deps or the service name
+  - Bypassing the current-main control plane, host lock, provenance, audit, or recovery evidence
 preflight_checks:
-  - Snapshot the container's networks BEFORE recreate
-  - Confirm env file non-empty; tag the current image for rollback
-safe_procedure: "See 'Scoped build + recreate' below."
+  - Inspect service state and identify the exact reviewed SHA
+  - Verify production Environment policy and current-main control SHA
+safe_procedure: "Use the Deploy Production workflow described below."
 verification: "Target container healthy; proxy-network attached; nginx -t OK + reloaded; endpoints 200; novatova.com 200."
-rollback: "Retag the pre-build image to :prod and up -d --no-deps the service (see command-templates #10)."
+rollback: "Use the recorded previous SHA or exact failed-run recovery manifest through the same workflow."
 stop_conditions: "See 'Global Stop Conditions' below."
 final_report_required: true
 lessons_from_kaza_incident: >
@@ -36,47 +31,33 @@ lessons_from_kaza_incident: >
   recreate and the network reattach + nginx reload that follow it.
 ---
 
-# Docker Compose scoped deploy (one service only)
+# Application service deployment and recovery
 
-The **only** approved manual recreate. It mirrors `scripts/deploy-production.sh`, which
-also builds only `api demo portal` and never brings up the edge profile.
+Direct Compose recreation is no longer an approved deployment path. Although a scoped
+`up -d --no-deps <service>` protects the database better than a stack-wide command, it
+still bypasses the global host lock, trusted current-main engine, schema guard,
+content-addressed image proof, audit record, and recovery manifest.
 
-## Scoped build + recreate
+## Supported procedure
 
 ```bash
-# 0. Environment + compose array (see command-templates.md #0 and #2)
-APP_DIR="/opt/apps/kaza-booking"; ENV_FILE="/opt/kaza/env/.env.production"; PROJECT="kaza-prod"
-test -s "$ENV_FILE" || { echo "FATAL: env-file missing/empty — abort"; exit 1; }
-COMPOSE=( docker compose -p "$PROJECT" -f "$APP_DIR/docker-compose.prod.yml"
-          --env-file "$ENV_FILE" --project-directory "$APP_DIR" )
-
-SERVICE="portal"   # <-- set to the ONE service: api | demo | portal
-
-# 1. Snapshot networks BEFORE recreate (so you can detect a dropped proxy-network)
-docker inspect -f '{{json .NetworkSettings.Networks}}' "kaza-prod-$SERVICE" \
-  > "/tmp/kaza-$SERVICE-nets-before.json"
-
-# 2. Tag the current image for rollback BEFORE building (build overwrites the tag)
-ROLLBACK_TAG="kaza-$SERVICE:rollback-$(date +%Y%m%d-%H%M%S)"
-docker image tag "$(docker inspect -f '{{.Image}}' "kaza-prod-$SERVICE")" "$ROLLBACK_TAG"
-echo "rollback image = $ROLLBACK_TAG"
-
-# 3. Build + recreate ONLY this service. --no-deps => dependencies are NOT recreated.
-"${COMPOSE[@]}" build "$SERVICE"
-"${COMPOSE[@]}" up -d --no-deps "$SERVICE"
-
-# 4. Confirm it came up and kept its config (NOT Development, NOT empty)
-sleep 8
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep "kaza-prod-$SERVICE"
-docker logs --tail=120 "kaza-prod-$SERVICE"
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<full-reviewed-main-sha> -f mode=deploy
 ```
 
-Then **always** run [proxy-network-reattach-and-nginx-reload](proxy-network-reattach-and-nginx-reload.md):
-reattach `proxy-network` if the recreate dropped it, `nginx -t`, then `nginx -s reload`.
+The trusted runner builds and recreates `api`, `demo`, and `portal` one at a time using
+`--no-deps --no-build`, never recreates `db`, verifies and reattaches the proxy network,
+tests and reloads the shared proxy, and records exact image and recovery evidence.
 
-## Guardrails baked into the procedure
+For rollback or partial-run recovery, follow
+[`rollback-and-recovery.md`](../operations/rollback-and-recovery.md). Do not retag images
+or invoke Compose by hand.
 
-- `--no-deps` + explicit `$SERVICE` → no other Kaza service is rebuilt/recreated.
+## Guardrails enforced by the trusted runner
+
+- host-wide non-blocking `flock` prevents overlapping production operations;
+- current `main` supplies the deployment engine, never the application candidate;
+- each application service is recreated explicitly with `--no-deps --no-build`;
 - The `db` service is **not** in scope. Recreating `db` risks data and is out of
   bounds unless explicitly intended, backed up first, and approved.
 - The edge (`nginx`/`certbot`) services are `profiles: ["edge"]`; a scoped
@@ -118,7 +99,7 @@ Named here only to mark them forbidden. Do not execute them.
 
 ## Final report (required)
 
-State which single service was rebuilt/recreated; the rollback tag; that `proxy-network`
-was reattached; `nginx -t` + reload result; the endpoint checks; and that db/edge/Novatova
-were untouched. Remember: a live-only rebuild is wiped by the next deploy — promote to
-`main` (see [live-hotfix-to-main-durability](live-hotfix-to-main-durability.md)).
+State the exact target and control SHAs, workflow run, running content image IDs,
+migration-ledger result, recovery manifest, health checks, and that the database container,
+Kaza edge services, and Novatova were not recreated. A host-only edit is never release
+evidence; all durable changes must be reviewed in Git.

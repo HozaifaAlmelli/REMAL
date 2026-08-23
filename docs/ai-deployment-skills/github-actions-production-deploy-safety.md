@@ -1,131 +1,147 @@
 ---
 name: github-actions-production-deploy-safety
-description: >
-  Review, harden, merge, and monitor the Deploy Production GitHub Actions workflow so a
-  merge to main deploys Kaza safely on the shared VPS — service-scoped, edge-excluded,
-  proxy-network reattached, nginx tested before reload, and Novatova untouched.
+description: Review, dispatch, and monitor Kaza production operations through the trusted current-main control plane.
 risk_level: critical
-when_to_use: >
-  Before merging anything to main, when reviewing/changing deploy-production.yml or
-  scripts/deploy-production.sh, and while watching a deploy run and its post-deploy
-  health checks.
-do_not_use_when: >
-  You only need a one-off manual recreate (use docker-compose-scoped-deploy) and are not
-  merging to main.
+when_to_use: Before any production deploy/release or any change to its workflow and scripts.
+do_not_use_when: The task is local-only and cannot affect production.
 required_inputs:
-  - The PR to be merged (and whether merge to main triggers a deploy)
-  - Access to the Actions run + logs
+  - Full reviewed target SHA
+  - Deploy or release mode decision
+  - Access to the GitHub Environment approval and run logs
 forbidden_actions:
-  - Introducing a bare docker compose up -d or docker compose down into the pipeline
-  - Removing the edge-profile exclusion or the proxy-network reattach
-  - Merging to main when a deploy is unwanted / unreviewed
-  - Bypassing the production environment approval gate
+  - Executing deployment scripts from an application candidate
+  - Reintroducing a push trigger, password SSH, unpinned actions, or arbitrary hooks
+  - Recreating the database during code deployment
+  - Bypassing the production Environment or host operation lock
 preflight_checks:
-  - Read deploy-production.yml triggers + the environment gate
-  - Read scripts/deploy-production.sh for scope, edge guard, nginx test, health checks
-  - Confirm the live VPS tree is clean (deploy FATALs otherwise)
-safe_procedure: "See 'Review, merge, monitor' below."
-verification: "Deploy run green; all health checks pass; only Kaza app services changed; novatova.com 200; no libgssapi."
-rollback: "Re-run the previous good deploy SHA / revert the merge commit on main, then re-deploy."
-stop_conditions: "See 'Global Stop Conditions' below."
+  - Verify the production Environment policy and required secret names
+  - Verify current main branch protections and hosted checks
+  - Verify target lineage and migration mode
+safe_procedure: Follow this document.
+verification: Exact running image IDs, health checks, ledger, audit record, and unchanged database container.
+rollback: Use the recorded previous successful SHA and recovery manifest through the same trusted control plane.
+stop_conditions: Any failed guard or unverifiable state.
 final_report_required: true
-lessons_from_kaza_incident: >
-  The original pipeline used the WRONG path (/opt/kaza/app), ran a bare
-  `docker compose up -d`, and the compose file's nginx/certbot bound 80/443 — a direct
-  collision with novatova-nginx. The hardened workflow (current) uses
-  /opt/apps/kaza-booking, builds only api/demo/portal, keeps edge behind the `edge`
-  profile, ensures db without recreating unrelated services, reattaches proxy-network,
-  runs `nginx -t` before reload, then health-checks and fails on any libgssapi error.
-  A deploy also FATALs if the live tree has local changes — keep it clean.
 ---
 
-# GitHub Actions production deploy safety
+# GitHub Actions Production Deploy Safety
 
-The pipeline is the durable, repeatable deploy path. Its safety is defined by
-[`.github/workflows/deploy-production.yml`](../../.github/workflows/deploy-production.yml)
-and [`scripts/deploy-production.sh`](../../scripts/deploy-production.sh). Keep those
-properties intact.
+## Trust model
 
-## What the current (safe) pipeline guarantees
+The workflow is manual-only and must run from `refs/heads/main`. It checks out the current
+main revision and sends [`bootstrap-production-control.sh`](../../scripts/bootstrap-production-control.sh)
+to the host. That bootstrap verifies that its control SHA is still current `origin/main`,
+creates a clean control worktree, and invokes only control-plane scripts from that tree.
 
-- **Trigger:** `push` to `main` or manual `workflow_dispatch`, gated by the `production`
-  GitHub Environment (**manual approval** + branch restriction). Opening a PR or pushing
-  a feature branch does **not** deploy; only a merge to `main` does, and only after a
-  human approves the environment.
-- **Correct path:** `APP_DIR=/opt/apps/kaza-booking` (not the stale `/opt/kaza/app`).
-- **Clean-tree guard:** FATALs if `git status --porcelain` is non-empty on the VPS.
-- **SHA pin:** checks out `main` and asserts `HEAD == github.sha`.
-- **Service-scoped:** `compose build api demo portal`; `up -d --no-deps db`;
-  `up -d --no-deps api demo portal`. No `down`, no bare `up -d`.
-- **Edge excluded:** `nginx`/`certbot` stay behind `profiles: ["edge"]`; the script
-  FATALs if `kaza-prod-nginx`/`kaza-prod-certbot` are ever found running.
-- **Network + proxy:** reattaches `proxy-network` to each Kaza app container, then
-  `nginx -t` on `novatova-nginx` and `nginx -s reload` (never restart).
-- **Health gate:** curls all Kaza hosts + `novatova.com`, and **fails on any
-  `libgssapi` error** in the API logs. Records `current-sha.txt` / `previous-sha.txt`.
+The requested application SHA is a separate candidate worktree. A candidate never supplies
+deployment, migration-runner, audit, locking, backup-validation, or smoke-test code. Releases
+must target current main. A rollback may target only `previous-sha.txt` when the append-only
+audit proves that exact SHA previously completed under the trusted runner.
 
-## Review, merge, monitor
+## Environment and SSH policy
+
+Before every release window run:
 
 ```bash
-# 1. Confirm triggers + gate before merging (no surprise deploys).
-sed -n '1,35p' .github/workflows/deploy-production.yml
-
-# 2. Confirm the live VPS tree is clean, or the deploy will FATAL.
-git -C /opt/apps/kaza-booking status --short   # must be empty
-
-# 3. Merge the PR (a human approves the production environment gate at run time).
-gh pr merge <num> --squash --repo <owner>/REMAL
-
-# 4. Watch the run; it must pass the health gate.
-gh run watch --repo <owner>/REMAL
-gh run view --log --repo <owner>/REMAL <run-id> | tail -80
+bash scripts/verify-production-environment-policy.sh
 ```
 
-> **Docs-only PRs still queue a deploy.** The workflow has no `paths:` filter, so even a
-> documentation merge to `main` queues a (manual-approval-gated) deploy. If you do not
-> want a deploy, **leave the PR open** for a human to merge deliberately.
+The policy requires:
 
-## If you must edit the pipeline — preserve these invariants
+- custom deployment branch policy with only `main`;
+- independent required reviewers, self-review disabled, and admin bypass disabled;
+- only `SSH_HOST`, `SSH_USER`, `SSH_PORT`, `SSH_KEY`, and
+  `SSH_HOST_FINGERPRINT` in the Environment;
+- no `SSH_PASSWORD`.
 
-Never introduce `docker compose down` or a bare `docker compose up -d`. Keep the
-service scope, the `edge`-profile exclusion, the proxy-network reattach, the
-`nginx -t`-before-reload, and the health/`libgssapi` gates. Validate compose changes
-with `docker compose ... config` (the PR Checks `compose-validate` job does this too).
+The workflow pins both checkout and SSH actions to full commits and passes the expected SSH
+host fingerprint to the action. If key or fingerprint provisioning is incomplete, the safe
+state is an unavailable deployment, never password fallback.
 
-## Global Stop Conditions — halt and report, do not proceed
+## Modes
 
-Stop immediately if any of these is true:
-- A command would affect Novatova (any `novatova-*` container, config, or data).
-- A command would start a service that binds host ports 80 or 443.
-- A step requires `docker compose down`.
-- A step is a bare `docker compose up -d` (no `--no-deps <service>`, no service list).
-- `docker exec novatova-nginx nginx -t` fails.
-- The env file `/opt/kaza/env/.env.production` is missing or empty.
-- The live repo path is uncertain (compose labels don't confirm it).
-- Compose labels do not match the expected project `kaza-prod` / expected service.
-- A DB backup fails (or cannot be verified) before any DB write.
-- The live working tree has unexpected local changes before a git operation.
-- A secret (password/token/JWT/connection string) would be printed or written unredacted.
-- An already-applied migration would need editing, or a migration number would be reused.
-- A production user's password would be reset.
-- A temporary SSH key cannot be removed at the end of the task.
+| Mode | Permitted operation |
+|---|---|
+| `inspect` | Read-only reconciliation of the expected SHA against the successful audit, running image digests/labels, checkout/state files, and validated DB ledger. Non-governed or drifted state fails. |
+| `deploy` | Code-only deploy. The complete database ledger must already satisfy the candidate. The existing `kaza-prod-db` identity is checked before and after and is never recreated. |
+| `release` | Current-main only. Validate ledger, create and validate the exact returned backup artifact, apply pending migrations, verify ledger, then call the code deploy. |
 
-## Forbidden Commands — never run these on the shared VPS
+Both paths acquire `/opt/kaza/releases/production-operation.lock` using non-blocking
+`flock`. Direct migration execution uses the same host lock in addition to its PostgreSQL
+advisory lock. A concurrent operation refuses with a clear message.
 
-Named here only to mark them forbidden. Do not execute them.
-- `docker compose down`
-- `docker compose up -d` (bare — no service scope)
-- `docker system prune` / `docker builder prune -a`
-- `docker volume rm ...`
-- `rm -rf /etc/letsencrypt`
-- `certbot delete ...`
-- `docker restart novatova-nginx` and `docker restart novatova-*`
-- `DROP TABLE ...` / `TRUNCATE TABLE ...` / `DELETE FROM ...` without WHERE + backup + approval
-- `git reset --hard` on the live repo (unless explicitly approved AND already backed up)
-- `git push --force` to `main`
+## One-time legacy provenance transition
 
-## Final report (required)
+Containers created by the pre-hardening deploy may have `prod` or no revision label and
+have no trusted content-ID audit record. They cannot be attributed to a commit after the
+fact. The explicit `approve_unverified_legacy_replacement` input authorizes their one-time
+replacement; it does not certify them. It is accepted only when there is no successful
+trusted deployment in `deployments.jsonl`, the clean live checkout equals
+`current-sha.txt`, all application containers are running under the expected Compose
+identity with content-addressed image IDs, and the target is current `main`. Release mode
+performs this check before any database mutation. After the first successful trusted
+deployment, the exception is permanently refused and every running image ID must match
+the last successful audit evidence.
 
-State the deploy run ID + result; the deployed SHA; that only Kaza app services changed;
-the health-check results incl. `novatova.com`; that no `libgssapi` error appeared; and who
-approved the environment gate.
+## Required deployment evidence
+
+The deploy builds `api`, `demo`, and `portal` from the candidate. For each service it
+captures the content-addressed Docker image ID plus target/control OCI labels. The running
+container must match all three. SHA and `:prod` tags are aliases only; `:prod` is updated
+after verification.
+
+Before the first service recreate, the runner writes a recovery manifest containing prior
+and target image identities. After each recreate it updates the changed-service list. A
+failure does not attempt an unsafe automatic rollback: the manifest and candidate are
+retained, a strict `FAILED` audit record is required, and the operator follows
+[`rollback-and-recovery.md`](../operations/rollback-and-recovery.md).
+
+A partial-run recovery may select only the failed manifest's exact `previous_sha`, using
+the workflow's `recovery_run_id` input in `deploy` mode. Current `main` still supplies all
+control scripts. Missing, symlinked, malformed, non-failed, wrong-run, or wrong-SHA
+manifests fail closed. The mixed live state must match the manifest's exact previous and
+attempted target image IDs service by service. This exception never authorizes migration
+rollback.
+
+Every audit append is schema-validated JSON, serialized, fsynced, and blocking. Existing
+malformed JSONL or a duplicate event for one deployment ID prevents further operation.
+Required fields include deployment ID, application/control SHA, actor, exact workflow and
+authorization reference, timestamps, previous version, migration state, backup artifact,
+result, changed services, image digests, and recovery manifest.
+
+The former arbitrary pre/post release hooks do not exist. Every production step must be a
+reviewed control-plane command with explicit ordering and audit semantics.
+
+## Dispatch and verify
+
+```bash
+git log -1 --format='%H %s' origin/main
+gh workflow run deploy-production.yml --repo <owner>/REMAL \
+  --ref main -f deploy_sha=<full-sha> -f mode=<inspect|deploy|release>
+gh run watch --repo <owner>/REMAL
+```
+
+After approval and completion, verify without exposing secrets:
+
+```bash
+gh workflow run deploy-production.yml --ref main \
+  -f deploy_sha=<expected-full-sha> -f mode=inspect
+```
+
+The command emits one JSON identity report and succeeds only for `GOVERNED`. See
+[`production-state-governance.md`](../operations/production-state-governance.md).
+
+The run must also prove the database container ID did not change, the final migration
+ledger matches its fully validated state, all Kaza health checks pass, the read-only auth
+smoke passes, Novatova remains healthy, and no `libgssapi` error appears.
+
+## Global stop conditions
+
+Stop if the control SHA is not current main, target is unauthorized, Environment policy
+differs, repository is dirty, host lock is held, ledger/checksum validation fails, backup
+handoff is missing or outside its destination, database container identity changes, image
+identity differs, audit write fails, auth-smoke credentials are unavailable, nginx test
+fails, or any operation would touch Novatova or Kaza edge containers.
+
+Never run `docker compose down`, a bare `up -d`, an unscoped recreate, direct candidate
+deployment scripts, or a password-based SSH workaround.

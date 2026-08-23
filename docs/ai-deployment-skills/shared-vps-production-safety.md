@@ -50,8 +50,9 @@ Novatova as untouchable production you happen to share a machine with.
 
 **Container lifecycle**
 - Never `docker compose down`.
-- Never a bare `docker compose up -d`. The only approved recreate is
-  `"${COMPOSE[@]}" up -d --no-deps <service>` (see
+- Never a bare `docker compose up -d`, and never use a direct service recreate as a
+  deployment shortcut. The trusted current-`main` runner is the only approved application
+  recreate path; it scopes each internal operation with `--no-deps --no-build` (see
   [docker-compose-scoped-deploy](docker-compose-scoped-deploy.md)).
 - Never start a service that binds 80/443. Kaza's own `nginx`/`certbot` live under
   `profiles: ["edge"]` and must stay OFF here.
@@ -75,8 +76,9 @@ Novatova as untouchable production you happen to share a machine with.
   [command-templates](command-templates.md#1-redaction-wrap-every-command-whose-output-may-contain-secrets)).
 
 **Durability**
-- The VPS is not durable: production deploy force-checks-out `main`. Promote every
-  verified live fix to `main` (see
+- The VPS is not a deployment authority: current `main` supplies the trusted control
+  plane and reviewed Git commits supply application candidates. Promote every verified
+  live fix to `main` (see
   [live-hotfix-to-main-durability](live-hotfix-to-main-durability.md)).
 
 ## Global Stop Conditions — halt and report, do not proceed

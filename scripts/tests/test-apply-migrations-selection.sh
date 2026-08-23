@@ -142,6 +142,7 @@ mkdir -p "$TMP/bin" "$TMP/migrations" "$TMP/runner/lib"
 cp "$ROOT/scripts/apply-migrations.sh" "$TMP/runner/apply-migrations.sh"
 cp "$ROOT/scripts/lib/production-migrations.sh" "$TMP/runner/lib/production-migrations.sh"
 cp "$ROOT/scripts/lib/env-file.sh" "$TMP/runner/lib/env-file.sh"
+cp "$ROOT/scripts/lib/production-lock.sh" "$TMP/runner/lib/production-lock.sh"
 
 mkdir -p "$TMP/completeness-migrations"
 cp -a "$ROOT/db/migrations/." "$TMP/completeness-migrations/"
@@ -350,6 +351,7 @@ run_runner() {
   MIG_DIR="$migration_dir" \
   PRODUCTION_MANIFEST="$manifest" \
   MIGRATION_CHECKSUMS="$TMP/checksums.sha256" \
+  PRODUCTION_LOCK_FILE="$TMP/production-operation.lock" \
   APPROVE_DESTRUCTIVE="${1:-0}" \
   "$TMP/runner/apply-migrations.sh" </dev/null
 }

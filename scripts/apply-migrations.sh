@@ -24,6 +24,7 @@ APP_DIR="${APP_DIR:-/opt/apps/kaza-booking}"
 MIG_DIR="${MIG_DIR:-$APP_DIR/db/migrations}"
 PRODUCTION_MANIFEST="${PRODUCTION_MANIFEST:-$APP_DIR/infra/db/init.prod.sql}"
 MIGRATION_CHECKSUMS="${MIGRATION_CHECKSUMS:-$APP_DIR/infra/db/production-migrations.sha256}"
+BACKUP_RESULT_FILE="${BACKUP_RESULT_FILE:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=scripts/lib/production-migrations.sh
@@ -49,6 +50,13 @@ compose_env_preflight "$COMPOSE_FILE" "$ENV_FILE"
 compose_identifier_agreement_preflight "$ENV_FILE" POSTGRES_USER POSTGRES_DB
 load_db_connection_identifiers "$ENV_FILE"
 
+# The PostgreSQL advisory lock serializes migration runners against one another.
+# This host lock additionally prevents a direct/manual migration from overlapping
+# an application deploy or release on the shared production host.
+# shellcheck source=scripts/lib/production-lock.sh
+source "$SCRIPT_DIR/lib/production-lock.sh"
+production_lock_acquire
+
 db_exec() {
   docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db "$@"
 }
@@ -68,7 +76,7 @@ MIGRATION_LOCK_WRITE_FD=""
 
 release_migration_lock() {
   if [ -n "$MIGRATION_LOCK_WRITE_FD" ]; then
-    printf '\\q\n' >&"$MIGRATION_LOCK_WRITE_FD" 2>/dev/null || true
+    printf '\\q\n' >&"$MIGRATION_LOCK_WRITE_FD" || true
     eval "exec ${MIGRATION_LOCK_WRITE_FD}>&-" 2>/dev/null || true
     MIGRATION_LOCK_WRITE_FD=""
   fi
@@ -171,6 +179,7 @@ assert_migration_lock_alive
 # may not remove a pre-existing artifact as a side effect of protecting itself.
 # set -e aborts here if the backup fails, so no migration SQL can follow a bad backup.
 ENV_FILE="$ENV_FILE" COMPOSE_FILE="$COMPOSE_FILE" RETENTION_DAYS=0 \
+  BACKUP_RESULT_FILE="$BACKUP_RESULT_FILE" \
   bash "$SCRIPT_DIR/backup-postgres.sh"
 assert_migration_lock_alive
 

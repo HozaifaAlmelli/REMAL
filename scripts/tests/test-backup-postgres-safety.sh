@@ -118,6 +118,7 @@ run_backup() {
   COMPOSE_FILE="$TMP/compose.yml" \
   BACKUP_DIR="$1" \
   BACKUP_TEST_MODE="${2:-success}" \
+  BACKUP_RESULT_FILE="${3:-}" \
   "$TMP/runner/backup-postgres.sh"
 }
 
@@ -132,6 +133,26 @@ mapfile -t backups < <(find "$TMP/backups" -maxdepth 1 -type f -name 'kaza_postg
 [ "${backups[0]}" != "${backups[1]}" ] || fail "concurrent backups selected the same filename"
 validate_postgres_backup_artifact "${backups[0]}"
 validate_postgres_backup_artifact "${backups[1]}"
+
+mkdir -p "$TMP/exact-backup"
+result_file="$TMP/exact-backup-result.txt"
+run_backup "$TMP/exact-backup" success "$result_file" >/dev/null
+[ -s "$result_file" ] || fail "backup did not return its exact artifact path"
+exact_artifact="$(cat "$result_file")"
+[ "$(wc -l < "$result_file" | tr -d ' ')" -eq 1 ] || fail "backup result was ambiguous"
+[ -f "$exact_artifact" ] || fail "returned backup artifact does not exist"
+[ "$(dirname "$exact_artifact")" = "$TMP/exact-backup" ] || fail "returned backup artifact escaped its destination"
+validate_postgres_backup_artifact "$exact_artifact"
+
+printf 'already-used\n' > "$TMP/preexisting-result.txt"
+expect_failure \
+  "pre-existing backup result handoff" \
+  run_backup \
+  "$TMP/exact-backup" \
+  success \
+  "$TMP/preexisting-result.txt" >/dev/null
+[ "$(cat "$TMP/preexisting-result.txt")" = "already-used" ] ||
+  fail "backup overwrote a pre-existing result handoff"
 
 for mode in command-failure empty-output invalid-output; do
   failure_dir="$TMP/failure-$mode"
